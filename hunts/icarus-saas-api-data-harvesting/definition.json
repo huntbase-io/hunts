@@ -1,0 +1,564 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The Klue supply chain compromise allows for silent CRM data exfiltration. A negative result from this hunt provides the business with assurance that automated harvesting of sensitive customer data is not occurring via the Icarus threat actor's known methods."
+      },
+      "name": "Icarus SaaS API Data Harvesting",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1041",
+        "attack.t1090.003",
+        "attack.t1190",
+        "attack.t1195",
+        "attack.t1566"
+      ],
+      "series": {
+        "slug": "detecting-the-klue-supply-chain-attack-in-salesforce",
+        "index": 2,
+        "title": "Detecting the Klue supply chain attack in Salesforce",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "icarus-oauth-anomalous-authentication",
+          "reason": "This hunt focuses on the exfiltration and API behavior; a separate hunt should address the initial authentication anomalies using the 'Klue Battlecards' application name.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "klue-anomalous-saas-auth",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This is a hunt because it combines fleet-wide user-agent baselining (prevalence) with targeted network indicators and specific URI patterns. A simple rule would either be too noisy (any Python) or too narrow (specific IPs only); the hunt weighs the overlap of rare automation versions with Salesforce-specific exfiltration patterns.",
+      "coverage": [
+        {
+          "stage": "discovery-automated-api-querying",
+          "steps": [
+            "suspect-api-queries",
+            "rare-python-user-agents",
+            "c2-ip-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "exfiltration-query-more-paging",
+          "steps": [
+            "suspect-api-queries"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-supply-chain",
+          "reason": "Belongs to another part of the 'Detecting the Klue supply chain attack in Salesforce' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "credential-access-oauth-authentication",
+          "reason": "Belongs to another part of the 'Detecting the Klue supply chain attack in Salesforce' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Third-party Integration Compromise",
+            "slug": "initial-access-supply-chain",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195"
+            ],
+            "observables": [
+              "Compromised Klue prototype integration credentials",
+              "Abuse of legitimate Klue Battlecards integration",
+              "Compromised OAuth refresh tokens"
+            ]
+          },
+          {
+            "name": "OAuth Refresh Token Authentication",
+            "slug": "credential-access-oauth-authentication",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "application: 'Klue Battlecards'",
+              "connected_app_name: 'Klue Battlecards'",
+              "login_sub_type: 'OAuth Refresh Token'",
+              "138.226.246.94",
+              "212.86.125.24",
+              "213.111.148.90",
+              "94.154.32.160"
+            ]
+          },
+          {
+            "name": "CRM Object Discovery via REST API",
+            "slug": "discovery-automated-api-querying",
+            "tactic": "discovery",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Python-urllib/3.12",
+              "Python-urllib/3.14",
+              "User Agent: 5238",
+              "URI: /services/data/v59.0/query/",
+              "Target Objects: Opportunity, Case, Task, Lead, Contact, Account, User, Contract, Event, Campaign",
+              "common.exception.ApiException: exceeded 100000 distinct who/what's"
+            ]
+          },
+          {
+            "name": "Mass Data Harvesting via QueryMore",
+            "slug": "exfiltration-query-more-paging",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "operation: QueryMore",
+              "SELECT FIELDS(STANDARD) queries",
+              "api_family: REST",
+              "api_client_category: EXTERNAL_APPLICATION"
+            ]
+          }
+        ],
+        "summary": "A threat actor (Icarus) compromised a third-party vendor (Klue) to obtain legitimate OAuth tokens, which were then used to authenticate to victim Salesforce environments. The actor used automated Python scripts to perform large-scale harvesting of CRM objects like Opportunities and Contacts via the Salesforce REST API for extortion purposes."
+      },
+      "severity": "high",
+      "rationale": "The hunt scopes to hosts with Python installed as a baseline, but the behavioral queries are run fleet-wide to capture activity from unmanaged or proxy-capable infrastructure.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "A threat actor is using automated Python scripts and compromised tokens to exfiltrate CRM data from Salesforce via specific REST API query endpoints and QueryMore operations.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "malicious_ips": {
+          "from": {
+            "ref": "https://securitylabs.datadoghq.com/articles/detecting-the-klue-supply-chain-attack-in-salesforce/",
+            "kind": "article",
+            "observed": "2026-06-11"
+          },
+          "type": "list[ip]",
+          "default": [
+            "138.226.246.94",
+            "212.86.125.24",
+            "213.111.148.90",
+            "94.154.32.160"
+          ],
+          "description": "Confirmed threat actor infrastructure IPs from the Klue investigation."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://securitylabs.datadoghq.com/articles/detecting-the-klue-supply-chain-attack-in-salesforce/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://securitylabs.datadoghq.com/articles/detecting-the-klue-supply-chain-attack-in-salesforce/",
+          "name": "Detecting the Klue supply chain attack in Salesforce"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-http-visibility",
+          "risk": "Without HTTP-level visibility, we cannot see specific entity names (e.g., Opportunity, Contact) or the 'SELECT FIELDS(STANDARD)' syntax used for harvesting.",
+          "stage": "discovery-automated-api-querying",
+          "question": "What is the content of the API queries being sent to Salesforce?",
+          "requires": "hb_http_activity or TLS decryption"
+        },
+        {
+          "id": "missing-response-codes",
+          "risk": "Failing to see the exception messages prevents identifying 'noisy' discovery attempts that deviate from legitimate integration behavior.",
+          "stage": "discovery-automated-api-querying",
+          "question": "Did the actor encounter common.exception.ApiException?",
+          "requires": "hb_http_activity status_code and message"
+        }
+      ]
+    },
+    "name": "Icarus SaaS API Data Harvesting",
+    "description": "Following the Klue supply chain compromise, the 'Icarus' threat actor has been observed harvesting Salesforce data using automated scripts. This hunt identifies the behavioral fingerprints of that automation: specific Python user agents, targeting of the v59.0 query endpoints, and the use of the QueryMore paging operation. It correlates these HTTP signals with connections to confirmed threat actor infrastructure and baselines Python-based automation across the fleet to find rare, suspicious versions."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "detecting-the-klue-supply-chain-attack-in-salesforce",
+          "index": 2,
+          "title": "Detecting the Klue supply chain attack in Salesforce",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "discovery-automated-api-querying",
+            "steps": [
+              "suspect-api-queries",
+              "rare-python-user-agents",
+              "c2-ip-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "exfiltration-query-more-paging",
+            "steps": [
+              "suspect-api-queries"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-supply-chain",
+            "reason": "Belongs to another part of the 'Detecting the Klue supply chain attack in Salesforce' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "credential-access-oauth-authentication",
+            "reason": "Belongs to another part of the 'Detecting the Klue supply chain attack in Salesforce' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "A threat actor is using automated Python scripts and compromised tokens to exfiltrate CRM data from Salesforce via specific REST API query endpoints and QueryMore operations.",
+        "blind_spots": [
+          {
+            "id": "no-http-visibility",
+            "risk": "Without HTTP-level visibility, we cannot see specific entity names (e.g., Opportunity, Contact) or the 'SELECT FIELDS(STANDARD)' syntax used for harvesting.",
+            "stage": "discovery-automated-api-querying",
+            "question": "What is the content of the API queries being sent to Salesforce?",
+            "requires": "hb_http_activity or TLS decryption"
+          },
+          {
+            "id": "missing-response-codes",
+            "risk": "Failing to see the exception messages prevents identifying 'noisy' discovery attempts that deviate from legitimate integration behavior.",
+            "stage": "discovery-automated-api-querying",
+            "question": "Did the actor encounter common.exception.ApiException?",
+            "requires": "hb_http_activity status_code and message"
+          }
+        ],
+        "scoping_notes": "The hunt scopes to hosts with Python installed as a baseline, but the behavioral queries are run fleet-wide to capture activity from unmanaged or proxy-capable infrastructure.",
+        "beyond_detection": "This is a hunt because it combines fleet-wide user-agent baselining (prevalence) with targeted network indicators and specific URI patterns. A simple rule would either be too noisy (any Python) or too narrow (specific IPs only); the hunt weighs the overlap of rare automation versions with Salesforce-specific exfiltration patterns."
+      }
+    },
+    {
+      "id": "scoping-python-hosts",
+      "type": "query",
+      "label": "Scope hosts with Python installed",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%python%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts in the estate that have Python installed, as the observed attack used Python-based automation scripts.",
+        "expected_signal": "A list of hosts capable of running the scripts described in the report. Silence means no Python is installed via standard packages."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope hosts with Python installed",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%python%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts capable of running the scripts described in the report. Silence means no Python is installed via standard packages.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "suspect-api-queries",
+      "type": "query",
+      "label": "Suspect Salesforce API Query Patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_hostname, url_path, url_query, user_agent, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/services/data/v%/query/%' OR LOWER(url_query) LIKE '%querymore%') AND (LOWER(user_agent) LIKE 'python-urllib/%' OR user_agent = '5238') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify HTTP traffic targeting the Salesforce REST API query endpoints with the specific Python user agents or the '5238' string.",
+        "expected_signal": "Hosts or internal proxies communicating with Salesforce using the Icarus threat actor's specific automation strings."
+      },
+      "parents": [
+        {
+          "id": "scoping-python-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Suspect Salesforce API Query Patterns",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "time",
+          "url_hostname",
+          "url_path",
+          "url_query",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_hostname, url_path, url_query, user_agent, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/services/data/v%/query/%' OR LOWER(url_query) LIKE '%querymore%') AND (LOWER(user_agent) LIKE 'python-urllib/%' OR user_agent = '5238') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts or internal proxies communicating with Salesforce using the Icarus threat actor's specific automation strings.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "rare-python-user-agents",
+      "type": "query",
+      "label": "Baseline Rare Python User Agents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT user_agent, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS requests, MIN(time) AS first_seen FROM hb_http_activity WHERE (LOWER(user_agent) LIKE 'python-urllib/%' OR user_agent = '5238') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_agent HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_http_activity",
+        "description": "Stack-count Python-based user agents to isolate rare automation that deviates from standard internal tooling.",
+        "expected_signal": "The actor's specific UA versions standing out from common internal Python utilities used across the fleet."
+      },
+      "parents": [
+        {
+          "id": "suspect-api-queries"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Baseline Rare Python User Agents",
+        "reads": [
+          "device_hostname",
+          "time",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT user_agent, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS requests, MIN(time) AS first_seen FROM hb_http_activity WHERE (LOWER(user_agent) LIKE 'python-urllib/%' OR user_agent = '5238') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_agent HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "The actor's specific UA versions standing out from common internal Python utilities used across the fleet.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "user_agent"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "c2-ip-activity",
+      "type": "query",
+      "label": "Connections to Malicious Infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE instr(',' || '{{malicious_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Find network connections from the estate to confirmed Icarus C2/exfiltration IP addresses.",
+        "expected_signal": "A socket connection to one of the four confirmed IPs. This is high-confidence corroboration."
+      },
+      "parents": [
+        {
+          "id": "suspect-api-queries"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Connections to Malicious Infrastructure",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE instr(',' || '{{malicious_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A socket connection to one of the four confirmed IPs. This is high-confidence corroboration.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-harvesting",
+      "type": "analytic",
+      "label": "Triage Harvesting Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network",
+          "web"
+        ],
+        "context": [
+          "scoping-python-hosts",
+          "suspect-api-queries",
+          "rare-python-user-agents",
+          "c2-ip-activity"
+        ],
+        "objective": "Determine if any host shows the combined fingerprint of CRM harvesting: Python automation, Salesforce query endpoints, and connections to Icarus infrastructure.",
+        "description": "Synthesize results from Salesforce API patterns, rare user agents, and malicious IP connections.",
+        "max_iterations": 4,
+        "expected_signal": "A host-level verdict identifying likely Icarus automation activity.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign citing specific activity rows."
+      },
+      "parents": [
+        {
+          "id": "rare-python-user-agents",
+          "kind": "merge"
+        },
+        {
+          "id": "c2-ip-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "no-http-visibility",
+        "confidence": "high",
+        "description": "Route the hunt to immediate containment if malicious activity is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-harvesting"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the exfiltration by isolating the infected host.",
+        "instructions": "Isolate the host via EDR and revoke all active Salesforce sessions for the associated account.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-close-out",
+      "type": "task",
+      "label": "Analyst Close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final review of findings and recording of any indicators for future tuning.",
+        "instructions": "Review the triage results. If suspicion remains, pivot to Salesforce application logs to search for 'ApiException' or 'Klue Battlecards' application strings. Close the hunt after verifying the threat is contained."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    }
+  ]
+}
