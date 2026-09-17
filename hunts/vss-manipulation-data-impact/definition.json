@@ -1,0 +1,605 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries targeting VSS are explicitly attempting to bypass recovery controls or steal core identity data. Confirming its absence provides high confidence that these high-impact playbooks are not active."
+      },
+      "name": "VSS Manipulation and Data Impact",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1003.003",
+        "attack.t1490",
+        "attack.t1486"
+      ],
+      "series": {
+        "slug": "how-attackers-abuse-vss-and-how-huntress-detects-it",
+        "index": 2,
+        "title": "How Attackers Abuse VSS, and How Huntress Detects It",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "lateral-movement-psexec",
+          "reason": "Lateral movement is the precursor; this hunt focuses on the subsequent VSS and data impact phase.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "remote-admin-discovery-recon",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule on shadow deletion is too noisy due to legitimate IT maintenance. This hunt pivots to prevalence and corroborates with targeted file telemetry to reduce false positives.",
+      "coverage": [
+        {
+          "stage": "vss-creation-for-credentials",
+          "steps": [
+            "vss-manipulation-commands",
+            "ntds-extraction-attempts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "vss-deletion-and-inhibition",
+          "steps": [
+            "vss-manipulation-commands",
+            "vss-parent-rarity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "data-encryption-impact",
+          "steps": [
+            "mass-file-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "lateral-movement-psexec",
+          "reason": "Belongs to another part of the 'How Attackers Abuse VSS, and How Huntress Detects It' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "host-and-session-discovery",
+          "reason": "Belongs to another part of the 'How Attackers Abuse VSS, and How Huntress Detects It' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Lateral Movement via PsExec",
+            "slug": "lateral-movement-psexec",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1021.002"
+            ],
+            "observables": [
+              "PsExec spawning SYSTEM-level command shell",
+              "psexec.exe",
+              "cmd.exe"
+            ]
+          },
+          {
+            "name": "Session and Network Reconnaissance",
+            "slug": "host-and-session-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1021.001"
+            ],
+            "observables": [
+              "Enumeration of active Remote Desktop sessions",
+              "DNS enumeration commands",
+              "Reconnaissance against remote hosts",
+              "qwinsta.exe"
+            ]
+          },
+          {
+            "name": "Shadow Copy Creation",
+            "slug": "vss-creation-for-credentials",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1003.003"
+            ],
+            "observables": [
+              "vssadmin create shadow",
+              "ntds.dit extraction",
+              "vssadmin.exe"
+            ]
+          },
+          {
+            "name": "Inhibit System Recovery",
+            "slug": "vss-deletion-and-inhibition",
+            "tactic": "impact",
+            "techniques": [
+              "T1490"
+            ],
+            "observables": [
+              "vssadmin delete shadows /all /quiet",
+              "vssadmin.exe",
+              "Blocked attempts to delete shadow copies"
+            ]
+          },
+          {
+            "name": "Data Encrypted for Impact",
+            "slug": "data-encryption-impact",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "Encryption of local files",
+              "Ransomware detonation"
+            ]
+          }
+        ],
+        "summary": "Attackers exploit Windows Volume Shadow Copy (VSS) for both credential theft and ransomware protection. By creating shadow copies, they can perform offline extraction of sensitive files like the Active Directory database (ntds.dit), and by deleting them, they prevent victims from using local snapshots to recover from ransomware encryption."
+      },
+      "severity": "high",
+      "rationale": "Start with Domain Controllers and high-value File Servers. Populate 'scoping_hosts' with the identified Windows systems to focus subsequent analysis.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is creating Volume Shadow Copies to steal Active Directory databases or deleting them to prevent ransomware recovery.",
+      "parameters": {
+        "vss_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames where VSS manipulation was detected; mandatory for corroboration steps."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "scoping_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames from the scoping step; leave empty to scan all Windows hosts."
+        },
+        "file_touch_threshold": {
+          "type": "number",
+          "default": "500",
+          "description": "Minimum count of file modifications/deletions on a single host to signal ransomware activity."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/vss-abuse-explained",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/vss-abuse-explained",
+          "name": "Huntress \u2014 VSS Abuse Explained"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "short-file-retention",
+          "risk": "Corroboration of mass encryption may be lost if file activity logs are purged before the hunt runs.",
+          "stage": "data-encryption-impact",
+          "question": "Did encryption occur several days after the shadow copy was deleted?",
+          "requires": "extended retention of hb_file_activity"
+        },
+        {
+          "id": "vss-api-abuse",
+          "risk": "Custom tools that interact directly with Volume Shadow Copy COM interfaces will bypass process-based detection.",
+          "stage": "vss-deletion-and-inhibition",
+          "question": "Was VSS manipulated without calling known administrative binaries?",
+          "requires": "COM/API level event logging for VSS"
+        }
+      ]
+    },
+    "name": "VSS Manipulation and Data Impact",
+    "description": "This hunt identifies the abuse of the Volume Shadow Copy Service (VSS) by correlating the execution of administrative tools with downstream high-impact file activity. It first identifies the use of vssadmin, ntdsutil, and wmic for shadow copy manipulation and then corroborates these leads by checking for ntds.dit extraction or mass file modifications. By scoping to Windows assets and constraining corroboration to high-signal hosts, the hunt minimizes noise from legitimate backup agents and RMM scripts while ensuring high-performance execution across large fleets."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "how-attackers-abuse-vss-and-how-huntress-detects-it",
+          "index": 2,
+          "title": "How Attackers Abuse VSS, and How Huntress Detects It",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "vss-creation-for-credentials",
+            "steps": [
+              "vss-manipulation-commands",
+              "ntds-extraction-attempts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "vss-deletion-and-inhibition",
+            "steps": [
+              "vss-manipulation-commands",
+              "vss-parent-rarity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "data-encryption-impact",
+            "steps": [
+              "mass-file-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "lateral-movement-psexec",
+            "reason": "Belongs to another part of the 'How Attackers Abuse VSS, and How Huntress Detects It' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "host-and-session-discovery",
+            "reason": "Belongs to another part of the 'How Attackers Abuse VSS, and How Huntress Detects It' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is creating Volume Shadow Copies to steal Active Directory databases or deleting them to prevent ransomware recovery.",
+        "blind_spots": [
+          {
+            "id": "short-file-retention",
+            "risk": "Corroboration of mass encryption may be lost if file activity logs are purged before the hunt runs.",
+            "stage": "data-encryption-impact",
+            "question": "Did encryption occur several days after the shadow copy was deleted?",
+            "requires": "extended retention of hb_file_activity"
+          },
+          {
+            "id": "vss-api-abuse",
+            "risk": "Custom tools that interact directly with Volume Shadow Copy COM interfaces will bypass process-based detection.",
+            "stage": "vss-deletion-and-inhibition",
+            "question": "Was VSS manipulated without calling known administrative binaries?",
+            "requires": "COM/API level event logging for VSS"
+          }
+        ],
+        "scoping_notes": "Start with Domain Controllers and high-value File Servers. Populate 'scoping_hosts' with the identified Windows systems to focus subsequent analysis.",
+        "beyond_detection": "A single rule on shadow deletion is too noisy due to legitimate IT maintenance. This hunt pivots to prevalence and corroborates with targeted file telemetry to reduce false positives."
+      }
+    },
+    {
+      "id": "windows-asset-inventory",
+      "type": "query",
+      "label": "Identify Windows Assets",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(vendor_name) LIKE '%microsoft%' OR LOWER(package_name) LIKE '%windows%') AND collected_at >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_software_inventory",
+        "description": "Focus the hunt on Windows hosts that likely contain VSS capabilities or critical data targets.",
+        "expected_signal": "A list of hostnames running Windows. Silence indicates no Windows hosts are monitored."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Windows Assets",
+        "reads": [
+          "device_hostname",
+          "vendor_name",
+          "package_name",
+          "collected_at"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(vendor_name) LIKE '%microsoft%' OR LOWER(package_name) LIKE '%windows%') AND collected_at >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames running Windows. Silence indicates no Windows hosts are monitored.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-15"
+      }
+    },
+    {
+      "id": "vss-manipulation-commands",
+      "type": "query",
+      "label": "VSS Manipulation Commands",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) IN ('vssadmin.exe', 'wmic.exe', 'powershell.exe', 'ntdsutil.exe')) AND LOWER(process_cmd_line) LIKE '%shadow%' AND (instr(',' || '{{scoping_hosts}}' || ',', ',' || device_hostname || ',') > 0 OR '{{scoping_hosts}}' = '') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the use of vssadmin, ntdsutil, wmic, or powershell to create or delete shadow copies on the identified Windows assets.",
+        "expected_signal": "Command lines explicitly manipulating shadow copies. Presence on non-backup servers is highly suspicious."
+      },
+      "parents": [
+        {
+          "id": "windows-asset-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "VSS Manipulation Commands",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) IN ('vssadmin.exe', 'wmic.exe', 'powershell.exe', 'ntdsutil.exe')) AND LOWER(process_cmd_line) LIKE '%shadow%' AND (instr(',' || '{{scoping_hosts}}' || ',', ',' || device_hostname || ',') > 0 OR '{{scoping_hosts}}' = '') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Command lines explicitly manipulating shadow copies. Presence on non-backup servers is highly suspicious.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-15"
+      }
+    },
+    {
+      "id": "vss-parent-rarity",
+      "type": "query",
+      "label": "Rare VSS Parent Processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT parent_process_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(process_name) LIKE '%vssadmin.exe' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY parent_process_name HAVING host_count <= 2",
+        "surface": "hb_process_activity",
+        "description": "Identify unusual initiators of vssadmin.exe that do not match known backup or RMM agent patterns.",
+        "expected_signal": "A parent process seen on only one or two hosts; suggests a manual command or non-standard tool."
+      },
+      "parents": [
+        {
+          "id": "vss-manipulation-commands"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare VSS Parent Processes",
+        "reads": [
+          "parent_process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT parent_process_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(process_name) LIKE '%vssadmin.exe' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY parent_process_name HAVING host_count <= 2",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A parent process seen on only one or two hosts; suggests a manual command or non-standard tool.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "parent_process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-15"
+      }
+    },
+    {
+      "id": "ntds-extraction-attempts",
+      "type": "query",
+      "label": "Access to NTDS.dit",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '%ntds.dit' AND instr(',' || '{{vss_hosts}}' || ',', ',' || device_hostname || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify processes interacting with the Active Directory database on hosts where VSS manipulation was already observed.",
+        "expected_signal": "Processes touching the AD database. High-confidence sign of credential theft when paired with VSS creation."
+      },
+      "parents": [
+        {
+          "id": "vss-manipulation-commands"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Access to NTDS.dit",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "activity_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '%ntds.dit' AND instr(',' || '{{vss_hosts}}' || ',', ',' || device_hostname || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes touching the AD database. High-confidence sign of credential theft when paired with VSS creation.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-15"
+      }
+    },
+    {
+      "id": "mass-file-activity",
+      "type": "query",
+      "label": "Mass File Modification Count",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, activity_name, COUNT(*) AS touches FROM hb_file_activity WHERE (activity_id IN (3, 4, 5)) AND instr(',' || '{{vss_hosts}}' || ',', ',' || device_hostname || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, activity_name HAVING touches >= {{file_touch_threshold}}",
+        "surface": "hb_file_activity",
+        "description": "Identify targeted hosts experiencing high rates of file updates or deletions, which suggests ransomware encryption follow-on.",
+        "expected_signal": "A significant volume of file touches on a suspicious host. Zero results proof nothing without host-level visibility."
+      },
+      "parents": [
+        {
+          "id": "vss-manipulation-commands"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Mass File Modification Count",
+        "reads": [
+          "device_hostname",
+          "activity_id",
+          "activity_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, activity_name, COUNT(*) AS touches FROM hb_file_activity WHERE (activity_id IN (3, 4, 5)) AND instr(',' || '{{vss_hosts}}' || ',', ',' || device_hostname || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, activity_name HAVING touches >= {{file_touch_threshold}}",
+        "silence": "not_evidence_of_absence",
+        "expected": "A significant volume of file touches on a suspicious host. Zero results proof nothing without host-level visibility.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-15"
+      }
+    },
+    {
+      "id": "triage-vss-abuse",
+      "type": "analytic",
+      "label": "Evaluate VSS Abuse Pattern",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "vss-manipulation-commands",
+          "vss-parent-rarity",
+          "ntds-extraction-attempts",
+          "mass-file-activity"
+        ],
+        "objective": "Determine if the VSS activity is malicious by linking shadow copy manipulation to either ntds.dit extraction or mass file encryption within a 60-minute window. Use context from all previous steps.",
+        "description": "Analyze the relationship between VSS command execution and subsequent file activity.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict linking VSS manipulation to a specific impact (creds or encryption).",
+        "success_criteria": "A per-host verdict (Malicious, Suspicious, Benign) citing specific process and file activity rows."
+      },
+      "parents": [
+        {
+          "id": "vss-parent-rarity",
+          "kind": "merge"
+        },
+        {
+          "id": "ntds-extraction-attempts",
+          "kind": "merge"
+        },
+        {
+          "id": "mass-file-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is 'Malicious' for any host due to confirmed VSS manipulation paired with data impact",
+        "condition": "the triage verdict is 'Malicious' for any host due to confirmed VSS manipulation paired with data impact",
+        "blind_spot": "short-file-retention",
+        "confidence": "high",
+        "description": "Direct the hunt to containment or manual review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-vss-abuse"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt further encryption or credential exfiltration.",
+        "instructions": "Isolate the host immediately to halt further encryption or exfiltration.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-review",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Ensure accuracy and perform forensic follow-up.",
+        "instructions": "Review the process lineage for VSS manipulation; confirm if it was preceded by lateral movement and if ransomware encryption is in progress."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    }
+  ]
+}
