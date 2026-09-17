@@ -1,0 +1,610 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "OysterLoader is a precursor to Rhysida ransomware. Catching it at the shellcode or downloader stage allows for containment before the final payload (final-payload-deployment) can encrypt data or exfiltrate credentials."
+      },
+      "name": "OysterLoader In-Memory Loading and Downloader C2",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1055",
+        "attack.t1140",
+        "attack.t1105",
+        "attack.t1090.003"
+      ],
+      "series": {
+        "slug": "oysterloader-unmasked-the-multi-stage-evasion-loader",
+        "index": 2,
+        "title": "OysterLoader unmasked: the multi-stage evasion loader",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "oysterloader-initial-access-msi",
+          "reason": "OysterLoader is distributed as an MSI; this hunt starts after that file has executed and begun its loading sequence.",
+          "relation": "precedes"
+        },
+        {
+          "hunt": "rhysida-impact-containment",
+          "reason": "If OysterLoader successfully loads its core, the next stage is typically Rhysida ransomware deployment.",
+          "relation": "follows"
+        },
+        {
+          "hunt": "oysterloader-stage-1-installer-packer",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "While a rule can alert on on_disk = 0, it is prone to noise. This hunt adds the critical context of downloader-specific network patterns (impersonation snippets and null UA prevalence) that a single-surface rule cannot easily weigh.",
+      "coverage": [
+        {
+          "stage": "in-memory-lzma-decompression",
+          "steps": [
+            "fileless-process-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "downloader-c2-beaconing",
+          "steps": [
+            "downloader-http-beacons",
+            "rare-dns-lookups",
+            "null-ua-prevalence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-trojanized-installer",
+          "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "textshell-packer-obfuscation",
+          "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "final-payload-deployment",
+          "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Trojanized MSI Installer",
+            "slug": "initial-access-trojanized-installer",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "MSI files impersonating PuTTy, WinSCP, Google Authenticator",
+              "Fake software download websites",
+              "Digitally signed MSI files to appear benign"
+            ]
+          },
+          {
+            "name": "TextShell Packer Execution",
+            "slug": "textshell-packer-obfuscation",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1027",
+              "T1497.003",
+              "T1140"
+            ],
+            "observables": [
+              "API hammering using irrelevant GDI calls (RevokeDragDrop, GetDC, CreateSolidBrush, SetMapMode)",
+              "IsDebuggerPresent() check leading to infinite loop 'while(1);'",
+              "Custom hashing formula for API resolution: h = (h * 0x2001 + ord(ch))",
+              "Allocation of RWX memory using NtAllocateVirtualMemory",
+              "Data copied in 8-byte chunks to allocated memory"
+            ]
+          },
+          {
+            "name": "Shellcode LZMA Decompression",
+            "slug": "in-memory-lzma-decompression",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1055",
+              "T1140"
+            ],
+            "observables": [
+              "Custom LZMA range decoder with parameters lc=3, lp=0, pb=2",
+              "Relocation fixups for relative CALL (E8) and JMP (E9) opcodes",
+              "VirtualProtect calls to change memory regions to executable",
+              "Process injection behavior (on_disk = false)"
+            ]
+          },
+          {
+            "name": "Downloader Intermediate Stage",
+            "slug": "downloader-c2-beaconing",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1105",
+              "T1090.003"
+            ],
+            "observables": [
+              "HTTP communication to retrieve OysterLoader core",
+              "Environment verification (language check, keyboard layout identification)",
+              "Dynamic loading of InternetOpenW",
+              "Custom hashing for server communication parameters"
+            ]
+          },
+          {
+            "name": "Payload Deployment (Vidar/Rhysida)",
+            "slug": "final-payload-deployment",
+            "tactic": "impact",
+            "techniques": [
+              "T1486",
+              "T1555"
+            ],
+            "observables": [
+              "Deployment of Vidar infostealer for credential theft",
+              "Execution of Rhysida ransomware for file encryption",
+              "Credential harvesting from password stores"
+            ]
+          }
+        ],
+        "summary": "OysterLoader (Broomstick) is a multi-stage C++ loader distributed via trojanized installers for software like PuTTy and WinSCP. It utilizes the TextShell packer, custom LZMA decompression, and in-memory shellcode to eventually deliver Rhysida ransomware or Vidar infostealers."
+      },
+      "severity": "high",
+      "rationale": "Focus on workstations where MSI software was recently installed. Initial access typically involves spoofed IT software (WinSCP, PuTTy).",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder is executing fileless code decompressed in memory using a custom LZMA routine, evidenced by processes without backing files that are beaconing to domain fragments used for payload retrieval.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for fileless execution and network beacons."
+        },
+        "domain_snippets": {
+          "from": {
+            "ref": "sekoia-oysterloader",
+            "kind": "article",
+            "observed": "2024-06-01"
+          },
+          "type": "list[string]",
+          "default": [
+            "pefile.pe",
+            "exp.name",
+            "exports.append"
+          ],
+          "description": "Substrings found in OysterLoader C2 domains used for stage retrieval."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.sekoia.io/oysterloader-unmasked-the-multi-stage-evasion-loader/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.sekoia.io/oysterloader-unmasked-the-multi-stage-evasion-loader/",
+          "name": "Sekoia \u2014 OysterLoader unmasked: the multi-stage evasion loader"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-endpoint-telemetry",
+          "risk": "A host without an agent will not report processes running from memory, leaving a total gap in detection for the loading phase.",
+          "owner": "IT Security",
+          "stage": "in-memory-lzma-decompression",
+          "question": "Is the decompression happening on hosts without visibility into on_disk state?",
+          "requires": "Endpoint agent reporting hb_process_activity (osquery/sysmon)",
+          "remediation": "Ensure agent coverage matches the full workstation fleet."
+        },
+        {
+          "id": "tls-visibility-path",
+          "risk": "If the C2 uses HTTPS and there is no proxy decryption, we lose visibility into the url_path and user_agent, relying only on the url_hostname.",
+          "owner": "Network Engineering",
+          "stage": "downloader-c2-beaconing",
+          "question": "Can we see the specific URL path for core retrieval if it is encrypted?",
+          "requires": "hb_http_activity with decrypted URL paths",
+          "remediation": "Implement TLS inspection for workstation egress to identify core malware retrieval."
+        }
+      ]
+    },
+    "name": "OysterLoader In-Memory Loading and Downloader C2",
+    "description": "OysterLoader (Broomstick) uses a multi-stage loading process designed to evade static analysis. After the initial TextShell packer executes, it uses a custom shellcode to decompress the downloader stage into memory using a custom LZMA range decoder. This hunt looks for processes running without a backing file (on_disk = false)\u2014a direct artifact of the LZMA decompression and memory allocation routine\u2014and correlates them with subsequent HTTP/DNS activity. Specifically, we look for HTTP traffic to domains matching known OysterLoader naming patterns and identify rare instances of null user-agents that often accompany its InternetOpenW calls."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "oysterloader-unmasked-the-multi-stage-evasion-loader",
+          "index": 2,
+          "title": "OysterLoader unmasked: the multi-stage evasion loader",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "in-memory-lzma-decompression",
+            "steps": [
+              "fileless-process-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "downloader-c2-beaconing",
+            "steps": [
+              "downloader-http-beacons",
+              "rare-dns-lookups",
+              "null-ua-prevalence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-trojanized-installer",
+            "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "textshell-packer-obfuscation",
+            "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "final-payload-deployment",
+            "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder is executing fileless code decompressed in memory using a custom LZMA routine, evidenced by processes without backing files that are beaconing to domain fragments used for payload retrieval.",
+        "blind_spots": [
+          {
+            "id": "no-endpoint-telemetry",
+            "risk": "A host without an agent will not report processes running from memory, leaving a total gap in detection for the loading phase.",
+            "owner": "IT Security",
+            "stage": "in-memory-lzma-decompression",
+            "question": "Is the decompression happening on hosts without visibility into on_disk state?",
+            "requires": "Endpoint agent reporting hb_process_activity (osquery/sysmon)",
+            "remediation": "Ensure agent coverage matches the full workstation fleet."
+          },
+          {
+            "id": "tls-visibility-path",
+            "risk": "If the C2 uses HTTPS and there is no proxy decryption, we lose visibility into the url_path and user_agent, relying only on the url_hostname.",
+            "owner": "Network Engineering",
+            "stage": "downloader-c2-beaconing",
+            "question": "Can we see the specific URL path for core retrieval if it is encrypted?",
+            "requires": "hb_http_activity with decrypted URL paths",
+            "remediation": "Implement TLS inspection for workstation egress to identify core malware retrieval."
+          }
+        ],
+        "scoping_notes": "Focus on workstations where MSI software was recently installed. Initial access typically involves spoofed IT software (WinSCP, PuTTy).",
+        "beyond_detection": "While a rule can alert on on_disk = 0, it is prone to noise. This hunt adds the critical context of downloader-specific network patterns (impersonation snippets and null UA prevalence) that a single-surface rule cannot easily weigh."
+      }
+    },
+    {
+      "id": "fileless-process-execution",
+      "type": "query",
+      "label": "Detect fileless code execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, pid, user_name, parent_process_name, time FROM hb_process_activity WHERE on_disk = 0 AND pid > 4 AND LOWER(process_name) NOT IN ('system', 'registry', 'idle') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify processes running without a backing file on disk, excluding common system false positives, to find the decompressed shellcode stage.",
+        "expected_signal": "Processes like svchost.exe or explorer.exe reporting on_disk=0. Silence suggests the shellcode phase has not occurred on managed endpoints."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect fileless code execution",
+        "reads": [
+          "on_disk",
+          "process_name",
+          "pid",
+          "device_hostname"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, pid, user_name, parent_process_name, time FROM hb_process_activity WHERE on_disk = 0 AND pid > 4 AND LOWER(process_name) NOT IN ('system', 'registry', 'idle') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes like svchost.exe or explorer.exe reporting on_disk=0. Silence suggests the shellcode phase has not occurred on managed endpoints.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "downloader-http-beacons",
+      "type": "query",
+      "label": "HTTP beacons with OysterLoader snippets",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, http_method, time FROM hb_http_activity WHERE (LOWER(url_hostname) LIKE '%pefile.pe%' OR LOWER(url_hostname) LIKE '%exp.name%' OR LOWER(url_hostname) LIKE '%exports.append%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Capture the downloader communicating with C2 servers using partial matches for identified domain fragments.",
+        "expected_signal": "Requests to domains incorporating these fragments. Presence of these indicates likely OysterLoader core retrieval."
+      },
+      "parents": [
+        {
+          "id": "fileless-process-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "HTTP beacons with OysterLoader snippets",
+        "reads": [
+          "url_hostname",
+          "url_path",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, http_method, time FROM hb_http_activity WHERE (LOWER(url_hostname) LIKE '%pefile.pe%' OR LOWER(url_hostname) LIKE '%exp.name%' OR LOWER(url_hostname) LIKE '%exports.append%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Requests to domains incorporating these fragments. Presence of these indicates likely OysterLoader core retrieval.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "rare-dns-lookups",
+      "type": "query",
+      "label": "Rare DNS lookups for software impersonation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT query_hostname, device_hostname, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_dns_activity WHERE time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count <= 2 ORDER BY host_count ASC",
+        "surface": "hb_dns_activity",
+        "description": "Identify low-prevalence DNS queries that may indicate targeted downloader infrastructure.",
+        "expected_signal": "Domains seen on only one or two hosts, potentially matching software impersonation patterns (e.g., putty, winscp)."
+      },
+      "parents": [
+        {
+          "id": "fileless-process-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare DNS lookups for software impersonation",
+        "reads": [
+          "query_hostname",
+          "device_hostname"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT query_hostname, device_hostname, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_dns_activity WHERE time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count <= 2 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Domains seen on only one or two hosts, potentially matching software impersonation patterns (e.g., putty, winscp).",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "null-ua-prevalence",
+      "type": "query",
+      "label": "Prevalence filter for NULL User-Agents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT device_hostname, user_agent, COUNT(*) as event_count, MIN(time) as first_seen FROM hb_http_activity WHERE user_agent IS NULL AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING event_count < 20",
+        "surface": "hb_http_activity",
+        "description": "Identify hosts where requests with NULL user-agents are rare, avoiding the noise of constant system telemetry.",
+        "expected_signal": "Hosts with occasional NULL user-agent requests. High event counts usually indicate legitimate automated system services."
+      },
+      "parents": [
+        {
+          "id": "fileless-process-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Prevalence filter for NULL User-Agents",
+        "reads": [
+          "user_agent",
+          "device_hostname"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, user_agent, COUNT(*) as event_count, MIN(time) as first_seen FROM hb_http_activity WHERE user_agent IS NULL AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING event_count < 20",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Hosts with occasional NULL user-agent requests. High event counts usually indicate legitimate automated system services.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "user_agent"
+          ],
+          "rare_below": 20
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Evaluate Multi-Stage Infection",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "fileless-process-execution",
+          "downloader-http-beacons",
+          "rare-dns-lookups",
+          "null-ua-prevalence"
+        ],
+        "objective": "Determine if 'on_disk = 0' processes are accompanied by downloader C2 fragments or suspicious NULL user-agent activity.",
+        "description": "Correlate fileless process indicators with the network signals (rare snippets, rare NULL UAs) to confirm the presence of OysterLoader.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the process and network behavior together indicate active loading.",
+        "success_criteria": "A verdict for every host found in Step 1, citing matching network rows."
+      },
+      "parents": [
+        {
+          "id": "downloader-http-beacons",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-dns-lookups",
+          "kind": "merge"
+        },
+        {
+          "id": "null-ua-prevalence",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "no-endpoint-telemetry",
+        "confidence": "high",
+        "description": "Direct the hunt results to isolation or manual review based on the agent's findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "contain-host",
+      "type": "action",
+      "label": "Isolate Host and Preserve Memory",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the infection and preserve the in-memory downloader for forensics.",
+        "instructions": "Isolate the host immediately. Perform a full memory dump to capture the Stage 3 downloader and any unpacked OysterLoader core components. Retrieve the MSI that initiated the chain.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Manual Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's correlation and perform additional analysis on the identified fileless code.",
+        "instructions": "Review the fileless processes. Confirm if they correspond to legitimate injected code (e.g., security agents, browser processes) or align with the OysterLoader profile of rare domains and null user-agents."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize and record findings.",
+        "instructions": "Record the baseline of fileless activity for future tuning. No malicious loading confirmed."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

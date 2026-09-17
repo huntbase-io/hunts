@@ -1,0 +1,642 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "This hunt prevents permanent data loss from Rhysida ransomware and mass credential exposure from Vidar following an OysterLoader breach."
+      },
+      "name": "OysterLoader Impact: Vidar and Rhysida",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1486",
+        "attack.t1555",
+        "attack.t1090.003"
+      ],
+      "series": {
+        "slug": "oysterloader-unmasked-the-multi-stage-evasion-loader",
+        "index": 3,
+        "title": "OysterLoader unmasked: the multi-stage evasion loader",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "oysterloader-initial-access",
+          "reason": "Initial access is handled by the first hunt in this series.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "oysterloader-in-memory-c2",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A rule might catch Tor.exe; this hunt correlates the presence of rare, unsigned processes with bulk file encryption and credential theft behaviors on hosts with suspected trojanized software, providing high-confidence context.",
+      "coverage": [
+        {
+          "stage": "final-payload-deployment",
+          "steps": [
+            "vidar-credential-theft",
+            "rare-process-anomalies",
+            "rhysida-encryption-burst",
+            "proxy-c2-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-trojanized-installer",
+          "reason": "Handled in the first hunt of the series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "downloader-c2-beaconing",
+          "reason": "Handled in the second hunt of the series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "textshell-packer-obfuscation",
+          "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "in-memory-lzma-decompression",
+          "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Trojanized MSI Installer",
+            "slug": "initial-access-trojanized-installer",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "MSI files impersonating PuTTy, WinSCP, Google Authenticator",
+              "Fake software download websites",
+              "Digitally signed MSI files to appear benign"
+            ]
+          },
+          {
+            "name": "TextShell Packer Execution",
+            "slug": "textshell-packer-obfuscation",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1027",
+              "T1497.003",
+              "T1140"
+            ],
+            "observables": [
+              "API hammering using irrelevant GDI calls (RevokeDragDrop, GetDC, CreateSolidBrush, SetMapMode)",
+              "IsDebuggerPresent() check leading to infinite loop 'while(1);'",
+              "Custom hashing formula for API resolution: h = (h * 0x2001 + ord(ch))",
+              "Allocation of RWX memory using NtAllocateVirtualMemory",
+              "Data copied in 8-byte chunks to allocated memory"
+            ]
+          },
+          {
+            "name": "Shellcode LZMA Decompression",
+            "slug": "in-memory-lzma-decompression",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1055",
+              "T1140"
+            ],
+            "observables": [
+              "Custom LZMA range decoder with parameters lc=3, lp=0, pb=2",
+              "Relocation fixups for relative CALL (E8) and JMP (E9) opcodes",
+              "VirtualProtect calls to change memory regions to executable",
+              "Process injection behavior (on_disk = false)"
+            ]
+          },
+          {
+            "name": "Downloader Intermediate Stage",
+            "slug": "downloader-c2-beaconing",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1105",
+              "T1090.003"
+            ],
+            "observables": [
+              "HTTP communication to retrieve OysterLoader core",
+              "Environment verification (language check, keyboard layout identification)",
+              "Dynamic loading of InternetOpenW",
+              "Custom hashing for server communication parameters"
+            ]
+          },
+          {
+            "name": "Payload Deployment (Vidar/Rhysida)",
+            "slug": "final-payload-deployment",
+            "tactic": "impact",
+            "techniques": [
+              "T1486",
+              "T1555"
+            ],
+            "observables": [
+              "Deployment of Vidar infostealer for credential theft",
+              "Execution of Rhysida ransomware for file encryption",
+              "Credential harvesting from password stores"
+            ]
+          }
+        ],
+        "summary": "OysterLoader (Broomstick) is a multi-stage C++ loader distributed via trojanized installers for software like PuTTy and WinSCP. It utilizes the TextShell packer, custom LZMA decompression, and in-memory shellcode to eventually deliver Rhysida ransomware or Vidar infostealers."
+      },
+      "severity": "critical",
+      "rationale": "Focus on hosts with 'IT Tool' lures like PuTTy or WinSCP. Widen to the whole fleet if any branch returns malicious hits.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has used OysterLoader to deploy Vidar for credential harvesting or Rhysida for ransomware, evidenced by unauthorized access to browser data, .rhysida file creation, or proxy-based C2 traffic.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "encryption_threshold": {
+          "type": "number",
+          "default": "20",
+          "description": "Minimum count of .rhysida files created by a single process to indicate a burst."
+        },
+        "impersonated_packages": {
+          "from": {
+            "ref": "sekoia-oysterloader",
+            "kind": "article",
+            "observed": "2024-06-01"
+          },
+          "type": "list[string]",
+          "default": [
+            "putty",
+            "winscp",
+            "google authenticator",
+            "anydesk"
+          ],
+          "description": "Software names OysterLoader is known to impersonate as entry vectors."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.sekoia.io/oysterloader-unmasked-the-multi-stage-evasion-loader/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.sekoia.io/oysterloader-unmasked-the-multi-stage-evasion-loader/",
+          "name": "OysterLoader unmasked: the multi-stage evasion loader"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "incomplete-host-coverage",
+          "risk": "A host without telemetry could be undergoing encryption invisibly.",
+          "stage": "final-payload-deployment",
+          "question": "whether infection occurred on an unmanaged or BYOD device",
+          "requires": "Endpoint agent coverage across all business units"
+        },
+        {
+          "id": "variable-extension",
+          "risk": "If the ransomware config is changed, the extension filter will fail.",
+          "stage": "final-payload-deployment",
+          "question": "whether Rhysida used a different extension other than .rhysida",
+          "requires": "hb_file_activity with entropy or multi-extension pattern detection"
+        }
+      ]
+    },
+    "name": "OysterLoader Impact: Vidar and Rhysida",
+    "description": "This hunt isolates the final payload stage of the OysterLoader infection chain. It focuses on the behavioral signatures of Vidar (infostealer) and Rhysida (ransomware) once they have been unpacked and executed. The hunt identifies hosts at risk due to the presence of software OysterLoader typically impersonates (e.g., PuTTy, WinSCP) and then gathers parallel evidence of credential theft, anomalous processes, encryption activity, and multi-hop proxy connections (Tor)."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "oysterloader-unmasked-the-multi-stage-evasion-loader",
+          "index": 3,
+          "title": "OysterLoader unmasked: the multi-stage evasion loader",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "final-payload-deployment",
+            "steps": [
+              "vidar-credential-theft",
+              "rare-process-anomalies",
+              "rhysida-encryption-burst",
+              "proxy-c2-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-trojanized-installer",
+            "reason": "Handled in the first hunt of the series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "downloader-c2-beaconing",
+            "reason": "Handled in the second hunt of the series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "textshell-packer-obfuscation",
+            "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "in-memory-lzma-decompression",
+            "reason": "Belongs to another part of the 'OysterLoader unmasked: the multi-stage evasion loader' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has used OysterLoader to deploy Vidar for credential harvesting or Rhysida for ransomware, evidenced by unauthorized access to browser data, .rhysida file creation, or proxy-based C2 traffic.",
+        "blind_spots": [
+          {
+            "id": "incomplete-host-coverage",
+            "risk": "A host without telemetry could be undergoing encryption invisibly.",
+            "stage": "final-payload-deployment",
+            "question": "whether infection occurred on an unmanaged or BYOD device",
+            "requires": "Endpoint agent coverage across all business units"
+          },
+          {
+            "id": "variable-extension",
+            "risk": "If the ransomware config is changed, the extension filter will fail.",
+            "stage": "final-payload-deployment",
+            "question": "whether Rhysida used a different extension other than .rhysida",
+            "requires": "hb_file_activity with entropy or multi-extension pattern detection"
+          }
+        ],
+        "scoping_notes": "Focus on hosts with 'IT Tool' lures like PuTTy or WinSCP. Widen to the whole fleet if any branch returns malicious hits.",
+        "beyond_detection": "A rule might catch Tor.exe; this hunt correlates the presence of rare, unsigned processes with bulk file encryption and credential theft behaviors on hosts with suspected trojanized software, providing high-confidence context."
+      }
+    },
+    {
+      "id": "scoping-impersonated-apps",
+      "type": "query",
+      "label": "Scope hosts with potentially trojanized software",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, vendor_name, package_version FROM hb_software_inventory WHERE instr(',' || '{{impersonated_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts running software OysterLoader frequently impersonates, narrowing the hunt to potential beachheads.",
+        "expected_signal": "A list of hosts with IT tools that may have been installed from trojanized sources. Silence means the specific impersonated tools are not present."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope hosts with potentially trojanized software",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, vendor_name, package_version FROM hb_software_inventory WHERE instr(',' || '{{impersonated_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts with IT tools that may have been installed from trojanized sources. Silence means the specific impersonated tools are not present.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "vidar-credential-theft",
+      "type": "query",
+      "label": "Vidar: Non-browser access to browser credentials",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, COUNT(*) AS access_count FROM hb_file_activity WHERE activity_id = 2 AND (LOWER(file_path) LIKE '%\\\\google\\\\chrome\\\\user data\\\\default\\\\login data%' OR LOWER(file_path) LIKE '%\\\\microsoft\\\\edge\\\\user data\\\\default\\\\login data%') AND LOWER(process_name) NOT LIKE '%chrome.exe' AND LOWER(process_name) NOT LIKE '%msedge.exe' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, file_path",
+        "surface": "hb_file_activity",
+        "description": "Detect processes reading browser profile data, which is characteristic of Vidar credential harvesting (T1555).",
+        "expected_signal": "A non-browser process reading 'Login Data'. Silence suggests no such credential theft occurred via file access."
+      },
+      "parents": [
+        {
+          "id": "scoping-impersonated-apps"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Vidar: Non-browser access to browser credentials",
+        "reads": [
+          "activity_id",
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, COUNT(*) AS access_count FROM hb_file_activity WHERE activity_id = 2 AND (LOWER(file_path) LIKE '%\\\\google\\\\chrome\\\\user data\\\\default\\\\login data%' OR LOWER(file_path) LIKE '%\\\\microsoft\\\\edge\\\\user data\\\\default\\\\login data%') AND LOWER(process_name) NOT LIKE '%chrome.exe' AND LOWER(process_name) NOT LIKE '%msedge.exe' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, file_path",
+        "silence": "not_evidence_of_absence",
+        "expected": "A non-browser process reading 'Login Data'. Silence suggests no such credential theft occurred via file access.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "rare-process-anomalies",
+      "type": "query",
+      "label": "Rare processes without valid signatures",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_name) AS process, process_file_company, on_disk, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (on_disk = 0 OR process_file_company IS NULL OR process_file_company = '') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2, 3 HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count rare processes that are either fileless (injected) or lack standard company metadata, suggesting unpacked malware.",
+        "expected_signal": "A process seen on very few hosts without proper metadata. Silence may indicate all processes are signed and on-disk."
+      },
+      "parents": [
+        {
+          "id": "scoping-impersonated-apps"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare processes without valid signatures",
+        "reads": [
+          "device_hostname",
+          "on_disk",
+          "process_file_company",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_name) AS process, process_file_company, on_disk, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (on_disk = 0 OR process_file_company IS NULL OR process_file_company = '') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2, 3 HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A process seen on very few hosts without proper metadata. Silence may indicate all processes are signed and on-disk.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "rhysida-encryption-burst",
+      "type": "query",
+      "label": "Rhysida: Bulk encryption markers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, COUNT(*) AS file_count FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%.rhysida' OR LOWER(file_name) = 'criticalid.txt') AND activity_id IN (1, 3, 5) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name HAVING file_count >= {{encryption_threshold}}",
+        "surface": "hb_file_activity",
+        "description": "Identify the sudden creation of .rhysida files or ransom notes (T1486).",
+        "expected_signal": "A single process creating many files with the .rhysida extension. Silence means no mass encryption was observed."
+      },
+      "parents": [
+        {
+          "id": "scoping-impersonated-apps"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Rhysida: Bulk encryption markers",
+        "reads": [
+          "activity_id",
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, COUNT(*) AS file_count FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%.rhysida' OR LOWER(file_name) = 'criticalid.txt') AND activity_id IN (1, 3, 5) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name HAVING file_count >= {{encryption_threshold}}",
+        "silence": "not_evidence_of_absence",
+        "expected": "A single process creating many files with the .rhysida extension. Silence means no mass encryption was observed.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "proxy-c2-activity",
+      "type": "query",
+      "label": "C2 Analysis: Tor and multi-hop proxy ports",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction FROM hb_network_connection WHERE (dst_endpoint_ip = '127.0.0.1' AND dst_endpoint_port IN (9050, 9051, 1080)) OR (dst_endpoint_port IN (9001, 443) AND LOWER(process_name) LIKE '%tor%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Detect multi-hop proxy connections (T1090.003) commonly used by Rhysida/Vidar for C2.",
+        "expected_signal": "Non-standard processes using local proxy ports or launching Tor. Silence suggests no proxy-based C2 within the window."
+      },
+      "parents": [
+        {
+          "id": "scoping-impersonated-apps"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "C2 Analysis: Tor and multi-hop proxy ports",
+        "reads": [
+          "device_hostname",
+          "direction",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction FROM hb_network_connection WHERE (dst_endpoint_ip = '127.0.0.1' AND dst_endpoint_port IN (9050, 9051, 1080)) OR (dst_endpoint_port IN (9001, 443) AND LOWER(process_name) LIKE '%tor%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Non-standard processes using local proxy ports or launching Tor. Silence suggests no proxy-based C2 within the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-payloads",
+      "type": "analytic",
+      "label": "Triage Payload Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "scoping-impersonated-apps",
+          "vidar-credential-theft",
+          "rare-process-anomalies",
+          "rhysida-encryption-burst",
+          "proxy-c2-activity"
+        ],
+        "objective": "Determine if a host is currently infected with Vidar or Rhysida by correlating process signature status with file system impact and proxy behavior.",
+        "description": "Correlate the presence of impersonated software, anomalous processes, encryption activity, and proxy connections.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict citing multiple independent behavioral signals.",
+        "success_criteria": "A host-by-host verdict (malicious | suspicious | benign) citing specific process and file rows."
+      },
+      "parents": [
+        {
+          "id": "vidar-credential-theft",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-process-anomalies",
+          "kind": "merge"
+        },
+        {
+          "id": "rhysida-encryption-burst",
+          "kind": "merge"
+        },
+        {
+          "id": "proxy-c2-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "incomplete-host-coverage",
+        "confidence": "high",
+        "description": "Branch the hunt to isolation for confirmed malicious hosts.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-payloads"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Malicious Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain ransomware or credential theft by isolating the host.",
+        "instructions": "Isolate the host immediately. Dump memory of the suspicious process if possible before cleanup.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review and forensic confirm",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final validation of findings by a human analyst.",
+        "instructions": "Review the cited evidence of credential access and encryption. Verify if the 'impersonated software' was the source of the infection."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document negative result.",
+        "instructions": "Log that no Vidar or Rhysida indicators were found on scoped hosts."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
