@@ -20,8 +20,9 @@ hunts/<hunt-slug>/
                     how the hunt was produced.
 ```
 
-`index.json` at the site root lists every hunt's metadata, and
-[`feed.xml`](https://hub.huntbase.io/feed.xml) is an Atom feed of new hunts.
+The site also serves [`index.json`](https://hub.huntbase.io/index.json), every
+hunt's metadata in one file, and [`feed.xml`](https://hub.huntbase.io/feed.xml),
+an Atom feed of new hunts.
 
 ## How hunts are made
 
@@ -49,13 +50,13 @@ run, a wrong technique, a missing credit. Corrections are welcome.
 
 ## Licence and credit
 
-The hunts, write-ups and metadata are licensed under
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The site generator
-in `site/` is MIT licensed.
+Everything in this repository is licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 The research each hunt is based on belongs to its original authors, who are
 credited and linked on every hunt. The analysis and detection logic are
 Huntbase's.
 
-This repository is published from a private review queue. Please do not open
-pull requests that add or edit hunts here; open an issue instead.
+This repository holds content only and is published from a private review
+queue, so changes made here are overwritten by the next publication. Please
+open an issue rather than a pull request.
