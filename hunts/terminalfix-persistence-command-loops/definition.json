@@ -1,0 +1,653 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The TerminalFix campaign relies on redundant persistence to maintain its command execution loop. Identifying these mechanisms provides a high-confidence way to detect a host that has reached the long-term beachhead stage of the intrusion."
+      },
+      "name": "TerminalFix: Persistent Command Loops",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1547.001",
+        "attack.t1053.005",
+        "attack.t1059.001"
+      ],
+      "series": {
+        "slug": "terminalfix-campaign-deploys-a-reverse-tunnel-through-multistage-intrusion",
+        "index": 2,
+        "title": "TerminalFix campaign deploys a reverse tunnel through multistage intrusion",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "terminalfix-initial-access-sideloading",
+          "reason": "Initial DLL sideloading occurs before persistence and the command loop are established.",
+          "relation": "precedes"
+        },
+        {
+          "hunt": "terminalfix-reverse-tunnel-recon",
+          "reason": "The command loop facilitates the subsequent reconnaissance and reverse tunnel deployment.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "While static rules exist for Run keys, this hunt identifies the behavioral correlation between redundant persistence methods and a specific automated script loop. It uses prevalence baselines to distinguish TerminalFix persistence from standard updater tasks in ProgramData, a context a single rule cannot easily evaluate.",
+      "coverage": [
+        {
+          "stage": "persistence-establishment",
+          "steps": [
+            "registry-persistence-check",
+            "scheduled-task-baseline"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "asynchronous-command-loop",
+          "steps": [
+            "powershell-loop-check"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-clipboard-captcha",
+          "reason": "Covered in the initial access hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "payload-delivery-sideloading",
+          "reason": "Covered in the delivery/sideloading hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "steganographic-extraction",
+          "reason": "Covered in the delivery/sideloading hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "internal-reconnaissance",
+          "reason": "Covered in the reconnaissance/tunnel hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "reverse-tunnel-deployment",
+          "reason": "Covered in the reconnaissance/tunnel hunt of this series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Socially engineered clipboard execution",
+            "slug": "initial-access-clipboard-captcha",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1059.001",
+              "T1115"
+            ],
+            "observables": [
+              "Fake Cloudflare Turnstile CAPTCHA overlay",
+              "PowerShell command copied to clipboard and pasted by user",
+              "Terminal output: Starting Cloudflare verification...",
+              "Terminal output: I am not a robot - Cloudflare ID: f47f2a8c21c9df4e"
+            ]
+          },
+          {
+            "name": "DLL sideloading via LockScreenContentServer",
+            "slug": "payload-delivery-sideloading",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1574.001",
+              "T1574.002"
+            ],
+            "observables": [
+              "C:\\ProgramData\\f47f2a8c21c9df4e",
+              "1.bat",
+              "LockScreenContentServer.exe",
+              "dui70.dll (unsigned, forged timestamp 2104)",
+              "SHA-256: 18c2090e8a0ae0568af9b87e59eaf8270f23d2909600ed9db91a9444fd8b278f"
+            ]
+          },
+          {
+            "name": "Steganographic payload retrieval",
+            "slug": "steganographic-extraction",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "POST requests to attacker domains for PNG files",
+              "PowerShell function: Extract-RawFileFromImage",
+              "Decoding RGBA pixel data to reconstruct executables and DLLs"
+            ]
+          },
+          {
+            "name": "Redundant persistence configuration",
+            "slug": "persistence-establishment",
+            "tactic": "persistence",
+            "techniques": [
+              "T1547.001",
+              "T1053.005"
+            ],
+            "observables": [
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\LockScreenContentServer_MuODG5yBM",
+              "Scheduled task: LockScreenContentServer_MuODG5yBM",
+              "Task frequency: every 60 minutes",
+              "Hidden folder attributes: attrib +s +h"
+            ]
+          },
+          {
+            "name": "Active Directory and infrastructure discovery",
+            "slug": "internal-reconnaissance",
+            "tactic": "discovery",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "nltest /domain_trust",
+              "net group \"domain admins\" /domain",
+              "Get-ADUser",
+              "Get-ADComputer",
+              "Ping sweeps of dc, sql, db, backup, gateway, and mail servers"
+            ]
+          },
+          {
+            "name": "File-based C2 command loop",
+            "slug": "asynchronous-command-loop",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "PowerShell file-watch loop on local text file",
+              "Invoke-Expression (IEX) execution of file contents",
+              "Command results written to output text file"
+            ]
+          },
+          {
+            "name": "Reverse WebSocket SOCKS tunnel",
+            "slug": "reverse-tunnel-deployment",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003",
+              "T1572",
+              "T1041"
+            ],
+            "observables": [
+              "pythonw.exe",
+              "client.py",
+              "gitnow.dev:443",
+              "Encrypted WebSocket channel for TCP proxy access"
+            ]
+          }
+        ],
+        "summary": "The TerminalFix campaign utilizes fake Cloudflare CAPTCHA prompts to trick users into executing PowerShell scripts that download and sideload a malicious DLL. The intrusion leverages steganography within PNG files to deliver a second-stage payload, establishes persistent network access via Registry Run keys and scheduled tasks, and deploys a Python-based reverse tunnel for internal network proxying and reconnaissance."
+      },
+      "severity": "high",
+      "rationale": "Scoping focuses on Windows endpoints specifically executing binaries from deep ProgramData paths, as this is the standard staging location for TerminalFix implants. Widen the search if the campaign is observed using other user-writable paths like AppData.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "Adversaries are maintaining access via redundant persistence in ProgramData subdirectories and using a PowerShell-based file-watch loop for asynchronous command execution.",
+      "parameters": {
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-08-29"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "persistence_id": {
+          "from": {
+            "ref": "msrc-blog",
+            "kind": "article",
+            "observed": "2026-08-28"
+          },
+          "type": "string",
+          "default": "LockScreenContentServer_MuODG5yBM",
+          "description": "The specific masquerading identifier used for tasks and run keys."
+        },
+        "payload_path_pattern": {
+          "from": {
+            "ref": "msrc-blog",
+            "kind": "article",
+            "observed": "2026-08-28"
+          },
+          "type": "string",
+          "default": "C:\\\\ProgramData\\\\%\\\\%",
+          "description": "The directory pattern targeting subdirectories of ProgramData used for staging."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/08/28/terminalfix-campaign-deploys-reverse-tunnel-through-multistage-intrusion/",
+          "gates": [
+            "design-checks",
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/08/28/terminalfix-campaign-deploys-reverse-tunnel-through-multistage-intrusion/",
+          "name": "TerminalFix campaign deploys a reverse tunnel through multistage intrusion"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-script-logging",
+          "risk": "Without script block logging, we see the persistence and the presence of the loop, but not the contents of the commands being executed via Invoke-Expression.",
+          "owner": "Endpoint Engineering",
+          "stage": "asynchronous-command-loop",
+          "question": "What specific commands were executed within the asynchronous loop?",
+          "requires": "hb_script_activity with full block logging (PowerShell v5+)",
+          "remediation": "Enable Group Policy for PowerShell Script Block Logging and Module Logging."
+        },
+        {
+          "id": "registry-snapshot-only",
+          "risk": "Snapshots show existing keys but not the timeframe of creation, making it difficult to correlate persistence setup with the initial sideloading event.",
+          "owner": "SOC Platform",
+          "stage": "persistence-establishment",
+          "question": "When was the persistence established and what was the parent process?",
+          "requires": "hb_registry_activity in log mode (Sysmon Event ID 12/13/14)",
+          "remediation": "Deploy Sysmon registry monitoring for Run keys in both HKCU and HKLM hives."
+        }
+      ]
+    },
+    "name": "TerminalFix: Persistent Command Loops",
+    "description": "This hunt targets the persistence and command-and-control stages of the TerminalFix campaign. It investigates the specific redundant persistence markers (Registry Run keys and Scheduled Tasks) used to maintain the LockScreenContentServer implant, specifically looking for execution from non-standard subdirectories within ProgramData. Additionally, it examines PowerShell script activity for patterns matching an asynchronous file-watch command loop, which allows attackers to execute arbitrary code by simply writing to a local text file. Correlation between these persistence mechanisms and automated script behavior identifies hosts functioning as durable network beachheads."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "terminalfix-campaign-deploys-a-reverse-tunnel-through-multistage-intrusion",
+          "index": 2,
+          "title": "TerminalFix campaign deploys a reverse tunnel through multistage intrusion",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "persistence-establishment",
+            "steps": [
+              "registry-persistence-check",
+              "scheduled-task-baseline"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "asynchronous-command-loop",
+            "steps": [
+              "powershell-loop-check"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-clipboard-captcha",
+            "reason": "Covered in the initial access hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "payload-delivery-sideloading",
+            "reason": "Covered in the delivery/sideloading hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "steganographic-extraction",
+            "reason": "Covered in the delivery/sideloading hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "internal-reconnaissance",
+            "reason": "Covered in the reconnaissance/tunnel hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "reverse-tunnel-deployment",
+            "reason": "Covered in the reconnaissance/tunnel hunt of this series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "Adversaries are maintaining access via redundant persistence in ProgramData subdirectories and using a PowerShell-based file-watch loop for asynchronous command execution.",
+        "blind_spots": [
+          {
+            "id": "no-script-logging",
+            "risk": "Without script block logging, we see the persistence and the presence of the loop, but not the contents of the commands being executed via Invoke-Expression.",
+            "owner": "Endpoint Engineering",
+            "stage": "asynchronous-command-loop",
+            "question": "What specific commands were executed within the asynchronous loop?",
+            "requires": "hb_script_activity with full block logging (PowerShell v5+)",
+            "remediation": "Enable Group Policy for PowerShell Script Block Logging and Module Logging."
+          },
+          {
+            "id": "registry-snapshot-only",
+            "risk": "Snapshots show existing keys but not the timeframe of creation, making it difficult to correlate persistence setup with the initial sideloading event.",
+            "owner": "SOC Platform",
+            "stage": "persistence-establishment",
+            "question": "When was the persistence established and what was the parent process?",
+            "requires": "hb_registry_activity in log mode (Sysmon Event ID 12/13/14)",
+            "remediation": "Deploy Sysmon registry monitoring for Run keys in both HKCU and HKLM hives."
+          }
+        ],
+        "scoping_notes": "Scoping focuses on Windows endpoints specifically executing binaries from deep ProgramData paths, as this is the standard staging location for TerminalFix implants. Widen the search if the campaign is observed using other user-writable paths like AppData.",
+        "beyond_detection": "While static rules exist for Run keys, this hunt identifies the behavioral correlation between redundant persistence methods and a specific automated script loop. It uses prevalence baselines to distinguish TerminalFix persistence from standard updater tasks in ProgramData, a context a single rule cannot easily evaluate."
+      }
+    },
+    {
+      "id": "scoping-programdata-execution",
+      "type": "query",
+      "label": "Execution from suspicious ProgramData subfolders",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_path, process_cmd_line, time FROM hb_process_activity WHERE LOWER(process_path) LIKE '{{payload_path_pattern}}' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify hosts running any binary from ProgramData subdirectories, which serves as the primary staging area for TerminalFix components.",
+        "expected_signal": "Processes executing from subdirectories of ProgramData. Silence is evidence of absence for standard campaign staging on the examined estate."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Execution from suspicious ProgramData subfolders",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "process_name",
+          "process_path",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_path, process_cmd_line, time FROM hb_process_activity WHERE LOWER(process_path) LIKE '{{payload_path_pattern}}' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Processes executing from subdirectories of ProgramData. Silence is evidence of absence for standard campaign staging on the examined estate.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-08"
+      }
+    },
+    {
+      "id": "registry-persistence-check",
+      "type": "query",
+      "label": "Registry Run key persistence check",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, process_name, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\\\software\\\\microsoft\\\\windows\\\\currentversion\\\\run%' AND (LOWER(reg_target) LIKE '%' || LOWER('{{persistence_id}}') || '%' OR LOWER(reg_value_data) LIKE '%' || LOWER('{{persistence_id}}') || '%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_registry_activity",
+        "description": "Identify the creation of the masqueraded Registry Run key used by TerminalFix to survive reboots.",
+        "expected_signal": "Registry writes or existing Run values containing the campaign's persistence identifier and pointing to the ProgramData path."
+      },
+      "parents": [
+        {
+          "id": "scoping-programdata-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Registry Run key persistence check",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "reg_target",
+          "reg_value_data",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, process_name, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\\\software\\\\microsoft\\\\windows\\\\currentversion\\\\run%' AND (LOWER(reg_target) LIKE '%' || LOWER('{{persistence_id}}') || '%' OR LOWER(reg_value_data) LIKE '%' || LOWER('{{persistence_id}}') || '%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Registry writes or existing Run values containing the campaign's persistence identifier and pointing to the ProgramData path.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-08"
+      }
+    },
+    {
+      "id": "scheduled-task-baseline",
+      "type": "query",
+      "label": "Rare scheduled tasks in ProgramData",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT job_name, job_cmd_line, COUNT(DISTINCT device_hostname) as host_count FROM hb_scheduled_job WHERE LOWER(job_cmd_line) LIKE '{{payload_path_pattern}}' GROUP BY job_name, job_cmd_line HAVING host_count <= 3",
+        "surface": "hb_scheduled_job",
+        "description": "Perform a prevalence analysis on scheduled tasks that execute commands from ProgramData subdirectories.",
+        "expected_signal": "Rarely seen scheduled tasks pointing to ProgramData; the TerminalFix task is expected to appear with a low host count."
+      },
+      "parents": [
+        {
+          "id": "scoping-programdata-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare scheduled tasks in ProgramData",
+        "reads": [
+          "device_hostname",
+          "job_cmd_line",
+          "job_name"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT job_name, job_cmd_line, COUNT(DISTINCT device_hostname) as host_count FROM hb_scheduled_job WHERE LOWER(job_cmd_line) LIKE '{{payload_path_pattern}}' GROUP BY job_name, job_cmd_line HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rarely seen scheduled tasks pointing to ProgramData; the TerminalFix task is expected to appear with a low host count.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "job_name",
+            "job_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-08"
+      }
+    },
+    {
+      "id": "powershell-loop-check",
+      "type": "query",
+      "label": "PowerShell File-Watch and IEX loop",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_path, script_content, time FROM hb_script_activity WHERE ((LOWER(script_content) LIKE '%filesystemwatcher%' AND LOWER(script_content) LIKE '%invoke-expression%') OR (LOWER(script_content) LIKE '%while($true)%' AND LOWER(script_content) LIKE '%get-content%' AND LOWER(script_content) LIKE '%iex%')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Locate PowerShell scripts implementing a file-watcher or polling loop used to asynchronously execute attacker-controlled files.",
+        "expected_signal": "Script blocks containing code designed to monitor the filesystem for new input and execute it immediately."
+      },
+      "parents": [
+        {
+          "id": "scoping-programdata-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "PowerShell File-Watch and IEX loop",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "script_path",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_path, script_content, time FROM hb_script_activity WHERE ((LOWER(script_content) LIKE '%filesystemwatcher%' AND LOWER(script_content) LIKE '%invoke-expression%') OR (LOWER(script_content) LIKE '%while($true)%' AND LOWER(script_content) LIKE '%get-content%' AND LOWER(script_content) LIKE '%iex%')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks containing code designed to monitor the filesystem for new input and execute it immediately.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-08"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Evaluate persistence and command loop",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "scoping-programdata-execution",
+          "registry-persistence-check",
+          "scheduled-task-baseline",
+          "powershell-loop-check"
+        ],
+        "objective": "Determine if any host shows evidence of redundant persistence (Run key + Task) coupled with an automated script command loop. Verify if these components are executing from the targeted ProgramData subfolders.",
+        "description": "Correlate independent findings across the three telemetry surfaces to confirm a managed persistence loop.",
+        "max_iterations": 4,
+        "expected_signal": "A detailed synthesis linking ProgramData execution to redundant persistence and script-based C2.",
+        "success_criteria": "A structured verdict per host (Malicious, Suspicious, Benign) with citations to specific rows."
+      },
+      "parents": [
+        {
+          "id": "registry-persistence-check",
+          "kind": "merge"
+        },
+        {
+          "id": "scheduled-task-baseline",
+          "kind": "merge"
+        },
+        {
+          "id": "powershell-loop-check",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "verdict-decision",
+      "type": "checkpoint",
+      "label": "Route based on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-agent identifies at least one host with both persistence and command-loop activity",
+        "condition": "the triage-agent identifies at least one host with both persistence and command-loop activity",
+        "blind_spot": "no-script-logging",
+        "confidence": "high",
+        "description": "Route to containment for high-confidence malicious findings or manual review for suspicious activity.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate infected host",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately sever the attacker's persistent command channel.",
+        "instructions": "Isolate the host immediately. Collect all files from the ProgramData subfolders identified in the triage, specifically targeting the text file used by the PowerShell loop. Prepare for full incident response.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify the findings and assess the extent of the command execution.",
+        "instructions": "Review the script content for the watch-loop and identify the file being watched. Check for other processes launched by the sideloading host. Cross-reference with the 'Reverse Tunnel' and 'Internal Reconnaissance' hunts in this series."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "default"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize documentation for negative results.",
+        "instructions": "If no malicious activity was found, document the hosts scanned and the prevalence baselines established. Close the hunt."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
