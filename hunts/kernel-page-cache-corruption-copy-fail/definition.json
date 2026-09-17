@@ -1,0 +1,561 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "CVE-2026-31431 (Copy-Fail) bypasses all standard file integrity and write auditing by corrupting the page cache directly in kernel memory."
+      },
+      "name": "Kernel Page Cache Corruption Detection",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1068",
+        "attack.t1564"
+      ],
+      "series": {
+        "slug": "cve-2026-31431-copy-fail-exploit-detection-with-agents",
+        "index": 2,
+        "title": "CVE-2026-31431 Copy-Fail exploit detection with agents",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "container-escape-via-page-cache",
+          "reason": "This hunt focuses on host-level privilege escalation; cross-namespace page cache corruption is a sibling hunt.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "linux-copy-fail-exploit-detection",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule for unprivileged AF_ALG socket binding is often too noisy. This hunt uses a behavioral sequence\u2014unprivileged file read, prevalence stacking, and anomalous root transition\u2014to provide high-confidence signal.",
+      "coverage": [
+        {
+          "stage": "crypto-socket-initialization",
+          "reason": "Standard surfaces do not capture AF_ALG socket family or specific setsockopt calls.",
+          "status": "not_visible",
+          "blind_spot": "missing-endpoint-telemetry"
+        },
+        {
+          "stage": "sensitive-file-mapping",
+          "steps": [
+            "unprivileged-sensitive-reads",
+            "rare-sensitive-access-stacking"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privilege-escalation-execution",
+          "steps": [
+            "suspicious-root-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "vulnerability-identification",
+          "reason": "Belongs to another part of the 'CVE-2026-31431 Copy-Fail exploit detection with agents' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Vulnerable Kernel Identification",
+            "slug": "vulnerability-identification",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "CVE-2026-31431",
+              "Linux kernel versions 4.14 through 6.19",
+              "Linux kernel version 7.0-rc"
+            ]
+          },
+          {
+            "name": "AF_ALG Socket Setup",
+            "slug": "crypto-socket-initialization",
+            "tactic": "execution",
+            "techniques": [
+              "T1068"
+            ],
+            "observables": [
+              "socket(AF_ALG, SOCK_SEQPACKET, 0)",
+              "bind(AF_ALG, \"authencesn(hmac(sha256),cbc(aes))\")",
+              "setsockopt(SOL_ALG, ALG_SET_KEY)",
+              "setsockopt(SOL_ALG, ALG_SET_AEAD_AUTHSIZE, 4)",
+              "process.euid != 0"
+            ]
+          },
+          {
+            "name": "Target File Page Cache Mapping",
+            "slug": "sensitive-file-mapping",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1564"
+            ],
+            "observables": [
+              "open(\"/usr/bin/su\", O_RDONLY)",
+              "open(\"/etc/pam.d/*\", O_RDONLY)",
+              "open(\"/etc/passwd\", O_RDONLY)",
+              "os.pipe()",
+              "os.splice(target_fd, pipe_wr, ...)"
+            ]
+          },
+          {
+            "name": "Privileged Execution of Corrupted Binary",
+            "slug": "privilege-escalation-execution",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1068"
+            ],
+            "observables": [
+              "Execution of SUID binaries (e.g., /usr/bin/su)",
+              "Execution as root (euid 0) from an unprivileged parent process",
+              "Authentication bypass via modified PAM config"
+            ]
+          }
+        ],
+        "summary": "An unprivileged local user exploits CVE-2026-31431 by using AF_ALG crypto sockets and the splice syscall to corrupt the kernel page cache of sensitive system binaries or configuration files. This results in a controlled, in-memory modification of files like su or PAM configs, enabling the attacker to execute code as root without leaving a permanent on-disk audit trail or changing file metadata."
+      },
+      "severity": "critical",
+      "rationale": "Focus on high-value Linux servers and long-uptime systems where corrupted page cache pages are most likely to persist.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An unprivileged actor is exploiting CVE-2026-31431 by using the Linux crypto subsystem to corrupt the in-memory page cache of sensitive system files, facilitating unauthorized privilege escalation to root.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "sensitive_paths": {
+          "from": {
+            "ref": "Datadog Security Labs",
+            "kind": "article",
+            "observed": "2026-05-01"
+          },
+          "type": "list[path]",
+          "default": [
+            "/etc/pam.d/",
+            "%passwd",
+            "%su",
+            "%sudo"
+          ],
+          "description": "System paths and binaries targeted for page cache corruption to bypass authentication or escalate privileges."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://securitylabs.datadoghq.com/articles/cve-2026-31431-copy-fail-exploit-detection-with-agents/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://securitylabs.datadoghq.com/articles/cve-2026-31431-copy-fail-exploit-detection-with-agents/",
+          "name": "CVE-2026-31431 Copy-Fail exploit detection with agents"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-endpoint-telemetry",
+          "risk": "Standard surfaces see side effects only; the core mechanism is invisible without kernel syscall tracing.",
+          "stage": "crypto-socket-initialization",
+          "question": "Was an AF_ALG socket actually used to configure the AEAD pipeline?",
+          "requires": "Syscall tracing for AF_ALG socket and splice()"
+        },
+        {
+          "id": "volatile-memory-evidence",
+          "risk": "Corruption is volatile. If the kernel reclaims the page or the system reboots, the primary indicator is lost.",
+          "stage": "privilege-escalation-execution",
+          "question": "Is the corruption still resident in memory?",
+          "requires": "In-memory page cache inspection"
+        }
+      ]
+    },
+    "name": "Kernel Page Cache Corruption Detection",
+    "description": "This hunt identifies 'Copy-Fail' (CVE-2026-31431) exploitation, where an unprivileged user leverages AF_ALG sockets to write directly into the page cache of readable system files. Because the corruption occurs entirely in kernel memory without modifying the on-disk file, metadata-based FIM is blind to the write.\n\nThe hunt focuses on the distinctive behavioral chain: unprivileged processes performing read-only operations on sensitive binaries (e.g., /usr/bin/su) or PAM configurations, followed by a suspicious transition to root execution (euid 0) on the same host. We use prevalence stacking to isolate rare, targeted access patterns from normal system noise."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "cve-2026-31431-copy-fail-exploit-detection-with-agents",
+          "index": 2,
+          "title": "CVE-2026-31431 Copy-Fail exploit detection with agents",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "crypto-socket-initialization",
+            "reason": "Standard surfaces do not capture AF_ALG socket family or specific setsockopt calls.",
+            "status": "not_visible",
+            "blind_spot": "missing-endpoint-telemetry"
+          },
+          {
+            "stage": "sensitive-file-mapping",
+            "steps": [
+              "unprivileged-sensitive-reads",
+              "rare-sensitive-access-stacking"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privilege-escalation-execution",
+            "steps": [
+              "suspicious-root-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "vulnerability-identification",
+            "reason": "Belongs to another part of the 'CVE-2026-31431 Copy-Fail exploit detection with agents' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An unprivileged actor is exploiting CVE-2026-31431 by using the Linux crypto subsystem to corrupt the in-memory page cache of sensitive system files, facilitating unauthorized privilege escalation to root.",
+        "blind_spots": [
+          {
+            "id": "missing-endpoint-telemetry",
+            "risk": "Standard surfaces see side effects only; the core mechanism is invisible without kernel syscall tracing.",
+            "stage": "crypto-socket-initialization",
+            "question": "Was an AF_ALG socket actually used to configure the AEAD pipeline?",
+            "requires": "Syscall tracing for AF_ALG socket and splice()"
+          },
+          {
+            "id": "volatile-memory-evidence",
+            "risk": "Corruption is volatile. If the kernel reclaims the page or the system reboots, the primary indicator is lost.",
+            "stage": "privilege-escalation-execution",
+            "question": "Is the corruption still resident in memory?",
+            "requires": "In-memory page cache inspection"
+          }
+        ],
+        "scoping_notes": "Focus on high-value Linux servers and long-uptime systems where corrupted page cache pages are most likely to persist.",
+        "beyond_detection": "A single rule for unprivileged AF_ALG socket binding is often too noisy. This hunt uses a behavioral sequence\u2014unprivileged file read, prevalence stacking, and anomalous root transition\u2014to provide high-confidence signal."
+      }
+    },
+    {
+      "id": "linux-host-scope",
+      "type": "query",
+      "label": "Scope to Linux systems",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) = 'linux' OR LOWER(package_name) = 'kernel') AND collected_at >= datetime('now', '-7 days')",
+        "surface": "hb_software_inventory",
+        "description": "Identify Linux hosts in the inventory that are susceptible to kernel-level vulnerabilities.",
+        "expected_signal": "A list of Linux hostnames and kernel versions. Silence means no Linux systems are reporting inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to Linux systems",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "collected_at"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) = 'linux' OR LOWER(package_name) = 'kernel') AND collected_at >= datetime('now', '-7 days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of Linux hostnames and kernel versions. Silence means no Linux systems are reporting inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "unprivileged-sensitive-reads",
+      "type": "query",
+      "label": "Unprivileged read access to sensitive files",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, actor_user_name, time FROM hb_file_activity WHERE activity_id = 2 AND LOWER(actor_user_name) NOT IN ('root', 'system', 'bin', 'daemon') AND (LOWER(file_path) LIKE '%/bin/su' OR LOWER(file_path) LIKE '%/bin/sudo' OR LOWER(file_path) LIKE '%/etc/pam.d/%' OR LOWER(file_path) LIKE '%/etc/passwd' OR LOWER(file_path) LIKE '%/etc/security/%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect processes running as non-privileged users reading sensitive system binaries or configs, which is a precursor to the splicing phase of the exploit.",
+        "expected_signal": "Rows showing unprivileged users accessing files they usually do not touch directly. This mimics the exploit's read phase."
+      },
+      "parents": [
+        {
+          "id": "linux-host-scope"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Unprivileged read access to sensitive files",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "actor_user_name",
+          "time",
+          "activity_id"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, actor_user_name, time FROM hb_file_activity WHERE activity_id = 2 AND LOWER(actor_user_name) NOT IN ('root', 'system', 'bin', 'daemon') AND (LOWER(file_path) LIKE '%/bin/su' OR LOWER(file_path) LIKE '%/bin/sudo' OR LOWER(file_path) LIKE '%/etc/pam.d/%' OR LOWER(file_path) LIKE '%/etc/passwd' OR LOWER(file_path) LIKE '%/etc/security/%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows showing unprivileged users accessing files they usually do not touch directly. This mimics the exploit's read phase.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "rare-sensitive-access-stacking",
+      "type": "query",
+      "label": "Stacking unprivileged sensitive access",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT file_path, actor_user_name, COUNT(DISTINCT device_hostname) AS host_count FROM hb_file_activity WHERE activity_id = 2 AND LOWER(actor_user_name) NOT IN ('root', 'system', 'bin', 'daemon') AND (LOWER(file_path) LIKE '%/bin/su' OR LOWER(file_path) LIKE '%/etc/pam.d/%' OR LOWER(file_path) LIKE '%/etc/passwd') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY file_path, actor_user_name HAVING host_count < 3",
+        "surface": "hb_file_activity",
+        "description": "Identify outlier hosts where unprivileged users are performing targeted reads on sensitive files.",
+        "expected_signal": "A binary or config file being read by an unprivileged user on only one or two hosts in the fleet."
+      },
+      "parents": [
+        {
+          "id": "unprivileged-sensitive-reads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Stacking unprivileged sensitive access",
+        "reads": [
+          "file_path",
+          "actor_user_name",
+          "device_hostname",
+          "activity_id",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT file_path, actor_user_name, COUNT(DISTINCT device_hostname) AS host_count FROM hb_file_activity WHERE activity_id = 2 AND LOWER(actor_user_name) NOT IN ('root', 'system', 'bin', 'daemon') AND (LOWER(file_path) LIKE '%/bin/su' OR LOWER(file_path) LIKE '%/etc/pam.d/%' OR LOWER(file_path) LIKE '%/etc/passwd') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY file_path, actor_user_name HAVING host_count < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A binary or config file being read by an unprivileged user on only one or two hosts in the fleet.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "file_path",
+            "actor_user_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "suspicious-root-execution",
+      "type": "query",
+      "label": "Suspicious root execution from non-root parents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, parent_process_name, parent_process_cmd_line, time FROM hb_process_activity WHERE activity_id = 1 AND LOWER(user_name) = 'root' AND LOWER(parent_process_name) NOT LIKE '%/systemd' AND LOWER(parent_process_name) NOT LIKE '%/init' AND LOWER(parent_process_name) NOT LIKE '%/kthreadd' AND LOWER(parent_process_name) NOT LIKE '%/sshd' AND LOWER(parent_process_name) NOT LIKE '%/containerd' AND LOWER(parent_process_name) NOT LIKE '%/dockerd' AND LOWER(parent_process_name) NOT LIKE '%sudo%' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Corroborate the exploit's outcome: a process gaining root (euid 0) from an unprivileged parent without standard privilege escalation paths.",
+        "expected_signal": "Processes launching as root from shell or user contexts without sudo."
+      },
+      "parents": [
+        {
+          "id": "unprivileged-sensitive-reads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Suspicious root execution from non-root parents",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "parent_process_name",
+          "parent_process_cmd_line",
+          "time",
+          "activity_id"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, parent_process_name, parent_process_cmd_line, time FROM hb_process_activity WHERE activity_id = 1 AND LOWER(user_name) = 'root' AND LOWER(parent_process_name) NOT LIKE '%/systemd' AND LOWER(parent_process_name) NOT LIKE '%/init' AND LOWER(parent_process_name) NOT LIKE '%/kthreadd' AND LOWER(parent_process_name) NOT LIKE '%/sshd' AND LOWER(parent_process_name) NOT LIKE '%/containerd' AND LOWER(parent_process_name) NOT LIKE '%/dockerd' AND LOWER(parent_process_name) NOT LIKE '%sudo%' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes launching as root from shell or user contexts without sudo.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-verdict",
+      "type": "analytic",
+      "label": "Triage Copy-Fail exploitation sequence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "unprivileged-sensitive-reads",
+          "rare-sensitive-access-stacking",
+          "suspicious-root-execution"
+        ],
+        "objective": "Determine if any host shows the 'Copy-Fail' exploit pattern: unprivileged read access to a sensitive binary or PAM config followed by a suspicious root transition from a non-standard parent on that same host.",
+        "description": "Analyze the correlation between unprivileged file access and anomalous root transitions on the same host.",
+        "max_iterations": 5,
+        "expected_signal": "A prioritized list of hosts with a malicious/benign verdict.",
+        "success_criteria": "A host-by-host verdict citing specific file paths and the root execution details."
+      },
+      "parents": [
+        {
+          "id": "rare-sensitive-access-stacking",
+          "kind": "merge"
+        },
+        {
+          "id": "suspicious-root-execution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-decision",
+      "type": "checkpoint",
+      "label": "Route based on agent verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for at least one host, indicating privilege escalation following targeted file access.",
+        "condition": "The triage verdict is malicious for at least one host, indicating privilege escalation following targeted file access.",
+        "blind_spot": "missing-endpoint-telemetry",
+        "confidence": "high",
+        "description": "Direct the workflow to containment or review based on the triage output.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-verdict"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host and preserve memory",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the attack and ensure volatile evidence (the corrupted page cache) is preserved.",
+        "instructions": "Isolate the endpoint from the network. Perform a memory acquisition before rebooting to capture the corrupted page cache.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Forensic validation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's findings and document the attack timeline.",
+        "instructions": "Review the cited rows. Confirm the unprivileged session and subsequent root launch. Look for secondary indicators like persistent shell creation."
+      },
+      "parents": [
+        {
+          "id": "route-decision",
+          "branch": "default"
+        },
+        {
+          "id": "route-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close hunt and record baseline",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update the baseline for unprivileged system access.",
+        "instructions": "Record legitimate unprivileged file access patterns for tuning. Close the hunt."
+      },
+      "parents": [
+        {
+          "id": "route-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
