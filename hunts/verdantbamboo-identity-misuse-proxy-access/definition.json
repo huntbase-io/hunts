@@ -1,0 +1,629 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The use of storage appliances as proxies to evade Conditional Access is a high-impact technique that bypasses standard perimeter security by making malicious cloud access appear as internal corporate traffic."
+      },
+      "name": "VerdantBamboo Identity Misuse and Proxy Access",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1078",
+        "attack.t1071",
+        "attack.t1133",
+        "attack.t1090.003"
+      ],
+      "series": {
+        "slug": "verdantbamboo-just-another-brickstorm-in-the-firewall",
+        "index": 1,
+        "title": "VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "verdantbamboo-backdoor-persistence",
+          "reason": "This hunt focuses on the identity/proxy aspect; the persistence mechanisms (cron, AGENTPSD) are handled in the sibling hunt.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single rule for M365 logons from internal IPs might trigger too many false positives if users legitimately use internal proxies; this hunt combines that signal with appliance hostnames and rare VPN source IPs to find the specific pattern of VerdantBamboo.",
+      "coverage": [
+        {
+          "stage": "initial-access-valid-credentials-vpn",
+          "steps": [
+            "rare-vpn-source-ips"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "lateral-movement-m365-proxying",
+          "steps": [
+            "m365-signins-from-internal-ips"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "impact-synology-nas-compromise",
+          "steps": [
+            "scope-appliances",
+            "appliance-ssh-egress"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privilege-escalation-sudo-tee-abuse",
+          "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "persistence-cron-modification",
+          "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "command-and-control-brickstorm-doh",
+          "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Initial Access via Compromised VPN Credentials",
+            "slug": "initial-access-valid-credentials-vpn",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1078",
+              "T1133"
+            ],
+            "observables": [
+              "egnyteservice account",
+              "SSH connections from internal VPN IP range",
+              "Source IP assigned by web-based SSL VPN"
+            ]
+          },
+          {
+            "name": "Local Privilege Escalation via Sudo Tee",
+            "slug": "privilege-escalation-sudo-tee-abuse",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "sudo tee",
+              "/usr/local/bin/egnyte/rsync_data_migration.sh",
+              "/usr/bin/config_network",
+              "inadvertent sudo configuration for egnyteservice"
+            ]
+          },
+          {
+            "name": "Persistence via Cron Jobs",
+            "slug": "persistence-cron-modification",
+            "tactic": "persistence",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "/etc/cron.d/ssync",
+              "/home/egnyteservice/ssync.sh",
+              "/etc/crontab modification",
+              "egnyte_host_monitor_client",
+              "executed at 14:20 on the 15th day of every month"
+            ]
+          },
+          {
+            "name": "C2 via DNS over HTTPS",
+            "slug": "command-and-control-brickstorm-doh",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071",
+              "T1090.003"
+            ],
+            "observables": [
+              "TLS connections to 8.8.8.8",
+              "Cloudflare-fronted domains",
+              "BRICKSTORM malware in /usr/sbin/",
+              "No standard DNS traffic for C2 domains"
+            ]
+          },
+          {
+            "name": "M365 Access via Appliance Proxy",
+            "slug": "lateral-movement-m365-proxying",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "M365 sign-ins originating from Storage Sync appliance IP",
+              "Bypass of Conditional Access policies"
+            ]
+          },
+          {
+            "name": "Deployment of PLENET on NAS",
+            "slug": "impact-synology-nas-compromise",
+            "tactic": "persistence",
+            "techniques": [
+              "T1078",
+              "T1133"
+            ],
+            "observables": [
+              "Synology NAS web interface admin login",
+              "SSH enabled on Synology NAS",
+              "PLENET backdoor deployment"
+            ]
+          }
+        ],
+        "summary": "VerdantBamboo compromised an organization's Egnyte Storage Sync and Synology NAS appliances using credentials stolen from a breached Managed Service Provider. The actor deployed the BRICKSTORM backdoor and AGENTPSD python shell, using the appliances as proxies to access Microsoft 365 environments and evade conditional access policies."
+      },
+      "severity": "high",
+      "rationale": "The hunt should prioritize appliances that are internet-facing or managed by MSPs. Focus on Egnyte, Synology, and pfSense/firewall hostnames first.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using compromised credentials to access the internal network via VPN and then leveraging internal appliances (Storage Sync, NAS) as proxies to reach SaaS environments or move laterally while evading IP-based conditional access.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "internal_appliance_keywords": {
+          "type": "list[string]",
+          "default": [
+            "egnyte",
+            "synology",
+            "storage",
+            "nas",
+            "pfsense"
+          ],
+          "description": "Keywords used to identify potential proxying appliances in hostnames or software inventory."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/",
+          "name": "VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall"
+        },
+        {
+          "url": "https://volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/",
+          "name": "Volexity \u2014 VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-vpn-logs",
+          "risk": "Short retention (as noted in the article) prevents tracing the initial compromise point.",
+          "stage": "initial-access-valid-credentials-vpn",
+          "question": "How did the adversary initially gain VPN access?",
+          "requires": "VPN authentication logs with long retention"
+        },
+        {
+          "id": "appliance-edr-gap",
+          "risk": "Many appliances do not support traditional EDR agents, leaving 'on-disk' and process activity invisible.",
+          "stage": "impact-synology-nas-compromise",
+          "question": "Was the PLENET backdoor executed on the Synology NAS?",
+          "requires": "Endpoint telemetry (hb_process_activity) for NAS/Appliances"
+        }
+      ]
+    },
+    "name": "VerdantBamboo Identity Misuse and Proxy Access",
+    "description": "This hunt focuses on the 'identity misuse' phase of the VerdantBamboo (UNC5221) campaign. It specifically seeks to identify instances where internal Linux-based appliances, such as Egnyte Storage Sync or Synology NAS, are used as proxies for Microsoft 365 access\u2014a technique used to blend with legitimate traffic and bypass conditional access. The hunt also examines VPN authentication patterns for anomalous source IPs and subsequent lateral movement via SSH from these appliances."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "verdantbamboo-just-another-brickstorm-in-the-firewall",
+          "index": 1,
+          "title": "VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "initial-access-valid-credentials-vpn",
+            "steps": [
+              "rare-vpn-source-ips"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "lateral-movement-m365-proxying",
+            "steps": [
+              "m365-signins-from-internal-ips"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "impact-synology-nas-compromise",
+            "steps": [
+              "scope-appliances",
+              "appliance-ssh-egress"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privilege-escalation-sudo-tee-abuse",
+            "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "persistence-cron-modification",
+            "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "command-and-control-brickstorm-doh",
+            "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using compromised credentials to access the internal network via VPN and then leveraging internal appliances (Storage Sync, NAS) as proxies to reach SaaS environments or move laterally while evading IP-based conditional access.",
+        "blind_spots": [
+          {
+            "id": "no-vpn-logs",
+            "risk": "Short retention (as noted in the article) prevents tracing the initial compromise point.",
+            "stage": "initial-access-valid-credentials-vpn",
+            "question": "How did the adversary initially gain VPN access?",
+            "requires": "VPN authentication logs with long retention"
+          },
+          {
+            "id": "appliance-edr-gap",
+            "risk": "Many appliances do not support traditional EDR agents, leaving 'on-disk' and process activity invisible.",
+            "stage": "impact-synology-nas-compromise",
+            "question": "Was the PLENET backdoor executed on the Synology NAS?",
+            "requires": "Endpoint telemetry (hb_process_activity) for NAS/Appliances"
+          }
+        ],
+        "scoping_notes": "The hunt should prioritize appliances that are internet-facing or managed by MSPs. Focus on Egnyte, Synology, and pfSense/firewall hostnames first.",
+        "beyond_detection": "A single rule for M365 logons from internal IPs might trigger too many false positives if users legitimately use internal proxies; this hunt combines that signal with appliance hostnames and rare VPN source IPs to find the specific pattern of VerdantBamboo."
+      }
+    },
+    {
+      "id": "scope-appliances",
+      "type": "query",
+      "label": "Identify internal storage and network appliances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT hostname, device_uid, platform, ip_address, last_seen FROM hb_devices WHERE (LOWER(hostname) LIKE '%egnyte%' OR LOWER(hostname) LIKE '%synology%' OR LOWER(hostname) LIKE '%nas%' OR LOWER(hostname) LIKE '%storage%') AND lifecycle_state = 'active'",
+        "surface": "hb_devices",
+        "description": "Find hosts that match the profile of appliances targeted by VerdantBamboo for proxying and persistence.",
+        "expected_signal": "A list of appliances. Silence is evidence of absence for these specific naming conventions, but not for all appliances."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify internal storage and network appliances",
+        "reads": [
+          "hostname",
+          "device_uid",
+          "platform",
+          "ip_address",
+          "last_seen",
+          "lifecycle_state"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname, device_uid, platform, ip_address, last_seen FROM hb_devices WHERE (LOWER(hostname) LIKE '%egnyte%' OR LOWER(hostname) LIKE '%synology%' OR LOWER(hostname) LIKE '%nas%' OR LOWER(hostname) LIKE '%storage%') AND lifecycle_state = 'active'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of appliances. Silence is evidence of absence for these specific naming conventions, but not for all appliances.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "m365-signins-from-internal-ips",
+      "type": "query",
+      "label": "M365 sign-ins originating from internal IP addresses",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, COUNT(*) as signin_count, MIN(time) as first_seen FROM hb_auth_signin WHERE provider = 'm365' AND (src_endpoint_ip LIKE '10.%' OR src_endpoint_ip LIKE '192.168.%' OR src_endpoint_ip LIKE '172.%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, dst_endpoint_name",
+        "surface": "hb_auth_signin",
+        "description": "Identify M365 authentication events where the source IP is an internal private IP, suggesting a proxy/VPN tunnel is being used to bypass external IP filters.",
+        "expected_signal": "Auth events showing internal IPs as the source for cloud-based M365 logons. In a non-proxy environment, these should not exist."
+      },
+      "parents": [
+        {
+          "id": "scope-appliances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "M365 sign-ins originating from internal IP addresses",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "provider",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, COUNT(*) as signin_count, MIN(time) as first_seen FROM hb_auth_signin WHERE provider = 'm365' AND (src_endpoint_ip LIKE '10.%' OR src_endpoint_ip LIKE '192.168.%' OR src_endpoint_ip LIKE '172.%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, dst_endpoint_name",
+        "silence": "evidence_of_absence",
+        "expected": "Auth events showing internal IPs as the source for cloud-based M365 logons. In a non-proxy environment, these should not exist.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "rare-vpn-source-ips",
+      "type": "query",
+      "label": "Rare user/IP pairs for VPN authentication",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, COUNT(*) as login_total, COUNT(DISTINCT src_endpoint_ip) as unique_ips, MIN(time) as first_seen FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%vpn%' OR LOWER(auth_protocol) LIKE '%vpn%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip HAVING login_total < 5 ORDER BY login_total ASC",
+        "surface": "hb_auth_signin",
+        "description": "Detect potentially compromised accounts by finding VPN sign-ins from IPs rarely associated with specific users.",
+        "expected_signal": "A few login events from a source IP that a user has not used before. These require cross-referencing with known threat actor IP ranges."
+      },
+      "parents": [
+        {
+          "id": "scope-appliances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare user/IP pairs for VPN authentication",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "auth_protocol",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, COUNT(*) as login_total, COUNT(DISTINCT src_endpoint_ip) as unique_ips, MIN(time) as first_seen FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%vpn%' OR LOWER(auth_protocol) LIKE '%vpn%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip HAVING login_total < 5 ORDER BY login_total ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A few login events from a source IP that a user has not used before. These require cross-referencing with known threat actor IP ranges.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "actor_user_name",
+            "src_endpoint_ip"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "appliance-ssh-egress",
+      "type": "query",
+      "label": "SSH egress activity from appliances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, src_endpoint_ip, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (dst_endpoint_port = 22 OR dst_endpoint_port = 443) AND (LOWER(device_hostname) LIKE '%egnyte%' OR LOWER(device_hostname) LIKE '%synology%' OR LOWER(device_hostname) LIKE '%storage%' OR LOWER(device_hostname) LIKE '%nas%') AND direction = 'outbound' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Detect appliances initiating SSH connections internally, which matches VerdantBamboo's pivoting behavior.",
+        "expected_signal": "Outbound connections from storage appliances to internal servers or cloud IPs on SSH/HTTPS ports. Appliances typically should not initiate these connections."
+      },
+      "parents": [
+        {
+          "id": "scope-appliances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "SSH egress activity from appliances",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "src_endpoint_ip",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, src_endpoint_ip, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (dst_endpoint_port = 22 OR dst_endpoint_port = 443) AND (LOWER(device_hostname) LIKE '%egnyte%' OR LOWER(device_hostname) LIKE '%synology%' OR LOWER(device_hostname) LIKE '%storage%' OR LOWER(device_hostname) LIKE '%nas%') AND direction = 'outbound' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Outbound connections from storage appliances to internal servers or cloud IPs on SSH/HTTPS ports. Appliances typically should not initiate these connections.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-identity-misuse",
+      "type": "analytic",
+      "label": "Triage Identity and Proxy Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "scope-appliances",
+          "m365-signins-from-internal-ips",
+          "rare-vpn-source-ips",
+          "appliance-ssh-egress"
+        ],
+        "objective": "Determine if any host or user shows overlapping signals of compromised VPN access followed by appliance-mediated cloud access or internal pivoting.",
+        "description": "Correlate the findings from M365 logons, VPN anomalies, and appliance network activity to determine if an appliance is being used as a beachhead.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host or per-user verdict on the likelihood of malicious proxying activity.",
+        "success_criteria": "Verdicts (Malicious, Suspicious, Benign) for each host/user identified in the queries, citing the specific rows that link the identity to the proxy behavior."
+      },
+      "parents": [
+        {
+          "id": "m365-signins-from-internal-ips",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-vpn-source-ips",
+          "kind": "merge"
+        },
+        {
+          "id": "appliance-ssh-egress",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for any host or user",
+        "condition": "the triage verdict is malicious for any host or user",
+        "blind_spot": "no-vpn-logs",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's triage findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-identity-misuse"
+        }
+      ]
+    },
+    {
+      "id": "isolate-appliance",
+      "type": "action",
+      "label": "Isolate compromised appliance",
+      "config": {
+        "target": "endpoint",
+        "description": "Sever the adversary's proxy and persistence point.",
+        "instructions": "Isolate the identified Egnyte or Synology appliance. Ensure that SSH and web management interfaces are blocked from internet and VPN access.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-review",
+      "type": "task",
+      "label": "Manual Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform deep forensic analysis and verify findings before final closure.",
+        "instructions": "Review the sign-in logs and network flows cited by the agent. Check the identified appliances for unusual cron jobs or script files in /usr/sbin/ or /home/egnyteservice/."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-appliance"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close-out and Documentation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and record results.",
+        "instructions": "Document the absence of proxy-like authentication and appliance pivoting. Note any blind spots in appliance telemetry."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

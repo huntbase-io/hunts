@@ -1,0 +1,636 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "VerdantBamboo targets edge appliances without EDR to establish stealthy C2 via DoH. A negative result confirms that your perimeter devices are not beaconing to known resolver-based C2 infrastructure, mitigating the risk of long-term (18+ month) undetected compromise."
+      },
+      "name": "VerdantBamboo: Evasive Outbound C2 via DoH",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1071.004",
+        "attack.t1090.003",
+        "attack.t1505.003"
+      ],
+      "series": {
+        "slug": "verdantbamboo-just-another-brickstorm-in-the-firewall",
+        "index": 3,
+        "title": "VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "verdantbamboo-privilege-escalation-sudo",
+          "reason": "This hunt focuses on C2; privilege escalation via sudo tee abuse is a sibling hunt.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "verdantbamboo-vpn-persistence",
+          "reason": "VPN-based access and persistence via crontab is handled in a separate hunt.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "linux-appliance-backdooring-persistence",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule might detect any 8.8.8.8:443 traffic, but this hunt adds the critical context of process path analysis (/usr/sbin), host-wide DNS prevalence stacking, and an agent-driven triage of 'DNS silence' to filter out legitimate browser-based DoH.",
+      "coverage": [
+        {
+          "stage": "command-and-control-brickstorm-doh",
+          "steps": [
+            "identify-doh-traffic",
+            "stack-doh-processes",
+            "check-dns-silence",
+            "check-system-path-rarity",
+            "triage-implants"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-valid-credentials-vpn",
+          "reason": "This stage is handled by another hunt in the series focusing on VPN auth logs.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "privilege-escalation-sudo-tee-abuse",
+          "reason": "This stage is handled by another hunt in the series focusing on sudo/shell activity.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "persistence-cron-modification",
+          "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "lateral-movement-m365-proxying",
+          "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "impact-synology-nas-compromise",
+          "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Initial Access via Compromised VPN Credentials",
+            "slug": "initial-access-valid-credentials-vpn",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1078",
+              "T1133"
+            ],
+            "observables": [
+              "egnyteservice account",
+              "SSH connections from internal VPN IP range",
+              "Source IP assigned by web-based SSL VPN"
+            ]
+          },
+          {
+            "name": "Local Privilege Escalation via Sudo Tee",
+            "slug": "privilege-escalation-sudo-tee-abuse",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "sudo tee",
+              "/usr/local/bin/egnyte/rsync_data_migration.sh",
+              "/usr/bin/config_network",
+              "inadvertent sudo configuration for egnyteservice"
+            ]
+          },
+          {
+            "name": "Persistence via Cron Jobs",
+            "slug": "persistence-cron-modification",
+            "tactic": "persistence",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "/etc/cron.d/ssync",
+              "/home/egnyteservice/ssync.sh",
+              "/etc/crontab modification",
+              "egnyte_host_monitor_client",
+              "executed at 14:20 on the 15th day of every month"
+            ]
+          },
+          {
+            "name": "C2 via DNS over HTTPS",
+            "slug": "command-and-control-brickstorm-doh",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071",
+              "T1090.003"
+            ],
+            "observables": [
+              "TLS connections to 8.8.8.8",
+              "Cloudflare-fronted domains",
+              "BRICKSTORM malware in /usr/sbin/",
+              "No standard DNS traffic for C2 domains"
+            ]
+          },
+          {
+            "name": "M365 Access via Appliance Proxy",
+            "slug": "lateral-movement-m365-proxying",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "M365 sign-ins originating from Storage Sync appliance IP",
+              "Bypass of Conditional Access policies"
+            ]
+          },
+          {
+            "name": "Deployment of PLENET on NAS",
+            "slug": "impact-synology-nas-compromise",
+            "tactic": "persistence",
+            "techniques": [
+              "T1078",
+              "T1133"
+            ],
+            "observables": [
+              "Synology NAS web interface admin login",
+              "SSH enabled on Synology NAS",
+              "PLENET backdoor deployment"
+            ]
+          }
+        ],
+        "summary": "VerdantBamboo compromised an organization's Egnyte Storage Sync and Synology NAS appliances using credentials stolen from a breached Managed Service Provider. The actor deployed the BRICKSTORM backdoor and AGENTPSD python shell, using the appliances as proxies to access Microsoft 365 environments and evade conditional access policies."
+      },
+      "severity": "high",
+      "rationale": "Focus the hunt on Linux-based appliances (Storage Sync, Synology, pfSense) and servers in the DMZ. These devices are VerdantBamboo's primary targets for evading EDR.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "A compromised system is performing command-and-control over DNS-over-HTTPS (DoH) to bypass network inspection, evidenced by TLS connections to public DNS resolvers from unusual binaries.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of network and process history to examine."
+        },
+        "malware_paths": {
+          "from": {
+            "ref": "https://volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/",
+            "kind": "article",
+            "observed": "2026-06-04"
+          },
+          "type": "list[path]",
+          "default": [
+            "/usr/sbin/%",
+            "/usr/local/libexec/%",
+            "/home/egnyteservice/%"
+          ],
+          "description": "Common paths used by BRICKSTORM for manual execution."
+        },
+        "public_dns_ips": {
+          "from": {
+            "ref": "https://volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/",
+            "kind": "article",
+            "observed": "2026-06-04"
+          },
+          "type": "list[ip]",
+          "default": [
+            "8.8.8.8",
+            "8.8.4.4",
+            "1.1.1.1",
+            "1.0.0.1"
+          ],
+          "description": "Public DNS resolvers often used for DoH; 8.8.8.8 is the primary indicator."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/",
+          "name": "VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall"
+        },
+        {
+          "url": "https://volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/",
+          "name": "Volexity \u2014 VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-network-telemetry",
+          "risk": "If network telemetry is missing for specific appliances, the hunt cannot observe the primary C2 indicator.",
+          "stage": "command-and-control-brickstorm-doh",
+          "question": "Can we see encrypted traffic to 8.8.8.8 on port 443?",
+          "requires": "hb_network_connection with dst_endpoint_ip and port"
+        },
+        {
+          "id": "doh-diversity",
+          "risk": "If the threat actor rotates away from 8.8.8.8 to a less common resolver or an actor-controlled DoH server, this hunt may miss the signal.",
+          "stage": "command-and-control-brickstorm-doh",
+          "question": "Does the threat actor use other DoH providers?",
+          "requires": "hb_dns_activity (absence) + hb_network_connection"
+        }
+      ]
+    },
+    "name": "VerdantBamboo: Evasive Outbound C2 via DoH",
+    "description": "This hunt identifies signs of the BRICKSTORM implant, which uses DNS-over-HTTPS (specifically to Google's 8.8.8.8) to resolve Cloudflare-fronted C2 domains. By correlating network connections to public resolvers with the absence of local DNS logs and the presence of rare binaries in system directories like /usr/sbin/, we can identify hosts evading standard DNS-based filtering and monitoring."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "verdantbamboo-just-another-brickstorm-in-the-firewall",
+          "index": 3,
+          "title": "VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "command-and-control-brickstorm-doh",
+            "steps": [
+              "identify-doh-traffic",
+              "stack-doh-processes",
+              "check-dns-silence",
+              "check-system-path-rarity",
+              "triage-implants"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-valid-credentials-vpn",
+            "reason": "This stage is handled by another hunt in the series focusing on VPN auth logs.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "privilege-escalation-sudo-tee-abuse",
+            "reason": "This stage is handled by another hunt in the series focusing on sudo/shell activity.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "persistence-cron-modification",
+            "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "lateral-movement-m365-proxying",
+            "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "impact-synology-nas-compromise",
+            "reason": "Belongs to another part of the 'VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "A compromised system is performing command-and-control over DNS-over-HTTPS (DoH) to bypass network inspection, evidenced by TLS connections to public DNS resolvers from unusual binaries.",
+        "blind_spots": [
+          {
+            "id": "no-network-telemetry",
+            "risk": "If network telemetry is missing for specific appliances, the hunt cannot observe the primary C2 indicator.",
+            "stage": "command-and-control-brickstorm-doh",
+            "question": "Can we see encrypted traffic to 8.8.8.8 on port 443?",
+            "requires": "hb_network_connection with dst_endpoint_ip and port"
+          },
+          {
+            "id": "doh-diversity",
+            "risk": "If the threat actor rotates away from 8.8.8.8 to a less common resolver or an actor-controlled DoH server, this hunt may miss the signal.",
+            "stage": "command-and-control-brickstorm-doh",
+            "question": "Does the threat actor use other DoH providers?",
+            "requires": "hb_dns_activity (absence) + hb_network_connection"
+          }
+        ],
+        "scoping_notes": "Focus the hunt on Linux-based appliances (Storage Sync, Synology, pfSense) and servers in the DMZ. These devices are VerdantBamboo's primary targets for evading EDR.",
+        "beyond_detection": "A standard rule might detect any 8.8.8.8:443 traffic, but this hunt adds the critical context of process path analysis (/usr/sbin), host-wide DNS prevalence stacking, and an agent-driven triage of 'DNS silence' to filter out legitimate browser-based DoH."
+      }
+    },
+    {
+      "id": "identify-doh-traffic",
+      "type": "query",
+      "label": "Identify DNS-over-HTTPS (DoH) Traffic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, process_path, dst_endpoint_ip, COUNT(*) as connection_count, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_network_connection WHERE dst_endpoint_port = 443 AND instr(',' || '{{public_dns_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, process_path, dst_endpoint_ip",
+        "surface": "hb_network_connection",
+        "description": "Find hosts making TLS connections to public DNS resolvers on port 443.",
+        "expected_signal": "A list of processes and hosts connecting to Google or Cloudflare DNS over HTTPS. Browsers are expected; non-browser system binaries (e.g., in /usr/sbin) are highly suspicious."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify DNS-over-HTTPS (DoH) Traffic",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "dst_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, process_path, dst_endpoint_ip, COUNT(*) as connection_count, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_network_connection WHERE dst_endpoint_port = 443 AND instr(',' || '{{public_dns_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, process_path, dst_endpoint_ip",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of processes and hosts connecting to Google or Cloudflare DNS over HTTPS. Browsers are expected; non-browser system binaries (e.g., in /usr/sbin) are highly suspicious.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "stack-doh-processes",
+      "type": "query",
+      "label": "Stack-Count DoH-Capable Processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT process_name, process_path, COUNT(DISTINCT device_hostname) as host_count, COUNT(*) as connection_count FROM hb_network_connection WHERE dst_endpoint_port = 443 AND instr(',' || '{{public_dns_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, process_path HAVING host_count <= 2 ORDER BY host_count ASC",
+        "surface": "hb_network_connection",
+        "description": "Identify rare binaries making DoH connections across the fleet.",
+        "expected_signal": "A binary that only appears on one or two hosts and is not a standard web browser."
+      },
+      "parents": [
+        {
+          "id": "identify-doh-traffic"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Stack-Count DoH-Capable Processes",
+        "reads": [
+          "process_name",
+          "process_path",
+          "device_hostname",
+          "dst_endpoint_ip"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT process_name, process_path, COUNT(DISTINCT device_hostname) as host_count, COUNT(*) as connection_count FROM hb_network_connection WHERE dst_endpoint_port = 443 AND instr(',' || '{{public_dns_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, process_path HAVING host_count <= 2 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "A binary that only appears on one or two hosts and is not a standard web browser.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "check-dns-silence",
+      "type": "query",
+      "label": "Check for DNS Silence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, COUNT(query_hostname) as dns_queries, GROUP_CONCAT(DISTINCT query_hostname) as sample_queries FROM hb_dns_activity WHERE time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING dns_queries < 100",
+        "surface": "hb_dns_activity",
+        "description": "Verify the absence of standard DNS traffic for hosts doing DoH.",
+        "expected_signal": "Hosts with very low standard DNS volume relative to their uptime, suggesting redirection to DoH or other channels."
+      },
+      "parents": [
+        {
+          "id": "identify-doh-traffic"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Check for DNS Silence",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, COUNT(query_hostname) as dns_queries, GROUP_CONCAT(DISTINCT query_hostname) as sample_queries FROM hb_dns_activity WHERE time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING dns_queries < 100",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts with very low standard DNS volume relative to their uptime, suggesting redirection to DoH or other channels.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "check-system-path-rarity",
+      "type": "query",
+      "label": "Check System Path Binary Rarity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, user_name, on_disk, COUNT(*) as count FROM hb_process_activity WHERE (LOWER(process_path) LIKE '/usr/sbin/%' OR LOWER(process_path) LIKE '/usr/local/libexec/%' OR LOWER(process_path) LIKE '/home/egnyteservice/%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, process_path, user_name, on_disk",
+        "surface": "hb_process_activity",
+        "description": "Look for binaries in system paths that are not typically seen running or are not on disk.",
+        "expected_signal": "A binary like 'blacklist' or 'ssync' or a generic name in /usr/sbin/ that is not a standard system daemon."
+      },
+      "parents": [
+        {
+          "id": "identify-doh-traffic"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Check System Path Binary Rarity",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "user_name",
+          "on_disk"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, user_name, on_disk, COUNT(*) as count FROM hb_process_activity WHERE (LOWER(process_path) LIKE '/usr/sbin/%' OR LOWER(process_path) LIKE '/usr/local/libexec/%' OR LOWER(process_path) LIKE '/home/egnyteservice/%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, process_path, user_name, on_disk",
+        "silence": "not_evidence_of_absence",
+        "expected": "A binary like 'blacklist' or 'ssync' or a generic name in /usr/sbin/ that is not a standard system daemon.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-implants",
+      "type": "analytic",
+      "label": "Triage Potential BRICKSTORM Implants",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "identify-doh-traffic",
+          "stack-doh-processes",
+          "check-dns-silence",
+          "check-system-path-rarity"
+        ],
+        "objective": "Determine if any host shows the pattern of: (1) Rare process in a system path like /usr/sbin, (2) Outbound TLS to 8.8.8.8, and (3) Absence of standard DNS activity for the same time window.",
+        "description": "Analyze network, process, and DNS activity to confirm if a host is compromised by BRICKSTORM.",
+        "max_iterations": 4,
+        "expected_signal": "A verdict on whether the identified processes and network traffic constitute a BRICKSTORM-style DoH C2 channel.",
+        "success_criteria": "Verdicts for each host citing process names, network endpoints, and DNS volume."
+      },
+      "parents": [
+        {
+          "id": "stack-doh-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "check-dns-silence",
+          "kind": "merge"
+        },
+        {
+          "id": "check-system-path-rarity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decide-on-threat",
+      "type": "checkpoint",
+      "label": "Decide on Threat Presence",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host based on DoH traffic from rare system-path binaries",
+        "condition": "the triage verdict is malicious for at least one host based on DoH traffic from rare system-path binaries",
+        "blind_spot": "no-network-telemetry",
+        "confidence": "high",
+        "description": "Route findings based on the agent's confidence.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-implants"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Compromised Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further C2 and lateral movement from the compromised appliance.",
+        "instructions": "Isolate the host immediately. Prioritize Linux VMs and firewall appliances. Collect memory and /usr/sbin binaries for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decide-on-threat",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-investigation",
+      "type": "task",
+      "label": "Analyst Forensic Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually confirm the presence of BRICKSTORM and identify any secondary implants like AGENTPSD.",
+        "instructions": "Review the processes flagged by the agent. Check crontab files for entries like 'egnyte_host_monitor_client' (AGENTPSD) and verify if the SSL VPN was used as a pivot point. Check for root-level sudo abuse of 'tee' or 'rsync'."
+      },
+      "parents": [
+        {
+          "id": "decide-on-threat",
+          "branch": "default"
+        },
+        {
+          "id": "decide-on-threat",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Log the negative result.",
+        "instructions": "If no malicious activity was found, document the hosts scanned and the lack of DoH/suspicious processes."
+      },
+      "parents": [
+        {
+          "id": "decide-on-threat",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
