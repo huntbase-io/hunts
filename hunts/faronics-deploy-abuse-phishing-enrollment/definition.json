@@ -1,0 +1,592 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Threat actors are using legitimately signed, trusted management agents to bypass traditional security controls. A negative result across the estate confirms that no unauthorized Faronics deployments have been established via this specific phishing campaign."
+      },
+      "name": "Faronics Deploy Abuse: Redirection and Rogue Enrollment",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1059.001",
+        "attack.t1218.005",
+        "attack.t1090.003"
+      ],
+      "series": {
+        "slug": "daisy-chaining-trust-investigating-faronics-deploy-abuse",
+        "index": 1,
+        "title": "Daisy-Chaining Trust: Investigating Faronics Deploy Abuse",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "faronics-payload-staging-github",
+          "reason": "This hunt identifies the rogue enrollment; the subsequent hunt focuses on the scripts staging from GitHub identified in ScriptRunner.log.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A detection rule for Faronics software would be too noisy for many environments. This hunt uses stack-counting of customer identifiers (ck IDs) and compares internal binary metadata against external process names to identify masquerading, which requires an analyst to weigh context against known-good inventory.",
+      "coverage": [
+        {
+          "stage": "phishing-and-visitor-profiling",
+          "steps": [
+            "phishing-redirection-traffic"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "faronics-agent-deployment",
+          "steps": [
+            "masqueraded-faronics-processes",
+            "rogue-tenant-ck-baseline"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remote-management-logging",
+          "reason": "Belongs to another part of the 'Daisy-Chaining Trust: Investigating Faronics Deploy Abuse' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "powershell-payload-staging",
+          "reason": "Belongs to another part of the 'Daisy-Chaining Trust: Investigating Faronics Deploy Abuse' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "secondary-rmm-persistence",
+          "reason": "Belongs to another part of the 'Daisy-Chaining Trust: Investigating Faronics Deploy Abuse' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Adobe-Themed Phishing and Profiling",
+            "slug": "phishing-and-visitor-profiling",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "fileportals.gytgtecg.xyz/index.php?verified=1",
+              "denied.html",
+              "JavaScript browser fingerprinting (User-Agent, resolution, timezone)"
+            ]
+          },
+          {
+            "name": "Signed Faronics Agent Enrollment",
+            "slug": "faronics-agent-deployment",
+            "tactic": "execution",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Adobe.exe",
+              "AdobeReader.exe",
+              "deploy.faronics.com",
+              "ck=6D70CDEF-CFF4-48A7-8092-24E5B9C3FA1D"
+            ]
+          },
+          {
+            "name": "Faronics Script Execution Logging",
+            "slug": "remote-management-logging",
+            "tactic": "discovery",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "C:\\ProgramData\\Faronics\\Logs\\ScriptRunner.log"
+            ]
+          },
+          {
+            "name": "PowerShell Downloader via GitHub",
+            "slug": "powershell-payload-staging",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1218.005"
+            ],
+            "observables": [
+              "raw.githubusercontent.com/askaboutme121/Xusyahfd/refs/heads/main/Jhinstaller.ps1",
+              "mshta",
+              "curl",
+              "msiexec"
+            ]
+          },
+          {
+            "name": "ScreenConnect RMM Installation",
+            "slug": "secondary-rmm-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "ScreenConnect",
+              "msiexec installation of RMM tooling"
+            ]
+          }
+        ],
+        "summary": "Threat actors are abusing the Faronics Deploy management platform to deliver remote access tools via Adobe-themed phishing lures. Victims are tricked into installing a signed Faronics agent which the attackers then use to execute PowerShell scripts from GitHub, ultimately staging ScreenConnect for persistent access."
+      },
+      "severity": "high",
+      "rationale": "First, identify current Faronics usage in the estate. Focus behavior-based hunting on systems not historically known to use Faronics, or those that interact with the provided phishing domains.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has enrolled endpoints into a rogue Faronics Deploy tenant by tricking users into executing signed agents that masquerade as common business software.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to narrow the search; leave empty to hunt the whole estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "malicious_ck_ids": {
+          "from": {
+            "ref": "huntress-faronics-abuse",
+            "kind": "article",
+            "observed": "2026-08-31"
+          },
+          "type": "list[string]",
+          "default": [
+            "6D70CDEF-CFF4-48A7-8092-24E5B9C3FA1D"
+          ],
+          "description": "Faronics 'ck' identifiers associated with malicious deployments."
+        },
+        "phishing_domains": {
+          "from": {
+            "ref": "huntress-faronics-abuse",
+            "kind": "article",
+            "observed": "2026-08-31"
+          },
+          "type": "list[domain]",
+          "default": [
+            "fileportals.gytgtecg.xyz"
+          ],
+          "description": "Domains observed hosting profiling and redirection scripts."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/faronics-deploy-abuse",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/faronics-deploy-abuse",
+          "name": "Huntress \u2014 Daisy-Chaining Trust: Investigating Faronics Deploy Abuse"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "encrypted-http-visibility",
+          "risk": "Without inspection, the agent can only see the domain (via DNS) and the fact that a connection occurred, missing the precise indicators of rogue enrollment.",
+          "stage": "phishing-and-visitor-profiling",
+          "question": "The specific query parameters like 'verified=1' or 'ck=' identifiers",
+          "requires": "TLS decryption/inspection on hb_http_activity"
+        },
+        {
+          "id": "inventory-lag",
+          "risk": "A highly active attacker may use Faronics for initial staging and then remove it, leaving only process/network artifacts and the ScriptRunner.log behind.",
+          "stage": "faronics-agent-deployment",
+          "question": "Whether the Faronics software was installed and uninstalled between inventory collections",
+          "requires": "hb_software_inventory update frequency"
+        }
+      ]
+    },
+    "name": "Faronics Deploy Abuse: Redirection and Rogue Enrollment",
+    "description": "Adversaries are abusing the legitimate Faronics Deploy agent to establish a beachhead. This hunt focuses on identifying the initial compromise chain: profiling traffic to phishing domains, the execution of Faronics-signed binaries that have been renamed to mimic Adobe or Zoom, and the stack-counting of 'ck' (customer/deployment) identifiers in API requests to isolate rogue tenants. By contrasting behavior against existing software inventory, we identify compromised hosts that standard signature-based tools often miss."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "daisy-chaining-trust-investigating-faronics-deploy-abuse",
+          "index": 1,
+          "title": "Daisy-Chaining Trust: Investigating Faronics Deploy Abuse",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "phishing-and-visitor-profiling",
+            "steps": [
+              "phishing-redirection-traffic"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "faronics-agent-deployment",
+            "steps": [
+              "masqueraded-faronics-processes",
+              "rogue-tenant-ck-baseline"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remote-management-logging",
+            "reason": "Belongs to another part of the 'Daisy-Chaining Trust: Investigating Faronics Deploy Abuse' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "powershell-payload-staging",
+            "reason": "Belongs to another part of the 'Daisy-Chaining Trust: Investigating Faronics Deploy Abuse' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "secondary-rmm-persistence",
+            "reason": "Belongs to another part of the 'Daisy-Chaining Trust: Investigating Faronics Deploy Abuse' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has enrolled endpoints into a rogue Faronics Deploy tenant by tricking users into executing signed agents that masquerade as common business software.",
+        "blind_spots": [
+          {
+            "id": "encrypted-http-visibility",
+            "risk": "Without inspection, the agent can only see the domain (via DNS) and the fact that a connection occurred, missing the precise indicators of rogue enrollment.",
+            "stage": "phishing-and-visitor-profiling",
+            "question": "The specific query parameters like 'verified=1' or 'ck=' identifiers",
+            "requires": "TLS decryption/inspection on hb_http_activity"
+          },
+          {
+            "id": "inventory-lag",
+            "risk": "A highly active attacker may use Faronics for initial staging and then remove it, leaving only process/network artifacts and the ScriptRunner.log behind.",
+            "stage": "faronics-agent-deployment",
+            "question": "Whether the Faronics software was installed and uninstalled between inventory collections",
+            "requires": "hb_software_inventory update frequency"
+          }
+        ],
+        "scoping_notes": "First, identify current Faronics usage in the estate. Focus behavior-based hunting on systems not historically known to use Faronics, or those that interact with the provided phishing domains.",
+        "beyond_detection": "A detection rule for Faronics software would be too noisy for many environments. This hunt uses stack-counting of customer identifiers (ck IDs) and compares internal binary metadata against external process names to identify masquerading, which requires an analyst to weigh context against known-good inventory."
+      }
+    },
+    {
+      "id": "identify-faronics-inventory",
+      "type": "query",
+      "label": "Identify known Faronics inventory",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, vendor_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%faronics%' OR LOWER(vendor_name) LIKE '%faronics%')",
+        "surface": "hb_software_inventory",
+        "description": "Identify endpoints where Faronics software is currently installed to provide baseline context for the analyst.",
+        "expected_signal": "A list of hosts currently reporting Faronics in inventory. New installations or installations on unexpected hosts (like executive workstations) are the primary interest."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify known Faronics inventory",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, vendor_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%faronics%' OR LOWER(vendor_name) LIKE '%faronics%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts currently reporting Faronics in inventory. New installations or installations on unexpected hosts (like executive workstations) are the primary interest.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "phishing-redirection-traffic",
+      "type": "query",
+      "label": "Phishing redirection and profiling traffic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_query, url_full, time FROM hb_http_activity WHERE (instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 OR url_query LIKE '%verified=1%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_http_activity",
+        "description": "Detect network traffic to the profiling domain or URLs utilizing the campaign's specific profiling flag.",
+        "expected_signal": "HTTP requests to identified profiling infrastructure or utilizing the fingerprinting query parameter. This traffic often precedes agent installation."
+      },
+      "parents": [
+        {
+          "id": "identify-faronics-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Phishing redirection and profiling traffic",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "url_query",
+          "url_full",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_query, url_full, time FROM hb_http_activity WHERE (instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 OR url_query LIKE '%verified=1%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests to identified profiling infrastructure or utilizing the fingerprinting query parameter. This traffic often precedes agent installation.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "masqueraded-faronics-processes",
+      "type": "query",
+      "label": "Masqueraded Faronics management binaries",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_file_company, process_cmd_line, time FROM hb_process_activity WHERE LOWER(process_file_company) LIKE '%faronics%' AND LOWER(process_name) NOT LIKE '%faronics%' AND (LOWER(process_name) LIKE '%adobe%' OR LOWER(process_name) LIKE '%zoom%' OR LOWER(process_name) LIKE '%invoice%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_process_activity",
+        "description": "Find Faronics-signed binaries whose process names mimic common office software, indicating social engineering.",
+        "expected_signal": "A Faronics binary running as 'Adobe.exe' or similar. This is high-fidelity evidence of the social engineering campaign described."
+      },
+      "parents": [
+        {
+          "id": "identify-faronics-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Masqueraded Faronics management binaries",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_original_file_name",
+          "process_file_company",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_file_company, process_cmd_line, time FROM hb_process_activity WHERE LOWER(process_file_company) LIKE '%faronics%' AND LOWER(process_name) NOT LIKE '%faronics%' AND (LOWER(process_name) LIKE '%adobe%' OR LOWER(process_name) LIKE '%zoom%' OR LOWER(process_name) LIKE '%invoice%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A Faronics binary running as 'Adobe.exe' or similar. This is high-fidelity evidence of the social engineering campaign described.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rogue-tenant-ck-baseline",
+      "type": "query",
+      "label": "Rogue tenant CK identifier prevalence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT url_query, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_http_activity WHERE url_hostname = 'deploy.faronics.com' AND url_query LIKE '%ck=%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_query HAVING (host_count <= 3 OR instr(',' || '{{malicious_ck_ids}}' || ',', ',' || REPLACE(REPLACE(url_query, 'ck=', ''), '&', ',') || ',') > 0) ORDER BY host_count ASC",
+        "surface": "hb_http_activity",
+        "description": "Stack-count the CK identifiers to find rare or known-malicious management deployments.",
+        "expected_signal": "A 'ck' ID that appears on only a few hosts, or matches the reported malicious ID. Rare IDs suggest non-standard or rogue deployments."
+      },
+      "parents": [
+        {
+          "id": "identify-faronics-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rogue tenant CK identifier prevalence",
+        "reads": [
+          "url_query",
+          "device_hostname",
+          "time",
+          "url_hostname"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT url_query, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_http_activity WHERE url_hostname = 'deploy.faronics.com' AND url_query LIKE '%ck=%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_query HAVING (host_count <= 3 OR instr(',' || '{{malicious_ck_ids}}' || ',', ',' || REPLACE(REPLACE(url_query, 'ck=', ''), '&', ',') || ',') > 0) ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A 'ck' ID that appears on only a few hosts, or matches the reported malicious ID. Rare IDs suggest non-standard or rogue deployments.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_query"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-enrollment",
+      "type": "analytic",
+      "label": "Triage Faronics enrollment evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "identify-faronics-inventory",
+          "phishing-redirection-traffic",
+          "masqueraded-faronics-processes",
+          "rogue-tenant-ck-baseline"
+        ],
+        "objective": "Identify hosts that show evidence of profiling redirection AND subsequent execution of a masqueraded Faronics binary. Contrast these hosts against the baseline of known administrative systems.",
+        "description": "Correlate phishing traffic, masqueraded binaries, and rare CK IDs to identify rogue enrollments.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict linking the phishing activity to a rogue Faronics deployment.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host citing specific network/process rows."
+      },
+      "parents": [
+        {
+          "id": "phishing-redirection-traffic",
+          "kind": "merge"
+        },
+        {
+          "id": "masqueraded-faronics-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "rogue-tenant-ck-baseline",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host involving a masqueraded Faronics binary",
+        "condition": "the triage verdict is malicious for at least one host involving a masqueraded Faronics binary",
+        "blind_spot": "encrypted-http-visibility",
+        "confidence": "high",
+        "description": "Isolate confirmed compromises and route others to manual review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-enrollment"
+        }
+      ]
+    },
+    {
+      "id": "contain-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Sever the attacker's management access immediately.",
+        "instructions": "Isolate the endpoint to prevent further remote PowerShell execution. Collect C:\\ProgramData\\Faronics\\Logs\\ScriptRunner.log before uninstalling.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Forensic review and payload recovery",
+      "config": {
+        "assignee": "analyst",
+        "description": "Recover the ScriptRunner log to identify the next stage of the attack.",
+        "instructions": "1. Review the triage results and any cited network/process rows.\n2. Inspect C:\\ProgramData\\Faronics\\Logs\\ScriptRunner.log for 'GetScriptNameUsingURL' entries.\n3. Identify external staging URLs (e.g., raw.githubusercontent.com) and record them for the subsequent hunt phase.\n4. Confirm if ScreenConnect or other RMM tools were installed via Faronics scripts."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "contain-host"
+        }
+      ]
+    }
+  ]
+}
