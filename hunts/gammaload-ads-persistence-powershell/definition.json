@@ -1,0 +1,597 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "GammaLoad represents a persistent threat from Gamaredon (FSB) targeting critical infrastructure. Its use of ADS and 'loader loading loader' behavior is designed to evade file-based security controls. A negative result provides high-confidence assurance that this specific persistence mechanism is not active in the environment."
+      },
+      "name": "Gamaredon GammaLoad: ADS Persistence and PowerShell Memory-Load",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1053.005",
+        "attack.t1059.001",
+        "attack.t1564.004"
+      ],
+      "series": {
+        "slug": "fsb-matryoshka-gamaredon-gammaload",
+        "index": 2,
+        "title": "FSB Matryoshka: Gamaredon GammaLoad",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "gammaload-registry-c2-caching",
+          "reason": "Registry-based C2 caching is handled by the first hunt in this series, focusing on hb_registry_activity.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "gamaredon-gammaload-vbscript-registry",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule might flag 'schtasks' or 'encoded powershell'. This hunt goes further by pivoting between the task trigger, the hidden ADS file creation, and the in-memory script behavior (SSL bypass/XOR), providing a full-chain analysis that filters out legitimate administrative noise.",
+      "coverage": [
+        {
+          "stage": "persistence-via-ads-and-scheduled-task",
+          "steps": [
+            "find-malicious-task",
+            "ads-file-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "obfuscated-powershell-memory-load",
+          "steps": [
+            "powershell-execution-prevalence",
+            "powershell-script-blocks"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-registry-caching-and-fingerprinting",
+          "reason": "Belongs to another part of the 'FSB Matryoshka: Gamaredon GammaLoad' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "in-memory-vbscript-execution",
+          "reason": "Belongs to another part of the 'FSB Matryoshka: Gamaredon GammaLoad' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "C2 Registry Caching and Host Fingerprinting",
+            "slug": "c2-registry-caching-and-fingerprinting",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1041",
+              "T1090.003"
+            ],
+            "observables": [
+              "Registry keys: HKCU\\Console\\HistoryURL, HKCU\\Console\\WindowsResponby, HKCU\\Console\\CloudURL, HKCU\\Console\\IpURL",
+              "DDR domains: te.legra.ph, telegram.me, check-host.net",
+              "User-Agent fingerprint separators: ##, !!, ??, ==, ::, _, @, #, =, %, ?",
+              "HTTP GET requests with anomalous Content-Length: 2114",
+              "Fingerprint: %COMPUTERNAME% and system drive serial number"
+            ]
+          },
+          {
+            "name": "In-Memory VBScript Execution",
+            "slug": "in-memory-vbscript-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "VBScript ExecuteGlobal() function calls",
+              "Base64 obfuscated scripts with '&&' markers inserted every 54 characters"
+            ]
+          },
+          {
+            "name": "Persistence via ADS and Scheduled Task",
+            "slug": "persistence-via-ads-and-scheduled-task",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.005"
+            ],
+            "observables": [
+              "Alternate Data Stream (ADS) file: %TEMP%\\:divedz0f",
+              "Scheduled Task name: \\Windows\\ApplicationData\\DsSvcCleanup",
+              "Scheduled Task interval: every 11 minutes",
+              "Task action executing VBScript from ADS"
+            ]
+          },
+          {
+            "name": "Obfuscated PowerShell Memory Load",
+            "slug": "obfuscated-powershell-memory-load",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "Process command line: powershell.exe -nol -nop -encodedcommand",
+              "PowerShell disabling SSL validation: [System.Net.ServicePointManager]::ServerCertificateValidationCallback={$true}",
+              "PowerShell XOR-decryption and IEX execution of downloaded strings"
+            ]
+          }
+        ],
+        "summary": "Gamaredon uses a multi-stage infection chain known as GammaLoad to maintain persistent access and deploy stealers. The chain leverages VBScript loaders that use Dead Drop Resolvers and registry caching for C2 resiliency, ultimately persisting via scheduled tasks that execute payloads hidden in Alternate Data Streams (ADS)."
+      },
+      "severity": "high",
+      "rationale": "The hunt focuses on Windows endpoints. Ensure PowerShell ScriptBlock logging (Event ID 4104) is enabled to populate hb_script_activity, as this is critical for detecting the memory-load phase.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has established persistence via a scheduled task executing code hidden in an Alternate Data Stream (ADS), which subsequently triggers an obfuscated PowerShell loader to execute payloads in-memory.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "task_name_pattern": {
+          "from": {
+            "ref": "https://blog.sekoia.io/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload/",
+            "kind": "article",
+            "observed": "2026-01-23"
+          },
+          "type": "string",
+          "default": "DsSvcCleanup%",
+          "description": "The name of the scheduled task reported in research (removed leading wildcard for indexing)."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.sekoia.io/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.sekoia.io/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload/",
+          "name": "Sekoia.io \u2014 FSB's Matryoshka: GammaLoad"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-script-block-logging",
+          "risk": "Without script block logging, we only see the encoded command line; we cannot verify the XOR logic or the in-memory payload execution.",
+          "owner": "Endpoint Security Team",
+          "stage": "obfuscated-powershell-memory-load",
+          "question": "What is the content of the PowerShell -EncodedCommand?",
+          "requires": "PowerShell ScriptBlock Logging (Event ID 4104)",
+          "remediation": "Enable 'Turn on PowerShell Script Block Logging' via GPO for all Windows endpoints."
+        },
+        {
+          "id": "ads-visibility",
+          "risk": "Standard file activity logs often miss writes to streams. This hunt relies on the colon character being present after the drive letter in the path.",
+          "owner": "Infrastructure Team",
+          "stage": "persistence-via-ads-and-scheduled-task",
+          "question": "Was a malicious payload written to an Alternate Data Stream?",
+          "requires": "Sysmon or EDR visibility into FileStream creation",
+          "remediation": "Ensure Sysmon Event ID 15 (FileCreateStreamHash) is enabled."
+        }
+      ]
+    },
+    "name": "Gamaredon GammaLoad: ADS Persistence and PowerShell Memory-Load",
+    "description": "This hunt targets the persistence and execution phases of Gamaredon's 2026 GammaLoad campaign. It specifically looks for the 'DsSvcCleanup' scheduled task, the creation of Alternate Data Streams in temporary directories, and the subsequent PowerShell memory-loading behavior characterized by disabling SSL validation and XOR-decryption. By correlating task scheduling with low-prevalence encoded PowerShell commands and script-block content, we can identify active infections that standard file-based detection might miss."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "fsb-matryoshka-gamaredon-gammaload",
+          "index": 2,
+          "title": "FSB Matryoshka: Gamaredon GammaLoad",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "persistence-via-ads-and-scheduled-task",
+            "steps": [
+              "find-malicious-task",
+              "ads-file-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "obfuscated-powershell-memory-load",
+            "steps": [
+              "powershell-execution-prevalence",
+              "powershell-script-blocks"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-registry-caching-and-fingerprinting",
+            "reason": "Belongs to another part of the 'FSB Matryoshka: Gamaredon GammaLoad' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "in-memory-vbscript-execution",
+            "reason": "Belongs to another part of the 'FSB Matryoshka: Gamaredon GammaLoad' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has established persistence via a scheduled task executing code hidden in an Alternate Data Stream (ADS), which subsequently triggers an obfuscated PowerShell loader to execute payloads in-memory.",
+        "blind_spots": [
+          {
+            "id": "missing-script-block-logging",
+            "risk": "Without script block logging, we only see the encoded command line; we cannot verify the XOR logic or the in-memory payload execution.",
+            "owner": "Endpoint Security Team",
+            "stage": "obfuscated-powershell-memory-load",
+            "question": "What is the content of the PowerShell -EncodedCommand?",
+            "requires": "PowerShell ScriptBlock Logging (Event ID 4104)",
+            "remediation": "Enable 'Turn on PowerShell Script Block Logging' via GPO for all Windows endpoints."
+          },
+          {
+            "id": "ads-visibility",
+            "risk": "Standard file activity logs often miss writes to streams. This hunt relies on the colon character being present after the drive letter in the path.",
+            "owner": "Infrastructure Team",
+            "stage": "persistence-via-ads-and-scheduled-task",
+            "question": "Was a malicious payload written to an Alternate Data Stream?",
+            "requires": "Sysmon or EDR visibility into FileStream creation",
+            "remediation": "Ensure Sysmon Event ID 15 (FileCreateStreamHash) is enabled."
+          }
+        ],
+        "scoping_notes": "The hunt focuses on Windows endpoints. Ensure PowerShell ScriptBlock logging (Event ID 4104) is enabled to populate hb_script_activity, as this is critical for detecting the memory-load phase.",
+        "beyond_detection": "A standard rule might flag 'schtasks' or 'encoded powershell'. This hunt goes further by pivoting between the task trigger, the hidden ADS file creation, and the in-memory script behavior (SSL bypass/XOR), providing a full-chain analysis that filters out legitimate administrative noise."
+      }
+    },
+    {
+      "id": "scope-windows-hosts",
+      "type": "query",
+      "label": "Scope Windows Hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT hostname, device_uid, os_name FROM hb_devices WHERE platform = 'Windows' AND lifecycle_state = 'active'",
+        "surface": "hb_devices",
+        "description": "GammaLoad targets Windows endpoints specifically; this step narrows the hunt to the relevant fleet.",
+        "expected_signal": "A list of active Windows hosts. Silence means no Windows endpoints are enrolled."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope Windows Hosts",
+        "reads": [
+          "hostname",
+          "device_uid",
+          "os_name",
+          "platform",
+          "lifecycle_state"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT hostname, device_uid, os_name FROM hb_devices WHERE platform = 'Windows' AND lifecycle_state = 'active'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of active Windows hosts. Silence means no Windows endpoints are enrolled.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "find-malicious-task",
+      "type": "query",
+      "label": "Identify Persistence Task",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_definition_path, time FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE LOWER('{{task_name_pattern}}') OR instr(job_cmd_line, ':') > 2) AND job_enabled = 1 AND (LOWER(job_cmd_line) LIKE '%temp%' OR LOWER(job_cmd_line) LIKE '%appdata%')",
+        "surface": "hb_scheduled_job",
+        "description": "Identify the specific scheduled task used for persistence, searching for the reported name or command lines executing ADS payloads.",
+        "expected_signal": "Rows indicating tasks named DsSvcCleanup or tasks that execute files using a colon after the drive letter, indicative of an ADS. Silence means no tasks matching the specific naming or the ADS pattern were found."
+      },
+      "parents": [
+        {
+          "id": "scope-windows-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Identify Persistence Task",
+        "reads": [
+          "device_hostname",
+          "job_name",
+          "job_cmd_line",
+          "job_definition_path",
+          "job_enabled",
+          "time"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_definition_path, time FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE LOWER('{{task_name_pattern}}') OR instr(job_cmd_line, ':') > 2) AND job_enabled = 1 AND (LOWER(job_cmd_line) LIKE '%temp%' OR LOWER(job_cmd_line) LIKE '%appdata%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows indicating tasks named DsSvcCleanup or tasks that execute files using a colon after the drive letter, indicative of an ADS. Silence means no tasks matching the specific naming or the ADS pattern were found.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "ads-file-activity",
+      "type": "query",
+      "label": "ADS File Creation in Temp Paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE instr(file_path, ':') > 2 AND (LOWER(file_path) LIKE '%\\appdata\\local\\temp\\%' OR LOWER(file_path) LIKE '%\\windows\\temp\\%') AND activity_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Monitor for the creation of Alternate Data Streams within the TEMP directory, which GammaLoad uses for staging payloads.",
+        "expected_signal": "File creation events where the file path contains a colon (excluding drive letters) in a temp directory. Silence means no ADS file creations were detected in temp paths."
+      },
+      "parents": [
+        {
+          "id": "find-malicious-task"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "ADS File Creation in Temp Paths",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "activity_id",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE instr(file_path, ':') > 2 AND (LOWER(file_path) LIKE '%\\appdata\\local\\temp\\%' OR LOWER(file_path) LIKE '%\\windows\\temp\\%') AND activity_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "File creation events where the file path contains a colon (excluding drive letters) in a temp directory. Silence means no ADS file creations were detected in temp paths.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "powershell-execution-prevalence",
+      "type": "query",
+      "label": "Rare Encoded PowerShell Patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_cmd_line) as cmd, COUNT(DISTINCT device_hostname) as hosts, MIN(time) as first_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%-%no%l%' AND LOWER(process_cmd_line) LIKE '%-%no%p%' AND (LOWER(process_cmd_line) LIKE '%-%enc%' OR LOWER(process_cmd_line) LIKE '%-%encoded%')) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY cmd HAVING hosts < 5",
+        "surface": "hb_process_activity",
+        "description": "Stack-count PowerShell commands that use abbreviated or varied flag combinations to find rare outliers.",
+        "expected_signal": "PowerShell commands using NoLogo, NoProfile, and Encoded flags that appear on few hosts. Silence means no rare instances of these flag combinations were found."
+      },
+      "parents": [
+        {
+          "id": "find-malicious-task"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Encoded PowerShell Patterns",
+        "reads": [
+          "process_cmd_line",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_cmd_line) as cmd, COUNT(DISTINCT device_hostname) as hosts, MIN(time) as first_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%-%no%l%' AND LOWER(process_cmd_line) LIKE '%-%no%p%' AND (LOWER(process_cmd_line) LIKE '%-%enc%' OR LOWER(process_cmd_line) LIKE '%-%encoded%')) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY cmd HAVING hosts < 5",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "PowerShell commands using NoLogo, NoProfile, and Encoded flags that appear on few hosts. Silence means no rare instances of these flag combinations were found.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "powershell-script-blocks",
+      "type": "query",
+      "label": "PowerShell Memory-Load Logic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, time FROM hb_script_activity WHERE script_type = 'PowerShell' AND (LOWER(script_content) LIKE '%servercertificatevalidationcallback%' OR (LOWER(script_content) LIKE '%-xor%' AND LOWER(script_content) LIKE '%downloadstring%')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Analyze PowerShell script content for signs of in-memory execution, SSL bypass, and XOR decryption reported in GammaLoad stages.",
+        "expected_signal": "Script blocks that explicitly disable certificate validation or perform XOR operations on downloaded data. Silence suggests no such logic was executed in script blocks."
+      },
+      "parents": [
+        {
+          "id": "find-malicious-task"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "PowerShell Memory-Load Logic",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "script_type",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, time FROM hb_script_activity WHERE script_type = 'PowerShell' AND (LOWER(script_content) LIKE '%servercertificatevalidationcallback%' OR (LOWER(script_content) LIKE '%-xor%' AND LOWER(script_content) LIKE '%downloadstring%')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks that explicitly disable certificate validation or perform XOR operations on downloaded data. Silence suggests no such logic was executed in script blocks.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-evidence",
+      "type": "analytic",
+      "label": "Triage GammaLoad Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "find-malicious-task",
+          "ads-file-activity",
+          "powershell-execution-prevalence",
+          "powershell-script-blocks"
+        ],
+        "objective": "Determine if the evidence supports the GammaLoad persistence and execution chain: Scheduled Task -> ADS -> PowerShell Memory Load.",
+        "description": "Correlate the task scheduling, ADS file creation, and PowerShell script logic to determine if a host is compromised by GammaLoad.",
+        "max_iterations": 5,
+        "expected_signal": "A host-by-host verdict based on the overlapping indicators.",
+        "success_criteria": "A per-host verdict of Malicious, Suspicious, or Benign citing specific rows from the persistence and execution steps."
+      },
+      "parents": [
+        {
+          "id": "ads-file-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "powershell-execution-prevalence",
+          "kind": "merge"
+        },
+        {
+          "id": "powershell-script-blocks",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for one or more hosts with correlated persistence (task) and execution (script logic) evidence.",
+        "condition": "The triage verdict is malicious for one or more hosts with correlated persistence (task) and execution (script logic) evidence.",
+        "blind_spot": "missing-script-block-logging",
+        "confidence": "high",
+        "description": "Automatically route Malicious findings to isolation while referring indeterminate results to an analyst.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-evidence"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Host and Collect ADS",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further C2 communication and capture the ADS for forensics.",
+        "instructions": "Isolate the compromised host from the network. Capture the file residing in the Alternate Data Stream identified in 'ads-file-activity' before deleting the scheduled task.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Human verification of the threat and assessment of later stages (GammaSteel).",
+        "instructions": "Review the correlated evidence. Check for signs of GammaSteel (the subsequent stealer stage) and verify the source of the initial GammaLoad dropper."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-hunt",
+      "type": "task",
+      "label": "Close Hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt results.",
+        "instructions": "Document the absence of GammaLoad persistence and execution markers across the fleet."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
