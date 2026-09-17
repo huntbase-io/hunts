@@ -1,0 +1,564 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Supply chain attacks in the Flutter ecosystem are a new and emerging threat. This hunt provides assurance that current build pipelines haven't been weaponized by the reported malicious packages, protecting sensitive credentials and signing keys."
+      },
+      "name": "Obfuscated Build Process Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1204.002",
+        "attack.t1059.004",
+        "attack.t1195.001"
+      ],
+      "series": {
+        "slug": "pub-dev-compromise-malicious-dart-flutter-packages",
+        "index": 2,
+        "title": "pub.dev compromise: malicious Dart/Flutter packages",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "supply-chain-ingestion-pub-dev",
+          "reason": "This hunt focuses on the execution phase; ingestion (downloading the package) is handled by a separate sibling hunt.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "build-file-tampering-flutter",
+          "reason": "Detecting the modification of Gradle/Xcode project files on disk is out of scope here.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "vulnerable-package-file-activity-pub-dev",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single detection rule might catch the specific 'printf xAxd' string, but this hunt combines package presence, rare parent-child relationships for build tools, and file-system artifacts into a single decision that covers both Android and iOS vectors.",
+      "coverage": [
+        {
+          "stage": "obfuscated-build-execution",
+          "steps": [
+            "obfuscated-shell-execution",
+            "suspicious-build-artifacts",
+            "rare-build-children"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "supply-chain-ingestion",
+          "reason": "Handled in sibling hunt focusing on package management logs and pubspec.lock.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "build-file-tampering",
+          "reason": "Handled in sibling hunt focusing on registry and file changes to project metadata.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "c2-exfiltration",
+          "reason": "Handled in sibling hunt focusing on the .ru C2 domains and network connections.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Malicious Package Ingestion",
+            "slug": "supply-chain-ingestion",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195.002"
+            ],
+            "observables": [
+              "universal_file_viewer version 0.1.5",
+              "universal_file_viewer version 0.1.6",
+              "surveyjs_flutter version 0.1.1",
+              "surveyjs_flutter version 0.1.2",
+              "surveyjs_flutter version 0.1.3",
+              "pubspec.lock"
+            ]
+          },
+          {
+            "name": "Native Build Script Injection",
+            "slug": "build-file-tampering",
+            "tactic": "persistence",
+            "techniques": [
+              "T1195.002"
+            ],
+            "observables": [
+              "example/android/app/build.gradle.kts",
+              "example/ios/Runner.xcodeproj/project.pbxproj",
+              "PBXBuildRule",
+              "A3EA261 build setting",
+              "zero-byte README.md in platform subdirectories",
+              "com.apple.compilers.proxy.script"
+            ]
+          },
+          {
+            "name": "Build-Time Code Execution",
+            "slug": "obfuscated-build-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002",
+              "T1059.004"
+            ],
+            "observables": [
+              "printf xAxd | tr -d A",
+              "printf bdase64 | tr -d d",
+              "sh execution during gradle build",
+              "sh execution via PBXBuildRule",
+              "/tmp/${INPUT_FILE_BASE}.out"
+            ]
+          },
+          {
+            "name": "C2 Domain Communication",
+            "slug": "c2-exfiltration",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001",
+              "T1090.003"
+            ],
+            "observables": [
+              ".ru TLD domains",
+              "POST /a",
+              "body containing p=xcode_rule",
+              "body containing p=gradle",
+              "body containing p=xcode_phase"
+            ]
+          }
+        ],
+        "summary": "A supply chain attack on the pub.dev registry where legitimate Flutter packages were weaponised by injecting malicious code into native Gradle and Xcode build files. The malware executes during the build process on developer or CI machines, fetching and executing remote shell scripts from attacker-controlled domains to compromise credentials and environment secrets."
+      },
+      "severity": "high",
+      "rationale": "The hunt should prioritize CI/CD runners and developer workstations where Flutter/Dart packages are routinely built. The initial scoping query targets these environments.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is executing code during the build phase of a Flutter project by using obfuscated shell commands (printf/tr/sh) or malicious Xcode build rules to bypass static source analysis.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of process and script history to examine."
+        },
+        "target_packages": {
+          "from": {
+            "ref": "https://www.ossprey.com/blog/pub-dev-compromise",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[string]",
+          "default": [
+            "universal_file_viewer",
+            "surveyjs_flutter"
+          ],
+          "description": "Specific malicious packages identified in the report."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.ossprey.com/blog/pub-dev-compromise",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.ossprey.com/blog/pub-dev-compromise",
+          "name": "pub.dev compromise: malicious Dart/Flutter packages"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-process-telemetry",
+          "risk": "If the endpoint agent does not capture full command lines for short-lived shell processes, the primary marker for the Gradle hook will be missed.",
+          "stage": "obfuscated-build-execution",
+          "question": "Was the 'printf' command executed?",
+          "requires": "hb_process_activity with command line arguments"
+        },
+        {
+          "id": "ephemeral-tmp-files",
+          "risk": "Malicious build rules may delete their temporary artifacts immediately after execution, leaving no trace for snapshots.",
+          "stage": "obfuscated-build-execution",
+          "question": "Did the /tmp/.out file exist and then get deleted?",
+          "requires": "hb_file_activity real-time monitoring"
+        }
+      ]
+    },
+    "name": "Obfuscated Build Process Execution",
+    "description": "This hunt targets the execution phase of the pub.dev supply chain compromise. It looks for the characteristic 'printf | tr | sh' obfuscation pattern used in Gradle build hooks and the creation of temporary artifacts in /tmp associated with malicious Xcode PBXBuildRules. By examining process lineage and script content, we can identify build-time RCE even when the initial package ingestion was trusted."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "pub-dev-compromise-malicious-dart-flutter-packages",
+          "index": 2,
+          "title": "pub.dev compromise: malicious Dart/Flutter packages",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "obfuscated-build-execution",
+            "steps": [
+              "obfuscated-shell-execution",
+              "suspicious-build-artifacts",
+              "rare-build-children"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "supply-chain-ingestion",
+            "reason": "Handled in sibling hunt focusing on package management logs and pubspec.lock.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "build-file-tampering",
+            "reason": "Handled in sibling hunt focusing on registry and file changes to project metadata.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "c2-exfiltration",
+            "reason": "Handled in sibling hunt focusing on the .ru C2 domains and network connections.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is executing code during the build phase of a Flutter project by using obfuscated shell commands (printf/tr/sh) or malicious Xcode build rules to bypass static source analysis.",
+        "blind_spots": [
+          {
+            "id": "missing-process-telemetry",
+            "risk": "If the endpoint agent does not capture full command lines for short-lived shell processes, the primary marker for the Gradle hook will be missed.",
+            "stage": "obfuscated-build-execution",
+            "question": "Was the 'printf' command executed?",
+            "requires": "hb_process_activity with command line arguments"
+          },
+          {
+            "id": "ephemeral-tmp-files",
+            "risk": "Malicious build rules may delete their temporary artifacts immediately after execution, leaving no trace for snapshots.",
+            "stage": "obfuscated-build-execution",
+            "question": "Did the /tmp/.out file exist and then get deleted?",
+            "requires": "hb_file_activity real-time monitoring"
+          }
+        ],
+        "scoping_notes": "The hunt should prioritize CI/CD runners and developer workstations where Flutter/Dart packages are routinely built. The initial scoping query targets these environments.",
+        "beyond_detection": "A single detection rule might catch the specific 'printf xAxd' string, but this hunt combines package presence, rare parent-child relationships for build tools, and file-system artifacts into a single decision that covers both Android and iOS vectors."
+      }
+    },
+    {
+      "id": "identify-flutter-dev-hosts",
+      "type": "query",
+      "label": "Identify Flutter development hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (instr(',' || '{{target_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 OR LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%')",
+        "surface": "hb_software_inventory",
+        "description": "Scope the hunt to hosts that have the affected packages installed or are known Flutter development environments.",
+        "expected_signal": "A list of hostnames potentially at risk. Silence indicates no development environment matches, suggesting low exposure."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Flutter development hosts",
+        "reads": [
+          "device_hostname",
+          "install_path",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (instr(',' || '{{target_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 OR LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames potentially at risk. Silence indicates no development environment matches, suggesting low exposure.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "obfuscated-shell-execution",
+      "type": "query",
+      "label": "Obfuscated shell execution (printf | tr | sh)",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%printf%|%tr%|%sh%' OR LOWER(process_cmd_line) LIKE '%printf%|%tr%|%bash%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify the characteristic 'printf | tr | sh' pattern used to hide xxd or base64 decoders during Gradle builds.",
+        "expected_signal": "A process command line containing 'printf' piped into 'tr' and then 'sh'. This is a high-fidelity indicator of the reported Gradle hook."
+      },
+      "parents": [
+        {
+          "id": "identify-flutter-dev-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Obfuscated shell execution (printf | tr | sh)",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%printf%|%tr%|%sh%' OR LOWER(process_cmd_line) LIKE '%printf%|%tr%|%bash%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "A process command line containing 'printf' piped into 'tr' and then 'sh'. This is a high-fidelity indicator of the reported Gradle hook.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "suspicious-build-artifacts",
+      "type": "query",
+      "label": "Suspicious /tmp artifacts from build rules",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '/tmp/%.out' AND (LOWER(process_name) LIKE '%xcode%' OR LOWER(process_name) LIKE '%sh%' OR LOWER(process_name) LIKE '%bash%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find artifacts in /tmp that follow the naming convention ${INPUT_FILE_BASE}.out used by the malicious Xcode build rules.",
+        "expected_signal": "Creation of .out files in /tmp by build-related processes, specifically targeting the artifacts of the PBXBuildRule exploit."
+      },
+      "parents": [
+        {
+          "id": "identify-flutter-dev-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Suspicious /tmp artifacts from build rules",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '/tmp/%.out' AND (LOWER(process_name) LIKE '%xcode%' OR LOWER(process_name) LIKE '%sh%' OR LOWER(process_name) LIKE '%bash%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation of .out files in /tmp by build-related processes, specifically targeting the artifacts of the PBXBuildRule exploit.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "rare-build-children",
+      "type": "query",
+      "label": "Rare processes spawned by build tools",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_cmd_line) as cmd, COUNT(DISTINCT device_hostname) as host_count FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%java%' OR LOWER(parent_process_name) LIKE '%xcode%') AND (LOWER(process_name) LIKE '%sh' OR LOWER(process_name) LIKE '%bash' OR LOWER(process_name) LIKE '%curl%' OR LOWER(process_name) LIKE '%wget%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY cmd HAVING host_count < 3",
+        "surface": "hb_process_activity",
+        "description": "Baseline normal build behavior to find rare shell execution or network tools spawned by Java (Gradle) or Xcode.",
+        "expected_signal": "Rare shell commands or network fetches originating from Gradle or Xcode. Normal builds have frequent, repeated commands; one-off fetches are suspicious."
+      },
+      "parents": [
+        {
+          "id": "identify-flutter-dev-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare processes spawned by build tools",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_cmd_line) as cmd, COUNT(DISTINCT device_hostname) as host_count FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%java%' OR LOWER(parent_process_name) LIKE '%xcode%') AND (LOWER(process_name) LIKE '%sh' OR LOWER(process_name) LIKE '%bash' OR LOWER(process_name) LIKE '%curl%' OR LOWER(process_name) LIKE '%wget%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY cmd HAVING host_count < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "Rare shell commands or network fetches originating from Gradle or Xcode. Normal builds have frequent, repeated commands; one-off fetches are suspicious.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-build-execution",
+      "type": "analytic",
+      "label": "Triage build execution evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "identify-flutter-dev-hosts",
+          "obfuscated-shell-execution",
+          "suspicious-build-artifacts",
+          "rare-build-children"
+        ],
+        "objective": "Determine if the observed process and file activity constitutes malicious build-time execution associated with the pub.dev compromise.",
+        "description": "Correlate the presence of vulnerable packages, obfuscated shell commands, and rare build-time artifacts to confirm RCE.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict linking the presence of 'universal_file_viewer' or 'surveyjs_flutter' with the 'printf | tr | sh' pattern or /tmp artifact creation.",
+        "success_criteria": "Confirm RCE by finding the obfuscated command pattern on a host where an affected package is also present."
+      },
+      "parents": [
+        {
+          "id": "obfuscated-shell-execution",
+          "kind": "merge"
+        },
+        {
+          "id": "suspicious-build-artifacts",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-build-children",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decision-route",
+      "type": "checkpoint",
+      "label": "Decision on Build Compromise",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious and finds the printf/tr/sh pattern on a host with a target package.",
+        "condition": "The triage verdict is malicious and finds the printf/tr/sh pattern on a host with a target package.",
+        "blind_spot": "missing-process-telemetry",
+        "confidence": "high",
+        "description": "Route to containment if malicious build execution is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-build-execution"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Host and Revoke Credentials",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further exfiltration and contain the compromise on the developer machine.",
+        "instructions": "Isolate the host immediately. Revoke all CI/CD tokens and cloud credentials stored on this machine, as they are considered compromised by the build-time RCE.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-triage",
+      "type": "task",
+      "label": "Detailed Analyst Triage",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review the build settings and script fragments for deeper context.",
+        "instructions": "Inspect the file system for the zero-byte README.md files mentioned in the report and check hb_script_activity for decoded base64/xxd output."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "default"
+        },
+        {
+          "id": "decision-route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-hunt",
+      "type": "task",
+      "label": "Close Hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Documentation and closing.",
+        "instructions": "Record the absence of build-time RCE markers across the Flutter development estate."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

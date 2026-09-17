@@ -1,0 +1,543 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "This hunt addresses a critical supply chain risk where legitimate developer environments are weaponized. Finding these indicators on a build machine protects against the theft of signing keys and production secrets."
+      },
+      "name": "Malicious Build Tooling Behavior",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1204.002",
+        "attack.t1195.001",
+        "attack.t1059.004"
+      ],
+      "series": {
+        "slug": "pub-dev-compromise-malicious-dart-flutter-packages",
+        "index": 2,
+        "title": "pub.dev compromise: malicious Dart/Flutter packages",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "malicious-package-distribution",
+          "reason": "This hunt looks for the behavior of the injector; the distribution hunt looks for the presence of the malicious packages themselves.",
+          "relation": "precedes"
+        },
+        {
+          "hunt": "c2-script-retrieval",
+          "reason": "The build hooks eventually fetch C2 scripts; that behavior is covered in a separate network-focused hunt.",
+          "relation": "follows"
+        },
+        {
+          "hunt": "flutter-dependency-inventory-scan",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule might catch 'printf | tr', but this hunt pivots between the development ecosystem context (Flutter/Dart), the resulting file-system artifacts (.bak, misplaced READMEs), and the execution patterns, providing the context an analyst needs to distinguish between a legitimate build script and a supply chain injector.",
+      "coverage": [
+        {
+          "stage": "build-time-injection-gradle",
+          "steps": [
+            "obfuscated-build-scripts",
+            "gradle-injection-remnants"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "build-time-injection-xcode",
+          "steps": [
+            "xcode-misplaced-files"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "malicious-package-distribution",
+          "reason": "Belongs to another part of the 'pub.dev compromise: malicious Dart/Flutter packages' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "c2-script-retrieval",
+          "reason": "Belongs to another part of the 'pub.dev compromise: malicious Dart/Flutter packages' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Malicious Package Publication",
+            "slug": "malicious-package-distribution",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195"
+            ],
+            "observables": [
+              "universal_file_viewer versions 0.1.5, 0.1.6",
+              "surveyjs_flutter versions 0.1.1, 0.1.2, 0.1.3",
+              "pubspec.lock contains affected versions",
+              "publisher elvynforge.xyz"
+            ]
+          },
+          {
+            "name": "Gradle Build-Time Execution",
+            "slug": "build-time-injection-gradle",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "build.gradle.kts",
+              "printf xAxd | tr -d A",
+              "printf bdase64 | tr -d d",
+              "sh",
+              "build.gradle.bak"
+            ]
+          },
+          {
+            "name": "Xcode Build-Rule Execution",
+            "slug": "build-time-injection-xcode",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "project.pbxproj",
+              "A3EA261 build setting",
+              "com.apple.compilers.proxy.script compiler spec",
+              "zero-byte README.md in platform subdirectories",
+              "PBXShellScriptBuildPhase with p=xcode_phase"
+            ]
+          },
+          {
+            "name": "Command and Control Callback",
+            "slug": "c2-script-retrieval",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              ".ru domains",
+              "POST to /a",
+              "p=gradle",
+              "p=xcode_rule",
+              "p=xcode_phase"
+            ]
+          }
+        ],
+        "summary": "A supply chain compromise targeting the Dart/Flutter ecosystem where a legitimate maintainer's account was used to publish malicious versions of universal_file_viewer and surveyjs_flutter. These packages contained build-time hooks in Gradle and Xcode configuration files that executed obfuscated shell commands to fetch and run remote scripts, targeting developer and CI environment credentials."
+      },
+      "severity": "high",
+      "rationale": "We focus on developer workstations and CI runners by filtering on the presence of Flutter or Dart SDKs in software inventory. This narrows the scope from the entire fleet to the assets that actually execute the targeted build scripts.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has compromised the build environment by injecting malicious hooks into Gradle or Xcode configuration files, resulting in obfuscated shell execution during the project compilation phase.",
+      "parameters": {
+        "xcode_marker": {
+          "type": "string",
+          "default": "A3EA261",
+          "description": "Malicious build setting identifier found in Xcode projects."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.ossprey.com/blog/pub-dev-compromise",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.ossprey.com/blog/pub-dev-compromise",
+          "name": "OSSPREY \u2014 pub.dev compromise: malicious Dart/Flutter packages"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "limited-file-content-visibility",
+          "risk": "If the marker is only present inside a file and never used as a command-line argument or captured in script activity, we can only see that the file was modified, not why.",
+          "owner": "Endpoint Security",
+          "stage": "build-time-injection-xcode",
+          "question": "Does the .pbxproj file contain the A3EA261 marker?",
+          "requires": "Deep file content inspection or EDR-captured file write buffers.",
+          "remediation": "Enable script block logging and ensure EDR captures full command-line arguments and file write events."
+        }
+      ]
+    },
+    "name": "Malicious Build Tooling Behavior",
+    "description": "This hunt targets the secondary stage of the pub.dev supply chain compromise where a developer's environment is used to inject malicious code into native build files (Gradle and Xcode). We look for the footprint of the injector, specifically the creation of backup files (.bak) during automated editing, the presence of anomalous README files used as Xcode build triggers, and the execution of obfuscated shell commands using printf/tr piping\u2014a technique used to bypass simple string-based script scanners."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "pub-dev-compromise-malicious-dart-flutter-packages",
+          "index": 2,
+          "title": "pub.dev compromise: malicious Dart/Flutter packages",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "build-time-injection-gradle",
+            "steps": [
+              "obfuscated-build-scripts",
+              "gradle-injection-remnants"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "build-time-injection-xcode",
+            "steps": [
+              "xcode-misplaced-files"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "malicious-package-distribution",
+            "reason": "Belongs to another part of the 'pub.dev compromise: malicious Dart/Flutter packages' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "c2-script-retrieval",
+            "reason": "Belongs to another part of the 'pub.dev compromise: malicious Dart/Flutter packages' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has compromised the build environment by injecting malicious hooks into Gradle or Xcode configuration files, resulting in obfuscated shell execution during the project compilation phase.",
+        "blind_spots": [
+          {
+            "id": "limited-file-content-visibility",
+            "risk": "If the marker is only present inside a file and never used as a command-line argument or captured in script activity, we can only see that the file was modified, not why.",
+            "owner": "Endpoint Security",
+            "stage": "build-time-injection-xcode",
+            "question": "Does the .pbxproj file contain the A3EA261 marker?",
+            "requires": "Deep file content inspection or EDR-captured file write buffers.",
+            "remediation": "Enable script block logging and ensure EDR captures full command-line arguments and file write events."
+          }
+        ],
+        "scoping_notes": "We focus on developer workstations and CI runners by filtering on the presence of Flutter or Dart SDKs in software inventory. This narrows the scope from the entire fleet to the assets that actually execute the targeted build scripts.",
+        "beyond_detection": "A simple detection rule might catch 'printf | tr', but this hunt pivots between the development ecosystem context (Flutter/Dart), the resulting file-system artifacts (.bak, misplaced READMEs), and the execution patterns, providing the context an analyst needs to distinguish between a legitimate build script and a supply chain injector."
+      }
+    },
+    {
+      "id": "flutter-dev-scoping",
+      "type": "query",
+      "label": "Identify Flutter/Dart Development Hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%') AND asset_scope = 'endpoint'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts that have Flutter or Dart SDKs installed, narrowing the hunt to developer and CI machines likely to run these build scripts.",
+        "expected_signal": "A list of hostnames belonging to developers or build runners. Silence suggests no Flutter/Dart development is occurring in the visible estate."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Flutter/Dart Development Hosts",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%') AND asset_scope = 'endpoint'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames belonging to developers or build runners. Silence suggests no Flutter/Dart development is occurring in the visible estate.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "obfuscated-build-scripts",
+      "type": "query",
+      "label": "Obfuscated Build Script Execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, script_path, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%printf%tr%sh%' OR LOWER(script_content) LIKE '%xAxd%' OR LOWER(script_content) LIKE '%bdase64%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Find the execution of scripts that use printf and tr to reconstruct 'xxd' or 'base64', a core indicator of the pub.dev injector.",
+        "expected_signal": "A script block containing the specific obfuscation patterns mentioned in the report. This is a very high-fidelity signal for this specific injector."
+      },
+      "parents": [
+        {
+          "id": "flutter-dev-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Obfuscated Build Script Execution",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "script_path",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, script_path, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%printf%tr%sh%' OR LOWER(script_content) LIKE '%xAxd%' OR LOWER(script_content) LIKE '%bdase64%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "A script block containing the specific obfuscation patterns mentioned in the report. This is a very high-fidelity signal for this specific injector.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "gradle-injection-remnants",
+      "type": "query",
+      "label": "Gradle Injection Artifacts (.bak files)",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, activity_name, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '%.gradle.bak' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify the artifact of the automated script that rewrote the Gradle files\u2014specifically the .bak files left behind.",
+        "expected_signal": "Creation or presence of a .bak file sibling to a build.gradle file. This indicates an automated modification occurred."
+      },
+      "parents": [
+        {
+          "id": "flutter-dev-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Gradle Injection Artifacts (.bak files)",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "activity_name",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, activity_name, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '%.gradle.bak' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation or presence of a .bak file sibling to a build.gradle file. This indicates an automated modification occurred.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "xcode-misplaced-files",
+      "type": "query",
+      "label": "Misplaced READMEs in Xcode Platforms",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/ios/readme.md' OR LOWER(file_path) LIKE '%/macos/readme.md') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY file_path",
+        "surface": "hb_file_activity",
+        "description": "Identify the creation of README.md files inside ios/ or macos/ subdirectories, which the report identifies as the trigger for the malicious PBXBuildRule.",
+        "expected_signal": "README.md files appearing in platform folders where they do not typically belong. A rare path across the fleet suggests a malicious injection."
+      },
+      "parents": [
+        {
+          "id": "flutter-dev-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Misplaced READMEs in Xcode Platforms",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/ios/readme.md' OR LOWER(file_path) LIKE '%/macos/readme.md') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY file_path",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "README.md files appearing in platform folders where they do not typically belong. A rare path across the fleet suggests a malicious injection.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "file_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-build-activity",
+      "type": "analytic",
+      "label": "Triage Build Activity Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "flutter-dev-scoping",
+          "obfuscated-build-scripts",
+          "gradle-injection-remnants",
+          "xcode-misplaced-files"
+        ],
+        "objective": "Determine if the script activity (printf|tr) correlates with the presence of .bak files or misplaced README files on the same developer hosts. Pay special attention to the {{xcode_marker}} setting if mentioned in any file content or process logs.",
+        "description": "Analyze the combined evidence of scoping, script execution, and file activity to determine if a host is showing signs of the pub.dev supply chain compromise.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict on whether the build-time activity is malicious or benign.",
+        "success_criteria": "A verdict of malicious | suspicious | benign for each identified host, citing the specific script content or file paths."
+      },
+      "parents": [
+        {
+          "id": "obfuscated-build-scripts",
+          "kind": "merge"
+        },
+        {
+          "id": "gradle-injection-remnants",
+          "kind": "merge"
+        },
+        {
+          "id": "xcode-misplaced-files",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decision-route",
+      "type": "checkpoint",
+      "label": "Route on Triage Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for at least one developer or CI machine.",
+        "condition": "The triage verdict is malicious for at least one developer or CI machine.",
+        "blind_spot": "limited-file-content-visibility",
+        "confidence": "high",
+        "description": "Decide the next step based on the agent's verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-build-activity"
+        }
+      ]
+    },
+    {
+      "id": "isolate-dev-machine",
+      "type": "action",
+      "label": "Isolate Developer Machine",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further credential theft or lateral movement from a confirmed compromised build machine.",
+        "instructions": "Isolate the host, revoke any local AWS/GCP/GitHub credentials, and capture the .gradle and .pbxproj files for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-manual-review",
+      "type": "task",
+      "label": "Analyst Manual Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review findings that were not definitively malicious but showed suspicious patterns.",
+        "instructions": "Review the script contents and file paths identified by the agent. Check for the specific marker {{xcode_marker}} in project files. Validate if these are legitimate automated build processes used by the development team."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "default"
+        },
+        {
+          "id": "decision-route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-dev-machine"
+        }
+      ]
+    },
+    {
+      "id": "close-hunt",
+      "type": "task",
+      "label": "Close Hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt when no malicious activity is found.",
+        "instructions": "Record the findings and note any hosts where Flutter development was confirmed but no indicators of compromise were seen."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

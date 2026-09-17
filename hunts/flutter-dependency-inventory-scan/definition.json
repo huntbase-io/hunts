@@ -1,0 +1,595 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The pub.dev registry compromise targets high-value developer workstations and automated build pipelines. Identifying these packages before they execute build scripts is critical for preventing secret theft and supply chain injection into production applications."
+      },
+      "name": "Flutter Dependency Inventory Scan",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1195"
+      ],
+      "series": {
+        "slug": "pub-dev-compromise-malicious-dart-flutter-packages",
+        "index": 1,
+        "title": "pub.dev compromise: malicious Dart/Flutter packages",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "flutter-build-time-injection-behavior",
+          "reason": "This hunt focuses on inventory (at rest); a sibling hunt is needed to detect the behavior of the Gradle/Xcode script execution.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "github": {
+          "name": "github",
+          "category": "siem",
+          "huntbase": {
+            "product": "github"
+          }
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "This is a hunt because it uses prevalence baselining to discover 'rare' packages within the specific ecosystem, rather than relying on a static list of known-bad indicators that attackers easily rotate. It pivots into internal GitHub package data to identify mirrors, a level of contextual cross-surface correlation that a simple rule cannot achieve.",
+      "coverage": [
+        {
+          "stage": "malicious-package-distribution",
+          "steps": [
+            "scoping-flutter-hosts",
+            "rare-dart-packages",
+            "github-mirror-anomaly-check"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "build-time-injection-gradle",
+          "reason": "This behavioral stage is covered in the sibling hunt 'flutter-build-time-injection-behavior'.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "build-time-injection-xcode",
+          "reason": "Belongs to another part of the 'pub.dev compromise: malicious Dart/Flutter packages' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "c2-script-retrieval",
+          "reason": "Belongs to another part of the 'pub.dev compromise: malicious Dart/Flutter packages' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Malicious Package Publication",
+            "slug": "malicious-package-distribution",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195"
+            ],
+            "observables": [
+              "universal_file_viewer versions 0.1.5, 0.1.6",
+              "surveyjs_flutter versions 0.1.1, 0.1.2, 0.1.3",
+              "pubspec.lock contains affected versions",
+              "publisher elvynforge.xyz"
+            ]
+          },
+          {
+            "name": "Gradle Build-Time Execution",
+            "slug": "build-time-injection-gradle",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "build.gradle.kts",
+              "printf xAxd | tr -d A",
+              "printf bdase64 | tr -d d",
+              "sh",
+              "build.gradle.bak"
+            ]
+          },
+          {
+            "name": "Xcode Build-Rule Execution",
+            "slug": "build-time-injection-xcode",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "project.pbxproj",
+              "A3EA261 build setting",
+              "com.apple.compilers.proxy.script compiler spec",
+              "zero-byte README.md in platform subdirectories",
+              "PBXShellScriptBuildPhase with p=xcode_phase"
+            ]
+          },
+          {
+            "name": "Command and Control Callback",
+            "slug": "c2-script-retrieval",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              ".ru domains",
+              "POST to /a",
+              "p=gradle",
+              "p=xcode_rule",
+              "p=xcode_phase"
+            ]
+          }
+        ],
+        "summary": "A supply chain compromise targeting the Dart/Flutter ecosystem where a legitimate maintainer's account was used to publish malicious versions of universal_file_viewer and surveyjs_flutter. These packages contained build-time hooks in Gradle and Xcode configuration files that executed obfuscated shell commands to fetch and run remote scripts, targeting developer and CI environment credentials."
+      },
+      "severity": "high",
+      "rationale": "The hunt targets any host with Dart or Flutter toolsets. The timeframe is critical, starting from August 12, 2026, when the first infected package was published.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has introduced malicious Dart/Flutter packages into the environment, detectable as rare, recently added dependencies in local developer toolchains or internal package mirrors.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "30",
+          "description": "Days of inventory history to examine (covers the month of August/September activity)."
+        },
+        "malicious_packages": {
+          "from": {
+            "ref": "ossprey-pub-dev-compromise",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[string]",
+          "default": [
+            "universal_file_viewer",
+            "surveyjs_flutter"
+          ],
+          "description": "Names of the confirmed affected packages used for enrichment."
+        },
+        "malicious_versions": {
+          "from": {
+            "ref": "ossprey-pub-dev-compromise",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[string]",
+          "default": [
+            "0.1.1",
+            "0.1.2",
+            "0.1.3",
+            "0.1.5",
+            "0.1.6"
+          ],
+          "description": "Specific versions confirmed to be infected used for enrichment."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.ossprey.com/blog/pub-dev-compromise",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.ossprey.com/blog/pub-dev-compromise",
+          "name": "pub.dev compromise: malicious Dart/Flutter packages"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "limited-package-visibility",
+          "risk": "A developer may have downloaded the package locally but not yet built a project that exposes it to the OS-level software list, leaving the malicious files resident on disk but invisible.",
+          "stage": "malicious-package-distribution",
+          "question": "Are malicious packages present in hidden or user-profile directories not scanned by standard inventory?",
+          "requires": "hb_software_inventory capturing sub-directories of user-level pub caches (~/.pub-cache)"
+        },
+        {
+          "id": "transitive-dependency-blindness",
+          "risk": "Software inventory might only report direct dependencies or installed binaries; a transitive dependency buried in a lockfile might only be seen when the build executes.",
+          "stage": "malicious-package-distribution",
+          "question": "Is the malicious package a transitive dependency of an internally developed library?",
+          "requires": "recursive lockfile parsing for all projects"
+        }
+      ]
+    },
+    "name": "Flutter Dependency Inventory Scan",
+    "description": "This hunt identifies potential supply chain compromises in the Flutter ecosystem. Instead of relying solely on hardcoded blocklists, it baselines the prevalence of all Dart and Flutter packages across the fleet to highlight rare or suspicious additions. It further corroborates these findings by examining internal GitHub repositories for mirrored packages that mimic popular libraries but exhibit anomalies in visibility and creation timing. This proactive approach identifies targeted development environments before malicious build-time code executes, focusing on the infrastructure that powers the software delivery lifecycle."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "pub-dev-compromise-malicious-dart-flutter-packages",
+          "index": 1,
+          "title": "pub.dev compromise: malicious Dart/Flutter packages",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "malicious-package-distribution",
+            "steps": [
+              "scoping-flutter-hosts",
+              "rare-dart-packages",
+              "github-mirror-anomaly-check"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "build-time-injection-gradle",
+            "reason": "This behavioral stage is covered in the sibling hunt 'flutter-build-time-injection-behavior'.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "build-time-injection-xcode",
+            "reason": "Belongs to another part of the 'pub.dev compromise: malicious Dart/Flutter packages' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "c2-script-retrieval",
+            "reason": "Belongs to another part of the 'pub.dev compromise: malicious Dart/Flutter packages' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has introduced malicious Dart/Flutter packages into the environment, detectable as rare, recently added dependencies in local developer toolchains or internal package mirrors.",
+        "blind_spots": [
+          {
+            "id": "limited-package-visibility",
+            "risk": "A developer may have downloaded the package locally but not yet built a project that exposes it to the OS-level software list, leaving the malicious files resident on disk but invisible.",
+            "stage": "malicious-package-distribution",
+            "question": "Are malicious packages present in hidden or user-profile directories not scanned by standard inventory?",
+            "requires": "hb_software_inventory capturing sub-directories of user-level pub caches (~/.pub-cache)"
+          },
+          {
+            "id": "transitive-dependency-blindness",
+            "risk": "Software inventory might only report direct dependencies or installed binaries; a transitive dependency buried in a lockfile might only be seen when the build executes.",
+            "stage": "malicious-package-distribution",
+            "question": "Is the malicious package a transitive dependency of an internally developed library?",
+            "requires": "recursive lockfile parsing for all projects"
+          }
+        ],
+        "scoping_notes": "The hunt targets any host with Dart or Flutter toolsets. The timeframe is critical, starting from August 12, 2026, when the first infected package was published.",
+        "beyond_detection": "This is a hunt because it uses prevalence baselining to discover 'rare' packages within the specific ecosystem, rather than relying on a static list of known-bad indicators that attackers easily rotate. It pivots into internal GitHub package data to identify mirrors, a level of contextual cross-surface correlation that a simple rule cannot achieve."
+      }
+    },
+    {
+      "id": "scoping-flutter-hosts",
+      "type": "query",
+      "label": "Identify Flutter development hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, device_uid FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%' OR package_type IN ('pub', 'dart', 'flutter'))",
+        "surface": "hb_software_inventory",
+        "description": "Scope the hunt to hosts that have any Dart or Flutter related packages installed.",
+        "expected_signal": "A list of hosts likely to be developer or build machines. Silence indicates no Flutter ecosystem presence."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Flutter development hosts",
+        "reads": [
+          "device_hostname",
+          "device_uid",
+          "package_name",
+          "package_type"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, device_uid FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%' OR package_type IN ('pub', 'dart', 'flutter'))",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts likely to be developer or build machines. Silence indicates no Flutter ecosystem presence.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "rare-dart-packages",
+      "type": "query",
+      "label": "Rare Dart/Flutter packages in ecosystem",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT package_name, package_version, vendor_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(collected_at) AS first_seen FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%' OR package_type IN ('pub', 'dart', 'flutter')) AND collected_at >= datetime('now', '-{{lookback_days}} days') GROUP BY package_name, package_version HAVING host_count <= 5 ORDER BY host_count ASC",
+        "surface": "hb_software_inventory",
+        "description": "Identify low-prevalence packages within the Dart ecosystem that may represent targeted supply chain attacks.",
+        "expected_signal": "Packages appearing on only a few hosts. Malicious versions 0.1.1-0.1.6 of the target packages should appear here if present."
+      },
+      "parents": [
+        {
+          "id": "scoping-flutter-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Rare Dart/Flutter packages in ecosystem",
+        "reads": [
+          "collected_at",
+          "device_hostname",
+          "package_name",
+          "package_type",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT package_name, package_version, vendor_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(collected_at) AS first_seen FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%' OR package_type IN ('pub', 'dart', 'flutter')) AND collected_at >= datetime('now', '-{{lookback_days}} days') GROUP BY package_name, package_version HAVING host_count <= 5 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Packages appearing on only a few hosts. Malicious versions 0.1.1-0.1.6 of the target packages should appear here if present.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "package_name",
+            "package_version"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "detailed-inventory-enrichment",
+      "type": "query",
+      "label": "Detailed host inventory details",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path, vendor_name, collected_at FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%') AND collected_at >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_software_inventory",
+        "description": "Provide the triage agent with specific paths and versions for every Flutter-related package on scoped hosts.",
+        "expected_signal": "Context for specific package locations."
+      },
+      "parents": [
+        {
+          "id": "rare-dart-packages"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Detailed host inventory details",
+        "reads": [
+          "collected_at",
+          "device_hostname",
+          "install_path",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path, vendor_name, collected_at FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%flutter%' OR LOWER(package_name) LIKE '%dart%') AND collected_at >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Context for specific package locations.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "github-mirror-anomaly-check",
+      "type": "query",
+      "label": "GitHub private mirror anomalies",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "github",
+        "content": "SELECT name, repository_full_name, organization, visibility, created_at FROM github_package WHERE (LOWER(name) LIKE '%flutter%' OR LOWER(name) LIKE '%dart%' OR LOWER(name) LIKE '%universal_file%' OR LOWER(name) LIKE '%surveyjs%') AND visibility = 'private' AND created_at >= datetime('now', '-{{lookback_days}} days')",
+        "product": "github",
+        "surface": "github_package",
+        "description": "Check for private internal GitHub packages that mirror popular Flutter libraries but have unusual creation dates.",
+        "expected_signal": "Private internal packages mimicking public names, created during the window of the report. This suggests internal propagation of a malicious package."
+      },
+      "parents": [
+        {
+          "id": "rare-dart-packages"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "GitHub private mirror anomalies",
+        "reads": [
+          "created_at",
+          "name",
+          "organization",
+          "repository_full_name",
+          "visibility"
+        ],
+        "source": "github_package",
+        "target": "github",
+        "content": "SELECT name, repository_full_name, organization, visibility, created_at FROM github_package WHERE (LOWER(name) LIKE '%flutter%' OR LOWER(name) LIKE '%dart%' OR LOWER(name) LIKE '%universal_file%' OR LOWER(name) LIKE '%surveyjs%') AND visibility = 'private' AND created_at >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Private internal packages mimicking public names, created during the window of the report. This suggests internal propagation of a malicious package.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-affected-assets",
+      "type": "analytic",
+      "label": "Triage affected assets",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "github"
+        ],
+        "context": [
+          "rare-dart-packages",
+          "detailed-inventory-enrichment",
+          "github-mirror-anomaly-check"
+        ],
+        "objective": "Identify hosts where rare packages match the known malicious list ({{malicious_packages}}, {{malicious_versions}}). Additionally, flag hosts using internal GitHub packages that mirror these names but were created recently. Citing inventory rows is required for all verdicts.",
+        "description": "Evaluate identified hosts to distinguish between standard Flutter development and suspicious package use.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host."
+      },
+      "parents": [
+        {
+          "id": "detailed-inventory-enrichment",
+          "kind": "merge"
+        },
+        {
+          "id": "github-mirror-anomaly-check",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for any host or identifies a recently created internal mirror for a known-malicious package.",
+        "condition": "The triage verdict is malicious for any host or identifies a recently created internal mirror for a known-malicious package.",
+        "blind_spot": "limited-package-visibility",
+        "confidence": "high",
+        "description": "Decide on containment or manual review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-affected-assets"
+        }
+      ]
+    },
+    {
+      "id": "isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately contain hosts with confirmed malicious packages to prevent secret exfiltration or lateral movement.",
+        "instructions": "Isolate the host from the network. Preserve the .pub-cache and all local project directories for deep inspection of Vector 1 (Gradle) and Vector 2 (Xcode) artifacts.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "revoke-secrets",
+      "type": "action",
+      "label": "Revoke CI/CD and developer secrets",
+      "config": {
+        "target": "identity",
+        "description": "Mitigate the impact of credential theft from build environments.",
+        "instructions": "Rotate or revoke all CI/CD tokens, SSH keys, and cloud provider credentials associated with the affected hosts and repositories.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "analyst-manual-review",
+      "type": "task",
+      "label": "Analyst manual review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify triage results and investigate the provenance of rare packages.",
+        "instructions": "Examine the pubspec.lock files for identified hosts. Check for the presence of zero-byte README.md files in the ios/ and macos/ subdirectories of active projects, and inspect build.gradle.kts for hex-encoded strings as identified in the research."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "revoke-secrets"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and archive results.",
+        "instructions": "Record the results. If no compromise is found, update the 'known good' package list to include the identified rare libraries to reduce future noise."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
