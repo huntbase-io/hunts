@@ -1,0 +1,618 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Kubernetes control plane intrusions often pivot into the node using techniques (like chroot) that bypass traditional runtime process monitoring. Correlation between the API plane (HTTP logs) and the host plane (File/Process logs) is necessary to detect container escapes."
+      },
+      "name": "Kubernetes Control Plane and Runtime Correlation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1613",
+        "attack.t1087.002",
+        "attack.t1552.001",
+        "attack.t1610",
+        "attack.t1609",
+        "attack.t1611"
+      ],
+      "related": [
+        {
+          "hunt": "kubernetes-privilege-escalation",
+          "reason": "Escaping a container is often the step before host-level privilege escalation.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "kubernetes": {
+          "name": "kubernetes",
+          "category": "siem",
+          "huntbase": {
+            "product": "kubernetes"
+          }
+        }
+      },
+      "analysis": "A standard rule might fire on 'chroot' execution, but this hunt pivots to the Service Account that initiated it via the API and checks for concurrent token access\u2014a cross-surface join that filters out noise from administrative tasks.",
+      "coverage": [
+        {
+          "stage": "api-discovery-and-recon",
+          "steps": [
+            "k8s-audit-api-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "token-credential-access",
+          "steps": [
+            "detect-sa-token-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "malicious-pod-deployment",
+          "steps": [
+            "k8s-audit-api-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "exec-and-container-escape",
+          "steps": [
+            "rare-escape-tool-execution",
+            "k8s-audit-api-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Service Account API Discovery",
+            "slug": "api-discovery-and-recon",
+            "tactic": "discovery",
+            "techniques": [
+              "T1613",
+              "T1087.002"
+            ],
+            "observables": [
+              "user.name: system:serviceaccount:*",
+              "kubernetes.audit.verb: list",
+              "kubernetes.audit.verb: get",
+              "objectRef.resource: secrets"
+            ]
+          },
+          {
+            "name": "Service Account Token Access",
+            "slug": "token-credential-access",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1552.001"
+            ],
+            "observables": [
+              "/var/run/secrets/kubernetes.io/serviceaccount/token",
+              "file.path: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+              "process.interactive: true"
+            ]
+          },
+          {
+            "name": "Privileged Pod Deployment",
+            "slug": "malicious-pod-deployment",
+            "tactic": "persistence",
+            "techniques": [
+              "T1610"
+            ],
+            "observables": [
+              "kubernetes.audit.verb: create",
+              "objectRef.resource: pods",
+              "requestObject.spec.containers.securityContext.privileged: true"
+            ]
+          },
+          {
+            "name": "Container Exec and Escape Attempt",
+            "slug": "exec-and-container-escape",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1609",
+              "T1611"
+            ],
+            "observables": [
+              "objectRef.subresource: exec",
+              "nsenter",
+              "chroot",
+              "kubernetes.audit.requestURI"
+            ]
+          }
+        ],
+        "summary": "A compromised Kubernetes service account is used for discovery and secret access, leading to the theft of service account tokens from the filesystem. The attacker then deploys a privileged pod and uses the exec subresource to attempt a container escape using nsenter and chroot, a sequence that is only fully detectable by correlating Kubernetes API audit logs with container runtime process and file events."
+      },
+      "severity": "high",
+      "rationale": "Prioritize nodes running internet-facing workloads or those identified in vulnerability scans as having critical findings. If no Kubernetes components are found in software inventory, widen to all Linux hosts.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has compromised a workload, accessed its service account token, and is using the Kubernetes API to deploy privileged pods or escape containers, leaving traces in audit logs and rare process executions.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of Kubernetes node hostnames to focus on; leave empty for estate-wide."
+        },
+        "escape_tools": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/threat-command/kubernetes-audit-logs-container-escape",
+            "kind": "article",
+            "observed": "2026-09-03"
+          },
+          "type": "list[string]",
+          "default": [
+            "nsenter",
+            "chroot"
+          ],
+          "description": "Tools commonly used for container escapes."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "sa_token_paths": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/threat-command/kubernetes-audit-logs-container-escape",
+            "kind": "article",
+            "observed": "2026-09-03"
+          },
+          "type": "list[path]",
+          "default": [
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          ],
+          "description": "Standard paths for Kubernetes Service Account secrets."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/kubernetes-audit-logs-container-escape",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/kubernetes-audit-logs-container-escape",
+          "name": "Elastic Security Labs \u2014 How to correlate Kubernetes audit logs with container runtime data"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "incomplete-audit-logs",
+          "risk": "If audit logs are not configured to capture the request body or full URI (Metadata only), the escape command is hidden from the control plane view.",
+          "stage": "exec-and-container-escape",
+          "question": "whether the 'exec' command contained escape tools in the requestURI",
+          "requires": "Kubernetes Audit Logs (ResponseComplete level)"
+        },
+        {
+          "id": "in-memory-token-usage",
+          "risk": "File activity logs typically only capture the 'open' call; a process that keeps the file descriptor open may bypass subsequent read-based alerts.",
+          "stage": "token-credential-access",
+          "question": "whether the token was used by a process that already had a handle to the file",
+          "requires": "hb_file_activity"
+        }
+      ]
+    },
+    "name": "Kubernetes Control Plane and Runtime Correlation",
+    "description": "This hunt bridges the visibility gap between Kubernetes API activity (control plane) and container behavior (endpoint plane). It identifies the access of Service Account tokens, tracks rare execution of container escape tools like nsenter or chroot, and correlates these with Kubernetes audit logs captured in HTTP traffic. By joining the API request parameters with runtime process stack-counts, the hunt uncovers lateral movement into the cluster fabric that single-surface detections miss."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "api-discovery-and-recon",
+            "steps": [
+              "k8s-audit-api-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "token-credential-access",
+            "steps": [
+              "detect-sa-token-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "malicious-pod-deployment",
+            "steps": [
+              "k8s-audit-api-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "exec-and-container-escape",
+            "steps": [
+              "rare-escape-tool-execution",
+              "k8s-audit-api-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has compromised a workload, accessed its service account token, and is using the Kubernetes API to deploy privileged pods or escape containers, leaving traces in audit logs and rare process executions.",
+        "blind_spots": [
+          {
+            "id": "incomplete-audit-logs",
+            "risk": "If audit logs are not configured to capture the request body or full URI (Metadata only), the escape command is hidden from the control plane view.",
+            "stage": "exec-and-container-escape",
+            "question": "whether the 'exec' command contained escape tools in the requestURI",
+            "requires": "Kubernetes Audit Logs (ResponseComplete level)"
+          },
+          {
+            "id": "in-memory-token-usage",
+            "risk": "File activity logs typically only capture the 'open' call; a process that keeps the file descriptor open may bypass subsequent read-based alerts.",
+            "stage": "token-credential-access",
+            "question": "whether the token was used by a process that already had a handle to the file",
+            "requires": "hb_file_activity"
+          }
+        ],
+        "scoping_notes": "Prioritize nodes running internet-facing workloads or those identified in vulnerability scans as having critical findings. If no Kubernetes components are found in software inventory, widen to all Linux hosts.",
+        "beyond_detection": "A standard rule might fire on 'chroot' execution, but this hunt pivots to the Service Account that initiated it via the API and checks for concurrent token access\u2014a cross-surface join that filters out noise from administrative tasks."
+      }
+    },
+    {
+      "id": "find-k8s-nodes",
+      "type": "query",
+      "label": "Find Kubernetes nodes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%kubelet%' OR LOWER(package_name) LIKE '%kubernetes%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts running Kubernetes components to narrow the hunt to the relevant container environment.",
+        "expected_signal": "A list of hostnames belonging to Kubernetes nodes. If empty, the organization may not be running Kubernetes or the software inventory is not captured."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Find Kubernetes nodes",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%kubelet%' OR LOWER(package_name) LIKE '%kubernetes%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames belonging to Kubernetes nodes. If empty, the organization may not be running Kubernetes or the software inventory is not captured.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "detect-sa-token-access",
+      "type": "query",
+      "label": "Service Account token access",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, process_name, process_cmd_line, file_path, time FROM hb_file_activity WHERE (instr(',' || '{{sa_token_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect processes accessing the Service Account token, which is the required credential for control-plane abuse.",
+        "expected_signal": "Access events for token files. Standard agents (e.g. cloud-init, kubelet) should be common; interactive shells or rare binaries (e.g. curl) are high-confidence leads."
+      },
+      "parents": [
+        {
+          "id": "find-k8s-nodes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Service Account token access",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "process_name",
+          "process_cmd_line",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, process_name, process_cmd_line, file_path, time FROM hb_file_activity WHERE (instr(',' || '{{sa_token_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Access events for token files. Standard agents (e.g. cloud-init, kubelet) should be common; interactive shells or rare binaries (e.g. curl) are high-confidence leads.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-escape-tool-execution",
+      "type": "query",
+      "label": "Rare execution of escape tools",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS execution_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (instr(',' || '{{escape_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count the execution of tools like nsenter and chroot across the fleet to find anomalous container escape attempts.",
+        "expected_signal": "Rare instances of escape tools. Legitimate use by cluster administrators or node maintenance scripts should appear across many hosts or at fixed intervals."
+      },
+      "parents": [
+        {
+          "id": "detect-sa-token-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare execution of escape tools",
+        "reads": [
+          "process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS execution_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (instr(',' || '{{escape_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare instances of escape tools. Legitimate use by cluster administrators or node maintenance scripts should appear across many hosts or at fixed intervals.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "k8s-audit-api-activity",
+      "type": "query",
+      "label": "Kubernetes Audit API activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_path, url_query, actor_user_name, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/exec%' OR LOWER(url_path) LIKE '%/secrets%' OR LOWER(url_path) LIKE '%/pods%') AND (LOWER(url_query) LIKE '%nsenter%' OR LOWER(url_query) LIKE '%chroot%' OR LOWER(url_path) LIKE '%/secrets%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Examine the API control plane for Service Account discovery, pod creation, or exec calls containing escape tools.",
+        "expected_signal": "API requests directed at the Kubernetes API server where Service Accounts are used to list secrets or execute commands containing 'nsenter' or 'chroot'."
+      },
+      "parents": [
+        {
+          "id": "rare-escape-tool-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Kubernetes Audit API activity",
+        "reads": [
+          "device_hostname",
+          "url_path",
+          "url_query",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_path, url_query, actor_user_name, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/exec%' OR LOWER(url_path) LIKE '%/secrets%' OR LOWER(url_path) LIKE '%/pods%') AND (LOWER(url_query) LIKE '%nsenter%' OR LOWER(url_query) LIKE '%chroot%' OR LOWER(url_path) LIKE '%/secrets%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "API requests directed at the Kubernetes API server where Service Accounts are used to list secrets or execute commands containing 'nsenter' or 'chroot'.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "active-pod-inventory",
+      "type": "query",
+      "label": "Active pod inventory",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "kubernetes",
+        "content": "SELECT hostname, host_ip, creation_timestamp, containers, _ctx FROM kubernetes_pod WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0)",
+        "product": "kubernetes",
+        "surface": "kubernetes_pod",
+        "extension": "kubernetes",
+        "description": "Identify current pods and containers on the nodes to map runtime process findings to specific orchestrator resources.",
+        "expected_signal": "A snapshot of running pods, allowing the analyst to correlate 'device_hostname' from endpoint logs with specific container names and namespaces."
+      },
+      "parents": [
+        {
+          "id": "rare-escape-tool-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Active pod inventory",
+        "reads": [
+          "hostname",
+          "host_ip",
+          "creation_timestamp",
+          "containers",
+          "_ctx"
+        ],
+        "source": "kubernetes_pod",
+        "target": "kubernetes",
+        "content": "SELECT hostname, host_ip, creation_timestamp, containers, _ctx FROM kubernetes_pod WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A snapshot of running pods, allowing the analyst to correlate 'device_hostname' from endpoint logs with specific container names and namespaces.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17",
+        "target_extension": "kubernetes"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage cross-plane activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "kubernetes",
+          "web"
+        ],
+        "context": [
+          "detect-sa-token-access",
+          "rare-escape-tool-execution",
+          "k8s-audit-api-activity",
+          "active-pod-inventory"
+        ],
+        "objective": "Determine if a Service Account principal used its token to perform discovery or execute escape commands ('nsenter', 'chroot') on any pod. Cross-reference the 'device_hostname' from endpoint logs with the 'hostname' in pod inventory.",
+        "description": "Correlate token access, rare process execution, and API audit logs to determine if an escape attempt is underway.",
+        "max_iterations": 5,
+        "expected_signal": "A host-by-host or SA-by-SA verdict citing specific rows from file, process, and HTTP activity.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host/pod, citing the correlated API verb and runtime process."
+      },
+      "parents": [
+        {
+          "id": "k8s-audit-api-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "active-pod-inventory",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decide-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one service account or pod",
+        "condition": "the triage verdict is malicious for at least one service account or pod",
+        "blind_spot": "incomplete-audit-logs",
+        "confidence": "high",
+        "description": "Determine if immediate response is required based on the agent's triage.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-pod",
+      "type": "action",
+      "label": "Isolate pod and node",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately contain the escape by isolating the affected Kubernetes node and deleting the malicious pod.",
+        "instructions": "Isolate the node host. Use kubectl to delete the suspicious pod and rotate the credentials for the compromised Service Account.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decide-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform post-incident analysis and confirm the scope of the discovery/recon performed via the API.",
+        "instructions": "Review the API requests logged in the HTTP activity. Determine if other objects (Secrets, ConfigMaps) were listed or retrieved by the Service Account. Record a tuning note if the chroot/nsenter activity was legitimate."
+      },
+      "parents": [
+        {
+          "id": "decide-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "decide-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-pod"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and negative results.",
+        "instructions": "Record that no multi-plane correlation of SA abuse was found within the window. Ensure 'escape_tools' and 'sa_token_paths' were correctly examined."
+      },
+      "parents": [
+        {
+          "id": "decide-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,687 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Reverse tunnels provide attackers with direct network-level ingress that bypasses ingress firewall rules and persists past standard user logoffs. A negative result over the estate confirms the environment is not currently facilitating such a proxy."
+      },
+      "name": "TerminalFix Reconnaissance and Reverse Tunneling",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1572",
+        "attack.t1090.003",
+        "attack.t1059.001",
+        "attack.t1547.001",
+        "attack.t1115"
+      ],
+      "series": {
+        "slug": "terminalfix-campaign-deploys-a-reverse-tunnel-through-multistage-intrusion",
+        "index": 2,
+        "title": "TerminalFix campaign deploys a reverse tunnel through multistage intrusion",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "terminalfix-initial-access-and-sideloading",
+          "reason": "This hunt focuses on the post-exploitation tunnel; the previous hunt covers the fake CAPTCHA and DLL sideloading.",
+          "relation": "precedes"
+        },
+        {
+          "hunt": "active-directory-reconnaissance-baselining",
+          "reason": "The reconnaissance activity itself (ping sweeps, AD harvesting) is a follow-on behavior to the tunnel establishment.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "terminalfix-staging-persistence",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple rule for the C2 domain is easily bypassed by domain rotation. This hunt pivots to look for the companion FileSystemWatcher script logic and uses fleet-wide stacking of Python connections to identify the tunnel behavior itself.",
+      "coverage": [
+        {
+          "stage": "c2-reverse-websocket-tunnel",
+          "steps": [
+            "scoping-by-dns",
+            "detect-python-tunnel-execution",
+            "rare-python-network-outbound",
+            "script-filesystem-watcher-loop",
+            "detect-tunnel-script-presence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "discovery-ad-and-network-recon",
+          "reason": "The reconnaissance results are written to local files (watch/output) that are not ingested into the central telemetry lake; visibility requires host-level forensic collection.",
+          "status": "not_visible"
+        },
+        {
+          "stage": "initial-access-fake-captcha-execution",
+          "reason": "Covered in the first hunt of the series focusing on the social engineering and ZIP delivery.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "defense-evasion-dll-sideloading",
+          "reason": "Belongs to another part of the 'TerminalFix campaign deploys a reverse tunnel through multistage intrusion' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "steganographic-payload-extraction",
+          "reason": "Belongs to another part of the 'TerminalFix campaign deploys a reverse tunnel through multistage intrusion' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "persistence-registry-and-task",
+          "reason": "Belongs to another part of the 'TerminalFix campaign deploys a reverse tunnel through multistage intrusion' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Fake CAPTCHA PowerShell Execution",
+            "slug": "initial-access-fake-captcha-execution",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566.002",
+              "T1115",
+              "T1059.001"
+            ],
+            "observables": [
+              "Fake Cloudflare Turnstile overlay 'Verify you are human'",
+              "Clipboard manipulation to stage PowerShell command",
+              "powershell.exe downloading ZIP archive from gitnow.dev",
+              "Extraction to C:\\ProgramData\\f47f2a8c21c9df4e",
+              "Execution of 1.bat"
+            ]
+          },
+          {
+            "name": "DLL Sideloading via LockScreenContentServer",
+            "slug": "defense-evasion-dll-sideloading",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1574.001",
+              "T1574.002"
+            ],
+            "observables": [
+              "LockScreenContentServer.exe loading malicious dui70.dll",
+              "dui70.dll with forged future timestamp 2104",
+              "Masquerading DLL name 'Windows DirectUI Engine'"
+            ]
+          },
+          {
+            "name": "Steganographic Payload Extraction",
+            "slug": "steganographic-payload-extraction",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1027.003"
+            ],
+            "observables": [
+              "PowerShell function Extract-RawFileFromImage",
+              "POST requests to content domains for PNG images",
+              "DLL fragments extracted from pixel RGBA channels",
+              "Reassembly of executables from PNG data"
+            ]
+          },
+          {
+            "name": "Persistent Execution Loop",
+            "slug": "persistence-registry-and-task",
+            "tactic": "persistence",
+            "techniques": [
+              "T1547.001",
+              "T1053.005"
+            ],
+            "observables": [
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\LockScreenContentServer_MuODG5yBM",
+              "Scheduled task re-executing LockScreenContentServer.exe every 60 minutes",
+              "Folder hidden via attrib +s +h C:\\ProgramData\\f47f2a8c21c9df4e"
+            ]
+          },
+          {
+            "name": "Active Directory and Network Reconnaissance",
+            "slug": "discovery-ad-and-network-recon",
+            "tactic": "discovery",
+            "techniques": [
+              "T1018",
+              "T1087.002",
+              "T1482"
+            ],
+            "observables": [
+              "nltest /domain_trusts",
+              "net group 'domain admins' /domain",
+              "Ping sweeps of 'dc', 'backup', 'mail', 'gateway' servers",
+              "Active Directory user description harvesting",
+              "System information collection (English, Spanish, German)"
+            ]
+          },
+          {
+            "name": "Reverse WebSocket Tunneling",
+            "slug": "c2-reverse-websocket-tunnel",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1572",
+              "T1090.003"
+            ],
+            "observables": [
+              "pythonw.exe executing client.py",
+              "Encrypted WebSocket tunnel to gitnow.dev:443",
+              "FileSystemWatcher asynchronous command loop",
+              "SOCKS-style TCP proxy access"
+            ]
+          }
+        ],
+        "summary": "The TerminalFix campaign uses social engineering with fake CAPTCHA overlays to trick users into executing PowerShell scripts that deploy a multi-stage infection. The attack leverages DLL sideloading of a signed binary and steganographic payload extraction to establish persistent access and deploy a Python-based reverse tunnel for encrypted WebSocket C2."
+      },
+      "severity": "high",
+      "rationale": "The primary indicator is the resolution of gitnow.dev. If this is empty, widen the scope to all hosts where pythonw.exe was launched from ProgramData or other user-writable directories.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has established a persistent network-level proxy using a Python-based reverse WebSocket tunnel and a PowerShell-based file-watching command loop to pivot within the environment.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "msrc-blog",
+            "kind": "article",
+            "observed": "2026-08-28"
+          },
+          "type": "list[domain]",
+          "default": [
+            "gitnow.dev"
+          ],
+          "description": "C2 domains identified in research for reverse WebSocket tunneling."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the search."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "tunnel_scripts": {
+          "from": {
+            "ref": "msrc-blog",
+            "kind": "article",
+            "observed": "2026-08-28"
+          },
+          "type": "list[string]",
+          "default": [
+            "client.py",
+            "1.bat"
+          ],
+          "description": "Script filenames associated with the TerminalFix tunnel implant."
+        },
+        "interpreter_binaries": {
+          "from": {
+            "ref": "msrc-blog",
+            "kind": "article",
+            "observed": "2026-08-28"
+          },
+          "type": "list[string]",
+          "default": [
+            "pythonw.exe",
+            "python.exe"
+          ],
+          "description": "Binaries used to run the Python tunnel implant without visible windows."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/08/28/terminalfix-campaign-deploys-reverse-tunnel-through-multistage-intrusion/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/08/28/terminalfix-campaign-deploys-reverse-tunnel-through-multistage-intrusion/",
+          "name": "TerminalFix campaign deploys a reverse tunnel through multistage intrusion"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-script-block-logging",
+          "risk": "Without script block logging, we see the 'primitive shell' infrastructure but cannot see the actual reconnaissance commands executed through it.",
+          "owner": "Infrastructure Team",
+          "stage": "c2-reverse-websocket-tunnel",
+          "question": "What commands were executed via the Invoke-Expression loop?",
+          "requires": "PowerShell Script Block Logging (Event ID 4104)",
+          "remediation": "Enable GPO for PowerShell Script Block Logging and forward events to the SIEM."
+        },
+        {
+          "id": "missing-process-net-link",
+          "risk": "If network telemetry lacks process identity, the tunnel traffic may be lost among legitimate browser traffic to Cloudflare or GitHub infrastructure.",
+          "owner": "Security Engineering",
+          "stage": "c2-reverse-websocket-tunnel",
+          "question": "Which specific process is creating the WebSocket traffic to port 443?",
+          "requires": "hb_network_connection with process_name and pid",
+          "remediation": "Deploy Sysmon or ensure EDR network monitoring is configured to capture the originating process context."
+        }
+      ]
+    },
+    "name": "TerminalFix Reconnaissance and Reverse Tunneling",
+    "description": "This hunt targets the TerminalFix post-exploitation capabilities. It focuses on identifying a custom Python reverse tunnel ('client.py') that provides SOCKS-style TCP proxy access through an encrypted WebSocket channel. Simultaneously, it looks for a unique asynchronous command loop implemented via PowerShell's FileSystemWatcher, which allows attackers to execute arbitrary code by monitoring a local text file. By correlating rare Python network connections, specific script block signatures, and the presence of these proxy scripts, this hunt identifies hosts being used as ingress points for internal reconnaissance and lateral movement."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "terminalfix-campaign-deploys-a-reverse-tunnel-through-multistage-intrusion",
+          "index": 2,
+          "title": "TerminalFix campaign deploys a reverse tunnel through multistage intrusion",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "c2-reverse-websocket-tunnel",
+            "steps": [
+              "scoping-by-dns",
+              "detect-python-tunnel-execution",
+              "rare-python-network-outbound",
+              "script-filesystem-watcher-loop",
+              "detect-tunnel-script-presence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "discovery-ad-and-network-recon",
+            "reason": "The reconnaissance results are written to local files (watch/output) that are not ingested into the central telemetry lake; visibility requires host-level forensic collection.",
+            "status": "not_visible"
+          },
+          {
+            "stage": "initial-access-fake-captcha-execution",
+            "reason": "Covered in the first hunt of the series focusing on the social engineering and ZIP delivery.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "defense-evasion-dll-sideloading",
+            "reason": "Belongs to another part of the 'TerminalFix campaign deploys a reverse tunnel through multistage intrusion' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "steganographic-payload-extraction",
+            "reason": "Belongs to another part of the 'TerminalFix campaign deploys a reverse tunnel through multistage intrusion' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "persistence-registry-and-task",
+            "reason": "Belongs to another part of the 'TerminalFix campaign deploys a reverse tunnel through multistage intrusion' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has established a persistent network-level proxy using a Python-based reverse WebSocket tunnel and a PowerShell-based file-watching command loop to pivot within the environment.",
+        "blind_spots": [
+          {
+            "id": "no-script-block-logging",
+            "risk": "Without script block logging, we see the 'primitive shell' infrastructure but cannot see the actual reconnaissance commands executed through it.",
+            "owner": "Infrastructure Team",
+            "stage": "c2-reverse-websocket-tunnel",
+            "question": "What commands were executed via the Invoke-Expression loop?",
+            "requires": "PowerShell Script Block Logging (Event ID 4104)",
+            "remediation": "Enable GPO for PowerShell Script Block Logging and forward events to the SIEM."
+          },
+          {
+            "id": "missing-process-net-link",
+            "risk": "If network telemetry lacks process identity, the tunnel traffic may be lost among legitimate browser traffic to Cloudflare or GitHub infrastructure.",
+            "owner": "Security Engineering",
+            "stage": "c2-reverse-websocket-tunnel",
+            "question": "Which specific process is creating the WebSocket traffic to port 443?",
+            "requires": "hb_network_connection with process_name and pid",
+            "remediation": "Deploy Sysmon or ensure EDR network monitoring is configured to capture the originating process context."
+          }
+        ],
+        "scoping_notes": "The primary indicator is the resolution of gitnow.dev. If this is empty, widen the scope to all hosts where pythonw.exe was launched from ProgramData or other user-writable directories.",
+        "beyond_detection": "A simple rule for the C2 domain is easily bypassed by domain rotation. This hunt pivots to look for the companion FileSystemWatcher script logic and uses fleet-wide stacking of Python connections to identify the tunnel behavior itself."
+      }
+    },
+    {
+      "id": "scoping-by-dns",
+      "type": "query",
+      "label": "Scope by C2 DNS resolutions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, query_hostname, MIN(time) AS first_resolution FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2",
+        "surface": "hb_dns_activity",
+        "description": "Identify hosts that have resolved the specific C2 infrastructure domains associated with the reverse tunnel.",
+        "expected_signal": "A list of hosts that queried the known C2 domain. Silence suggests the domain has rotated or the implant is dormant."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope by C2 DNS resolutions",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, query_hostname, MIN(time) AS first_resolution FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts that queried the known C2 domain. Silence suggests the domain has rotated or the implant is dormant.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "detect-python-tunnel-execution",
+      "type": "query",
+      "label": "Python tunnel interpreter execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(',' || '{{interpreter_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify the execution of Python interpreters that often run the tunnel implant in a hidden state.",
+        "expected_signal": "Python or Pythonw execution, especially those with non-standard command lines. Silence proves no Python-based implants ran on enrolled hosts during the window."
+      },
+      "parents": [
+        {
+          "id": "scoping-by-dns"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Python tunnel interpreter execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(',' || '{{interpreter_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Python or Pythonw execution, especially those with non-standard command lines. Silence proves no Python-based implants ran on enrolled hosts during the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-python-network-outbound",
+      "type": "query",
+      "label": "Rare Python outbound network connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT process_name, dst_endpoint_hostname, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_connection FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%python%' OR LOWER(process_path) LIKE '%python%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2, 3 HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_network_connection",
+        "description": "Identify Python processes making unusual outbound connections, which is a hallmark of the reverse tunnel proxying traffic.",
+        "expected_signal": "Outbound connections from Python to port 443 or other SOCKS-like traffic that is rare across the fleet. High-volume connections to standard SaaS endpoints can be disregarded."
+      },
+      "parents": [
+        {
+          "id": "detect-python-tunnel-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Python outbound network connections",
+        "reads": [
+          "process_name",
+          "dst_endpoint_hostname",
+          "dst_endpoint_port",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT process_name, dst_endpoint_hostname, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_connection FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%python%' OR LOWER(process_path) LIKE '%python%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2, 3 HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Outbound connections from Python to port 443 or other SOCKS-like traffic that is rare across the fleet. High-volume connections to standard SaaS endpoints can be disregarded.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "dst_endpoint_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "script-filesystem-watcher-loop",
+      "type": "query",
+      "label": "Asynchronous PowerShell command loop",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, time FROM hb_script_activity WHERE LOWER(script_content) LIKE '%io.filesystemwatcher%' AND (LOWER(script_content) LIKE '%invoke-expression%' OR LOWER(script_content) LIKE '%iex %') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Search for the specific PowerShell script pattern that uses FileSystemWatcher to execute commands from a local text file.",
+        "expected_signal": "Script blocks establishing a file-watch loop. Silence is common unless script block logging (4104) is enabled."
+      },
+      "parents": [
+        {
+          "id": "detect-python-tunnel-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Asynchronous PowerShell command loop",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, time FROM hb_script_activity WHERE LOWER(script_content) LIKE '%io.filesystemwatcher%' AND (LOWER(script_content) LIKE '%invoke-expression%' OR LOWER(script_content) LIKE '%iex %') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks establishing a file-watch loop. Silence is common unless script block logging (4104) is enabled.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "detect-tunnel-script-presence",
+      "type": "query",
+      "label": "TerminalFix tunnel script filenames",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_name, time FROM hb_file_activity WHERE instr(',' || '{{tunnel_scripts}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect the presence of the exact filenames used for the tunnel implant and its supporting batch files.",
+        "expected_signal": "Creation or access of client.py or 1.bat. This corroborates that the malicious ZIP was extracted and the tunnel script is in place."
+      },
+      "parents": [
+        {
+          "id": "detect-python-tunnel-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "TerminalFix tunnel script filenames",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "file_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_name, time FROM hb_file_activity WHERE instr(',' || '{{tunnel_scripts}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation or access of client.py or 1.bat. This corroborates that the malicious ZIP was extracted and the tunnel script is in place.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-tunnel-evidence",
+      "type": "analytic",
+      "label": "Triage tunnel and proxy activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "scoping-by-dns",
+          "detect-python-tunnel-execution",
+          "rare-python-network-outbound",
+          "script-filesystem-watcher-loop",
+          "detect-tunnel-script-presence"
+        ],
+        "objective": "Determine if the evidence indicates an active reverse tunnel (client.py running via pythonw.exe) or the command loop on any host.",
+        "description": "Analyze combined telemetry to determine if a host is facilitating active proxy access for an adversary.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict linking the DNS resolution of gitnow.dev to Python execution and the FileSystemWatcher shell.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing the DNS, process, and script rows."
+      },
+      "parents": [
+        {
+          "id": "rare-python-network-outbound",
+          "kind": "merge"
+        },
+        {
+          "id": "script-filesystem-watcher-loop",
+          "kind": "merge"
+        },
+        {
+          "id": "detect-tunnel-script-presence",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host showing both the Python interpreter activity and either the script loop or rare C2 connections",
+        "condition": "the triage verdict is malicious for at least one host showing both the Python interpreter activity and either the script loop or rare C2 connections",
+        "blind_spot": "no-script-block-logging",
+        "confidence": "high",
+        "description": "Divert high-confidence malicious findings to containment and others to analyst review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-tunnel-evidence"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Sever the attacker's proxy access to the internal network by isolating the compromised workstation.",
+        "instructions": "Isolate the host immediately. Terminate any pythonw.exe or powershell.exe processes identified by the triage agent. Revoke all user tokens for the affected account. Collect 'client.py' and any text files in C:\\ProgramData\\f47f2a8c21c9df4e for analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Manual forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's findings and assess whether the tunnel was used to reach other internal assets.",
+        "instructions": "Review the cited telemetry. Check for local ping sweep logs or Active Directory discovery artifacts (e.g., ad_users.txt) mentioned in research. If lateral movement is confirmed, pivot to an incident response playbook."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    }
+  ]
+}

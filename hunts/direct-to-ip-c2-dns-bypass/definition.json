@@ -1,0 +1,678 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Almost 45% of C2 malware uses D2IP to bypass DNS-based security. This hunt validates that these 'invisible' connections are not present or identifies them where hostname context is missing."
+      },
+      "name": "Direct-to-IP C2 and DNS-Bypass Activity",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1071.001",
+        "attack.t1105",
+        "attack.t1041",
+        "attack.t1132.001",
+        "attack.t1056.001",
+        "attack.t1090",
+        "attack.t1573.002"
+      ],
+      "related": [
+        {
+          "hunt": "unusual-outbound-http-methods",
+          "reason": "Focuses on malformed HTTP methods broadly rather than just the DNS-bypass context.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule alerts on a single IP lead. This hunt pivots between the absence of DNS resolution and protocol-level anomalies (\\GET), stack-counting them across the fleet to find the rare, malicious needle.",
+      "coverage": [
+        {
+          "stage": "dns-bypass-c2-initialization",
+          "steps": [
+            "indicator-lead",
+            "dns-bypass-behavior",
+            "d2ip-stack-counting"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "staged-payload-delivery",
+          "steps": [
+            "protocol-anomalies"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "obfuscated-exfiltration-protocol",
+          "steps": [
+            "protocol-anomalies"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "browser-mirroring-and-theft",
+          "steps": [
+            "protocol-anomalies"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "iot-p2p-botnet-propagation",
+          "steps": [
+            "indicator-lead",
+            "dns-bypass-behavior"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Direct-to-IP C2 Connection",
+            "slug": "dns-bypass-c2-initialization",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001"
+            ],
+            "observables": [
+              "154.92.19.71:39989",
+              "87.120.107.33",
+              "194.76.227.94",
+              "62.60.179.230",
+              "91.92.243.29",
+              "103.245.236.146",
+              "wss://154.92.19.71:39989"
+            ]
+          },
+          {
+            "name": "Staged Payload Retrieval",
+            "slug": "staged-payload-delivery",
+            "tactic": "execution",
+            "techniques": [
+              "T1105"
+            ],
+            "observables": [
+              "178.16.54.109/st.exe",
+              "/1",
+              "/2",
+              "/sex/k/n.txt",
+              "/new.php",
+              "st.exe",
+              "/hiddenbin/"
+            ]
+          },
+          {
+            "name": "Obfuscated HTTP Exfiltration",
+            "slug": "obfuscated-exfiltration-protocol",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041",
+              "T1132.001"
+            ],
+            "observables": [
+              "\\GET",
+              "cc43cdbe8eb9874f55fffbe23b560b673eb9f31fb9a953926bba29464fd2dd07"
+            ]
+          },
+          {
+            "name": "SectopRAT Browser Proxying",
+            "slug": "browser-mirroring-and-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1056.001",
+              "T1090"
+            ],
+            "observables": [
+              "/churl",
+              "/fsave",
+              "pcid",
+              "clid"
+            ]
+          },
+          {
+            "name": "Mozi/Boatnet P2P Propagation",
+            "slug": "iot-p2p-botnet-propagation",
+            "tactic": "execution",
+            "techniques": [
+              "T1573.002"
+            ],
+            "observables": [
+              "Wget/1.13.4",
+              "2.26.98.67"
+            ]
+          }
+        ],
+        "summary": "Various malware families like Phorpiex, Mozi, and SectopRAT bypass DNS-based security by connecting directly to hard-coded IP addresses (D2IP). These campaigns utilize non-standard HTTP methods like backslash-GET, real-time browser mirroring via custom endpoints, and P2P mesh architectures to maintain command-and-control and exfiltrate data."
+      },
+      "severity": "high",
+      "rationale": "The hunt targets endpoints with downloader tools (wget, curl) as a proxy for susceptibility to the researched malware. Initial runs should target Linux/IoT assets if known, then expand fleet-wide.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "Adversaries are bypassing DNS-based security controls by using hard-coded IP addresses for command-and-control and staged payload delivery.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to scope the hunt."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "malicious_ips": {
+          "from": {
+            "ref": "unit42-d2ip",
+            "kind": "article",
+            "observed": "2026-08-04"
+          },
+          "type": "list[ip]",
+          "default": [
+            "154.92.19.71",
+            "178.16.54.109",
+            "87.120.107.33",
+            "194.76.227.94",
+            "2.26.98.67",
+            "62.60.179.230",
+            "91.92.243.29",
+            "103.245.236.146",
+            "178.16.54.31",
+            "206.189.229.43"
+          ],
+          "description": "C2 IPs from the article."
+        },
+        "suspicious_paths": {
+          "from": {
+            "ref": "unit42-d2ip",
+            "kind": "article",
+            "observed": "2026-08-04"
+          },
+          "type": "list[string]",
+          "default": [
+            "/churl",
+            "/fsave",
+            "/new.php",
+            "/hiddenbin/",
+            "/st.exe",
+            "/sex/k/n.txt",
+            "/1",
+            "/2"
+          ],
+          "description": "Suspicious URI paths from the article."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://unit42.paloaltonetworks.com/malware-bypass-dns-direct-to-ip/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://unit42.paloaltonetworks.com/malware-bypass-dns-direct-to-ip/",
+          "name": "Unit 42 \u2014 Almost Half of Malware Samples Communicate Direct to IP"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-agent-on-legacy-iot",
+          "risk": "Boatnet specifically targets architectures like m68k which typically lack modern EDR/osquery coverage.",
+          "stage": "iot-p2p-botnet-propagation",
+          "question": "whether legacy ICS or IoT devices without agents are infected",
+          "requires": "Endpoint telemetry from legacy architectures (m68k, older ARM)"
+        },
+        {
+          "id": "encrypted-c2-payloads",
+          "risk": "Malware using custom TLS stacks or pinned certificates may bypass endpoint-based HTTP logging.",
+          "stage": "obfuscated-exfiltration-protocol",
+          "question": "whether the \\GET protocol is present in encrypted sessions",
+          "requires": "hb_http_activity with decrypted content or proxy inspection"
+        }
+      ]
+    },
+    "name": "Direct-to-IP C2 and DNS-Bypass Activity",
+    "description": "Recent research shows that nearly half of malware families now utilize 'Direct-to-IP' (D2IP) communications. This allows malware to establish C2 connections without triggering DNS-based detections, sinkholes, or hostname-based anomaly alerts. This hunt focuses on identifying outbound connections to public IP addresses where no DNS resolution was recorded, corroborating this with protocol-level anomalies like malformed HTTP methods (\\GET) and URI paths specific to Phorpiex, SectopRAT, and Mozi botnets."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "dns-bypass-c2-initialization",
+            "steps": [
+              "indicator-lead",
+              "dns-bypass-behavior",
+              "d2ip-stack-counting"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "staged-payload-delivery",
+            "steps": [
+              "protocol-anomalies"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "obfuscated-exfiltration-protocol",
+            "steps": [
+              "protocol-anomalies"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "browser-mirroring-and-theft",
+            "steps": [
+              "protocol-anomalies"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "iot-p2p-botnet-propagation",
+            "steps": [
+              "indicator-lead",
+              "dns-bypass-behavior"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "Adversaries are bypassing DNS-based security controls by using hard-coded IP addresses for command-and-control and staged payload delivery.",
+        "blind_spots": [
+          {
+            "id": "no-agent-on-legacy-iot",
+            "risk": "Boatnet specifically targets architectures like m68k which typically lack modern EDR/osquery coverage.",
+            "stage": "iot-p2p-botnet-propagation",
+            "question": "whether legacy ICS or IoT devices without agents are infected",
+            "requires": "Endpoint telemetry from legacy architectures (m68k, older ARM)"
+          },
+          {
+            "id": "encrypted-c2-payloads",
+            "risk": "Malware using custom TLS stacks or pinned certificates may bypass endpoint-based HTTP logging.",
+            "stage": "obfuscated-exfiltration-protocol",
+            "question": "whether the \\GET protocol is present in encrypted sessions",
+            "requires": "hb_http_activity with decrypted content or proxy inspection"
+          }
+        ],
+        "scoping_notes": "The hunt targets endpoints with downloader tools (wget, curl) as a proxy for susceptibility to the researched malware. Initial runs should target Linux/IoT assets if known, then expand fleet-wide.",
+        "beyond_detection": "A standard rule alerts on a single IP lead. This hunt pivots between the absence of DNS resolution and protocol-level anomalies (\\GET), stack-counting them across the fleet to find the rare, malicious needle."
+      }
+    },
+    {
+      "id": "scope-to-downloader-hosts",
+      "type": "query",
+      "label": "Scope to hosts with common downloaders",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE package_name IN ('wget', 'curl', 'python3', 'python') AND asset_scope = 'endpoint'",
+        "surface": "hb_software_inventory",
+        "description": "Focus the hunt on systems containing utilities frequently used by D2IP malware for retrieval.",
+        "expected_signal": "Hosts with downloader software. Silence means no inventory is available, so the hunt should run unscoped."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to hosts with common downloaders",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "asset_scope"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE package_name IN ('wget', 'curl', 'python3', 'python') AND asset_scope = 'endpoint'",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts with downloader software. Silence means no inventory is available, so the hunt should run unscoped.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "indicator-lead",
+      "type": "query",
+      "label": "Direct connections to known C2 IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE instr(',' || '{{malicious_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND direction = 'outbound' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify any host communicating with the specific IP indicators named in the research.",
+        "expected_signal": "Network connections to the IOC list. Silence indicates the infrastructure has rotated."
+      },
+      "parents": [
+        {
+          "id": "scope-to-downloader-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Direct connections to known C2 IPs",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE instr(',' || '{{malicious_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND direction = 'outbound' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Network connections to the IOC list. Silence indicates the infrastructure has rotated.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "dns-bypass-behavior",
+      "type": "query",
+      "label": "Behaviourial DNS-bypass connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (dst_endpoint_hostname IS NULL OR dst_endpoint_hostname = dst_endpoint_ip) AND direction = 'outbound' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify processes connecting to the internet where the hostname is either absent or matches the IP exactly.",
+        "expected_signal": "Outbound D2IP traffic. Rare processes are suspicious."
+      },
+      "parents": [
+        {
+          "id": "indicator-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Behaviourial DNS-bypass connections",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "dst_endpoint_hostname",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (dst_endpoint_hostname IS NULL OR dst_endpoint_hostname = dst_endpoint_ip) AND direction = 'outbound' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Outbound D2IP traffic. Rare processes are suspicious.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "protocol-anomalies",
+      "type": "query",
+      "label": "Protocol-level artifacts and URI paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, dst_endpoint_ip, url_full, http_method, user_agent, time FROM hb_http_activity WHERE (http_method LIKE '%GET%' AND http_method LIKE '%\\\\\\\\%') OR instr(',' || '{{suspicious_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0 OR user_agent = 'Wget/1.13.4' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Corroborate D2IP activity with malformed HTTP methods (\\\\GET) and specific paths associated with the researched botnets.",
+        "expected_signal": "Hits on malformed HTTP methods or specific URI paths. Silence means no protocol-level evidence was captured."
+      },
+      "parents": [
+        {
+          "id": "indicator-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Protocol-level artifacts and URI paths",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "url_full",
+          "http_method",
+          "user_agent",
+          "url_path",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, dst_endpoint_ip, url_full, http_method, user_agent, time FROM hb_http_activity WHERE (http_method LIKE '%GET%' AND http_method LIKE '%\\\\\\\\%') OR instr(',' || '{{suspicious_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0 OR user_agent = 'Wget/1.13.4' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hits on malformed HTTP methods or specific URI paths. Silence means no protocol-level evidence was captured.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "d2ip-stack-counting",
+      "type": "query",
+      "label": "Rare D2IP process-destination pairs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT process_name, dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE (dst_endpoint_hostname IS NULL OR dst_endpoint_hostname = dst_endpoint_ip) AND direction = 'outbound' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, dst_endpoint_ip HAVING hosts <= 3 ORDER BY hosts, connections",
+        "surface": "hb_network_connection",
+        "description": "Stack-count D2IP connections to find rare combinations that are not common across the fleet.",
+        "expected_signal": "Rare D2IP pairs. Legitimate software like NTP or CDNs might show up but should be fleet-wide."
+      },
+      "parents": [
+        {
+          "id": "indicator-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare D2IP process-destination pairs",
+        "reads": [
+          "process_name",
+          "dst_endpoint_ip",
+          "device_hostname",
+          "dst_endpoint_hostname",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT process_name, dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE (dst_endpoint_hostname IS NULL OR dst_endpoint_hostname = dst_endpoint_ip) AND direction = 'outbound' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, dst_endpoint_ip HAVING hosts <= 3 ORDER BY hosts, connections",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare D2IP pairs. Legitimate software like NTP or CDNs might show up but should be fleet-wide.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "dst_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage DNS-bypass evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network",
+          "web"
+        ],
+        "context": [
+          "indicator-lead",
+          "dns-bypass-behavior",
+          "protocol-anomalies",
+          "d2ip-stack-counting"
+        ],
+        "objective": "Determine if D2IP activity on any host is malicious by correlating connection leads, rare process baselines, and malformed HTTP artifacts.",
+        "description": "Weigh D2IP indicators, behavioral leads, and protocol anomalies to determine if a host is compromised.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict citing rows from the previous queries.",
+        "success_criteria": "A verdict of malicious | suspicious | benign citing specific processes and IPs."
+      },
+      "parents": [
+        {
+          "id": "dns-bypass-behavior",
+          "kind": "merge"
+        },
+        {
+          "id": "protocol-anomalies",
+          "kind": "merge"
+        },
+        {
+          "id": "d2ip-stack-counting",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "verdict-decision",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "no-agent-on-legacy-iot",
+        "confidence": "high",
+        "description": "Decide on containment or further review based on the agent's findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further exfiltration or botnet propagation by isolating the host.",
+        "instructions": "Isolate the endpoint and begin forensic collection of the identified processes.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review and tuning",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's verdict and tune out false positives from legitimate D2IP services.",
+        "instructions": "Review the cited rows. Confirm whether the D2IP process is an expected utility. Record findings and tune the hunt for future runs."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "default"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the results and visibility gaps.",
+        "instructions": "Summarize findings, note the efficacy of the D2IP behavior query, and document any newly discovered C2 infrastructure."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
