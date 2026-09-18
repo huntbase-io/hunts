@@ -1,0 +1,594 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Tracking high-volume session maintenance is critical for containing large-scale identity thefts; identifying the underlying VPS infrastructure allows for proactive blocking across the enterprise."
+      },
+      "name": "Identity Hijacking and Session Maintenance from Adversary VPS",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1090.003",
+        "attack.t1176"
+      ],
+      "series": {
+        "slug": "an-attacker-blunder-gave-us-a-look-into-their-operations",
+        "index": 1,
+        "title": "An attacker blunder gave us a look into their operations",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "initial-access-phishing-mitm",
+          "reason": "Capturing credentials via MITM (Evilginx) is a distinct precursor phase handled by its own hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule alerts on a single login failure; this hunt performs a multi-surface stack-count of successful logons per IP, pivots to network flow to identify jump boxes, and corroborates with DNS for automation tools\u2014an analysis requiring the context of all three surfaces to distinguish malicious persistence from legitimate corporate proxies.",
+      "coverage": [
+        {
+          "stage": "session-token-persistence",
+          "steps": [
+            "high-density-auth-ips",
+            "outbound-to-vps-ips",
+            "automation-tool-dns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-phishing-mitm",
+          "reason": "Belongs to the phishing-specific hunt in this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "automated-c2-and-workflows",
+          "reason": "Belongs to another part of the 'An attacker blunder gave us a look into their operations' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "adversary-discovery-scanning",
+          "reason": "Belongs to another part of the 'An attacker blunder gave us a look into their operations' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "browser-extension-persistence",
+          "reason": "Belongs to another part of the 'An attacker blunder gave us a look into their operations' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Phishing and MitM Setup",
+            "slug": "initial-access-phishing-mitm",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Evilginx",
+              "make.com",
+              "phishing messages"
+            ]
+          },
+          {
+            "name": "Session Token Theft and Maintenance",
+            "slug": "session-token-persistence",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "12651980 CANADA INC",
+              "VIRTUO",
+              "session token refreshing",
+              "2471 unique identities"
+            ]
+          },
+          {
+            "name": "Automated C2 via Make.com and Telegram",
+            "slug": "automated-c2-and-workflows",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "make.com",
+              "api.telegram.org",
+              "Telegram Bot APIs",
+              "webhooks"
+            ]
+          },
+          {
+            "name": "Infrastructure Discovery via Censys",
+            "slug": "adversary-discovery-scanning",
+            "tactic": "discovery",
+            "observables": [
+              "censys.io",
+              "Censys search for Evilginx"
+            ]
+          },
+          {
+            "name": "Malicious or Monitoring Extensions",
+            "slug": "browser-extension-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1176"
+            ],
+            "observables": [
+              "Malwarebytes Browser Guard",
+              "Chrome browser extensions"
+            ]
+          }
+        ],
+        "summary": "An attacker operating from a jump box on the Virtuo AS infrastructure conducted large-scale identity compromise and session token theft. They leveraged automated workflows via Make.com and Telegram bots to manage their operations and used Censys to discover targets like running Evilginx instances."
+      },
+      "severity": "high",
+      "rationale": "The hunt should initially encompass the entire estate to identify all high-density auth events, then narrow to hosts involved in network pivots to reduce noise in the DNS results.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is maintaining persistent access to a large volume of compromised identities using automated workflows (Make.com, Telegram) originating from VPS infrastructure like Virtuo, visible as high-density account access from single external IPs.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hostnames to focus on; populate this with hosts found communicating with VPS IPs to narrow the DNS hunt."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "adversary_vps_ips": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/rare-look-inside-attacker-operation",
+            "kind": "article",
+            "observed": "2024-09-09"
+          },
+          "type": "list[ip]",
+          "default": [],
+          "description": "IP addresses of suspected adversary infrastructure; populate this with IPs discovered in the high-density-auth-ips step."
+        },
+        "automation_domains": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/rare-look-inside-attacker-operation",
+            "kind": "article",
+            "observed": "2024-09-09"
+          },
+          "type": "list[domain]",
+          "default": [
+            "make.com",
+            "api.telegram.org",
+            "censys.io",
+            "toolbaz.com",
+            "docsbot.ai"
+          ],
+          "description": "Domains associated with the adversary's automated workflows."
+        },
+        "min_user_threshold": {
+          "type": "number",
+          "default": "5",
+          "description": "Minimum number of unique user accounts from a single IP to trigger suspicion."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/rare-look-inside-attacker-operation",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/rare-look-inside-attacker-operation",
+          "name": "Huntress \u2014 An attacker blunder gave us a look into their operations"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "incomplete-identity-logs",
+          "risk": "Adversary persistence on unmonitored platforms remains invisible.",
+          "stage": "session-token-persistence",
+          "question": "Are there identities compromised on providers not currently reporting to hb_auth_signin?",
+          "requires": "Unified logs from every identity provider (SaaS/Cloud)"
+        },
+        {
+          "id": "unmanaged-device-activity",
+          "risk": "We would see the sign-in density but lose the correlation to an internal jump box/automation node.",
+          "stage": "session-token-persistence",
+          "question": "Is the adversary using compromised credentials from unmanaged devices that do not have the EDR agent?",
+          "requires": "Egress proxy logs or CASB telemetry"
+        }
+      ]
+    },
+    "name": "Identity Hijacking and Session Maintenance from Adversary VPS",
+    "description": "This hunt targets the persistence and command-and-control phase of a large-scale identity compromise. By identifying external VPS IPs that successfully authenticate into an unusually high number of unique user accounts, we can track automated session token maintenance. The hunt corroborates this by looking for internal hosts communicating with these same IPs or resolving domains for the automation tools used to manage these workflows, as reported in recent research on attacker blunders."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "an-attacker-blunder-gave-us-a-look-into-their-operations",
+          "index": 1,
+          "title": "An attacker blunder gave us a look into their operations",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "session-token-persistence",
+            "steps": [
+              "high-density-auth-ips",
+              "outbound-to-vps-ips",
+              "automation-tool-dns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-phishing-mitm",
+            "reason": "Belongs to the phishing-specific hunt in this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "automated-c2-and-workflows",
+            "reason": "Belongs to another part of the 'An attacker blunder gave us a look into their operations' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "adversary-discovery-scanning",
+            "reason": "Belongs to another part of the 'An attacker blunder gave us a look into their operations' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "browser-extension-persistence",
+            "reason": "Belongs to another part of the 'An attacker blunder gave us a look into their operations' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is maintaining persistent access to a large volume of compromised identities using automated workflows (Make.com, Telegram) originating from VPS infrastructure like Virtuo, visible as high-density account access from single external IPs.",
+        "blind_spots": [
+          {
+            "id": "incomplete-identity-logs",
+            "risk": "Adversary persistence on unmonitored platforms remains invisible.",
+            "stage": "session-token-persistence",
+            "question": "Are there identities compromised on providers not currently reporting to hb_auth_signin?",
+            "requires": "Unified logs from every identity provider (SaaS/Cloud)"
+          },
+          {
+            "id": "unmanaged-device-activity",
+            "risk": "We would see the sign-in density but lose the correlation to an internal jump box/automation node.",
+            "stage": "session-token-persistence",
+            "question": "Is the adversary using compromised credentials from unmanaged devices that do not have the EDR agent?",
+            "requires": "Egress proxy logs or CASB telemetry"
+          }
+        ],
+        "scoping_notes": "The hunt should initially encompass the entire estate to identify all high-density auth events, then narrow to hosts involved in network pivots to reduce noise in the DNS results.",
+        "beyond_detection": "A standard detection rule alerts on a single login failure; this hunt performs a multi-surface stack-count of successful logons per IP, pivots to network flow to identify jump boxes, and corroborates with DNS for automation tools\u2014an analysis requiring the context of all three surfaces to distinguish malicious persistence from legitimate corporate proxies."
+      }
+    },
+    {
+      "id": "scoping-hosts",
+      "type": "query",
+      "label": "Scope to devices of interest",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT hostname, os_name, platform, last_seen FROM hb_devices WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_devices",
+        "description": "Inventory available hosts to facilitate pivoting and filtering in network activity queries.",
+        "expected_signal": "A list of hostnames. Empty indicates no devices have reported within the window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to devices of interest",
+        "reads": [
+          "hostname",
+          "last_seen",
+          "os_name",
+          "platform",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname, os_name, platform, last_seen FROM hb_devices WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames. Empty indicates no devices have reported within the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "high-density-auth-ips",
+      "type": "query",
+      "label": "Find high unique-user density IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS unique_users, COUNT(*) AS total_events, GROUP_CONCAT(DISTINCT auth_protocol) AS protocols, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_auth_signin WHERE status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING unique_users >= {{min_user_threshold}} ORDER BY unique_users DESC",
+        "surface": "hb_auth_signin",
+        "description": "Identify external IPs successfully logging into multiple unique accounts, indicating automated session maintenance infrastructure.",
+        "expected_signal": "Source IPs associated with many unique accounts. IPs belonging to VPS providers like Virtuo are high-priority findings."
+      },
+      "parents": [
+        {
+          "id": "scoping-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Find high unique-user density IPs",
+        "reads": [
+          "actor_user_name",
+          "auth_protocol",
+          "src_endpoint_ip",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS unique_users, COUNT(*) AS total_events, GROUP_CONCAT(DISTINCT auth_protocol) AS protocols, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_auth_signin WHERE status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING unique_users >= {{min_user_threshold}} ORDER BY unique_users DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "Source IPs associated with many unique accounts. IPs belonging to VPS providers like Virtuo are high-priority findings.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 10
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "outbound-to-vps-ips",
+      "type": "query",
+      "label": "Internal connections to suspected VPS IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, process_name, protocol, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE (instr(',' || '{{adversary_vps_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip, process_name",
+        "surface": "hb_network_connection",
+        "description": "Identify internal hosts communicating with the IPs flagged in the identity logs, pivoting on discovered IPs rather than static indicators.",
+        "expected_signal": "Hosts in the estate interacting with the same IPs logging into many user accounts. This supports the 'jump box' hypothesis."
+      },
+      "parents": [
+        {
+          "id": "high-density-auth-ips"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Internal connections to suspected VPS IPs",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "process_name",
+          "protocol",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, process_name, protocol, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE (instr(',' || '{{adversary_vps_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip, process_name",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts in the estate interacting with the same IPs logging into many user accounts. This supports the 'jump box' hypothesis.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "automation-tool-dns",
+      "type": "query",
+      "label": "DNS lookups for automation platforms",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(',' || '{{automation_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname ORDER BY lookups DESC",
+        "surface": "hb_dns_activity",
+        "description": "Find DNS activity for Make.com or Telegram from hosts of interest to confirm the use of automated adversary workflows while reducing noise.",
+        "expected_signal": "Lookups for automation sites from specific hosts, particularly those seen in the VPS connection results. Silence means no automation tool usage was visible on those hosts."
+      },
+      "parents": [
+        {
+          "id": "high-density-auth-ips"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS lookups for automation platforms",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(',' || '{{automation_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname ORDER BY lookups DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "Lookups for automation sites from specific hosts, particularly those seen in the VPS connection results. Silence means no automation tool usage was visible on those hosts.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-persistence",
+      "type": "analytic",
+      "label": "Synthesize identity and network evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "high-density-auth-ips",
+          "outbound-to-vps-ips",
+          "automation-tool-dns"
+        ],
+        "objective": "Determine if the identified IPs are adversary persistence nodes. Weigh the density of accounts against the presence of outbound connections or automation domain DNS lookups from internal hosts.",
+        "description": "Determine if the high-density account logons correlate with internal hosts or automation patterns, identifying active adversary infrastructure.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host and per-IP verdict citing evidence from all queries.",
+        "success_criteria": "A verdict of malicious | suspicious | benign citing specific IPs and hostnames."
+      },
+      "parents": [
+        {
+          "id": "outbound-to-vps-ips",
+          "kind": "merge"
+        },
+        {
+          "id": "automation-tool-dns",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route based on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one IP or host",
+        "condition": "the triage verdict is malicious for at least one IP or host",
+        "blind_spot": "incomplete-identity-logs",
+        "confidence": "high",
+        "description": "Automate the transition to containment or manual review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-persistence"
+        }
+      ]
+    },
+    {
+      "id": "containment-action",
+      "type": "action",
+      "label": "Isolate suspect jump boxes",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain internal nodes identified as part of the adversary's automation or jump box chain.",
+        "instructions": "Isolate the internal hosts identified as malicious. Revoke all active session tokens for the user accounts identified in the auth-density triage.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst verification and identity cleanup",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform manual review of compromised identities and tune parameters.",
+        "instructions": "Verify the AS ownership of the high-density IPs. If they belong to Virtuo or other hosting providers, confirm the malicious status. Cross-reference the identified users with critical business roles."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "containment-action"
+        }
+      ]
+    },
+    {
+      "id": "analyst-close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and document any tuning needs for the threshold parameters.",
+        "instructions": "Document the number of compromised accounts identified. If results were benign corporate proxies, adjust min_user_threshold for future runs."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

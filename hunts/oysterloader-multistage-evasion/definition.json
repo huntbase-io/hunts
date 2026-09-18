@@ -1,0 +1,571 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "OysterLoader is an active threat used by Rhysida ransomware affiliates. It uses advanced evasive techniques (API hammering, custom LZMA) that bypass traditional signature-based AV, making behavioral hunting for in-memory execution essential."
+      },
+      "name": "OysterLoader Multi-Stage Evasive Infection",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566.002",
+        "attack.t1204.002",
+        "attack.t1027",
+        "attack.t1129",
+        "attack.t1055",
+        "attack.t1071.001",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "gootloader-powershell-behavior",
+          "reason": "Gootloader is a known distribution vector for OysterLoader; a sibling hunt for Gootloader's PowerShell patterns provides earlier detection.",
+          "relation": "precedes"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule might flag on_disk=0 or specific lures, but this hunt correlates the entire lifecycle: from the MSI lure to the rare in-memory execution and the resulting HTTP C2 patterns, reducing false positives from legitimate JIT processes.",
+      "coverage": [
+        {
+          "stage": "initial-execution-msi",
+          "steps": [
+            "suspicious-software-installations"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "textshell-packer-obfuscation",
+          "steps": [
+            "in-memory-execution-leads"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "shellcode-lzma-decompression",
+          "steps": [
+            "in-memory-execution-leads",
+            "rare-in-memory-processes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "downloader-environment-verification-c2",
+          "steps": [
+            "suspicious-http-checkins"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Trojanized MSI Installer Execution",
+            "slug": "initial-execution-msi",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566.002",
+              "T1204.002"
+            ],
+            "observables": [
+              "MSI installers impersonating PuTTy",
+              "MSI installers impersonating WinSCP",
+              "MSI installers impersonating Google Authenticator",
+              "MSI installers impersonating AI software"
+            ]
+          },
+          {
+            "name": "TextShell Packer Evasion",
+            "slug": "textshell-packer-obfuscation",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1027",
+              "T1129",
+              "T1497.001"
+            ],
+            "observables": [
+              "API hammering using hundreds of legitimate GDI calls",
+              "IsDebuggerPresent check for infinite loop trap",
+              "Dynamic API resolution using custom 32-bit hashing (h * 0x2001 + ord(ch))",
+              "NtAllocateVirtualMemory with RWX permissions"
+            ]
+          },
+          {
+            "name": "Custom Shellcode and LZMA Decompression",
+            "slug": "shellcode-lzma-decompression",
+            "tactic": "execution",
+            "techniques": [
+              "T1140",
+              "T1055"
+            ],
+            "observables": [
+              "Custom LZMA range decoder implementation",
+              "Relocation fixups for E8 and E9 opcodes",
+              "VirtualProtect transition of memory regions to executable state"
+            ]
+          },
+          {
+            "name": "Environmental Profiling and C2 Check-in",
+            "slug": "downloader-environment-verification-c2",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001",
+              "T1090.003",
+              "T1614.001"
+            ],
+            "observables": [
+              "Language verification checks",
+              "Keyboard layout identification",
+              "C2 communication check-in over HTTP",
+              "Bespoke LZMA-encoded downloader payload"
+            ]
+          }
+        ],
+        "summary": "OysterLoader (also known as CleanUp or Broomstick) is a multi-stage C++ loader used by the Rhysida ransomware group, typically distributed via fake software websites and trojanized MSI installers. The infection chain utilizes the TextShell packer for heavy API hammering and a custom LZMA decompression routine to deploy an intermediate downloader that profiles the environment before establishing C2."
+      },
+      "severity": "high",
+      "rationale": "The hunt should initially target all Windows workstations. If the software lures list is broad, focus on hosts with recent software installations via msiexec.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using trojanized MSI installers (impersonating tools like PuTTY or WinSCP) to execute a multi-stage loader that performs API hammering and custom LZMA decompression in-memory before checking in to a C2 server.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Limit the hunt to specific hosts if needed."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "impersonated_apps": {
+          "from": {
+            "ref": "sekoia-oysterloader-2024",
+            "kind": "article",
+            "observed": "2024-06-01"
+          },
+          "type": "list[string]",
+          "default": [
+            "PuTTY",
+            "WinSCP",
+            "Google Authenticator",
+            "ChatGPT",
+            "Ai software"
+          ],
+          "description": "Common software names used as lures for OysterLoader MSIs."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.sekoia.io/oysterloader-unmasked-the-multi-stage-evasion-loader/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.sekoia.io/oysterloader-unmasked-the-multi-stage-evasion-loader/",
+          "name": "OysterLoader unmasked: the multi-stage evasion loader"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-endpoint-visibility",
+          "risk": "Without hb_process_activity.on_disk, we cannot reliably detect the shellcode injection and LZMA unpacking stages.",
+          "stage": "shellcode-lzma-decompression",
+          "question": "Can we see if a process is running without a backing file?",
+          "requires": "EDR process reporting with on_disk status"
+        },
+        {
+          "id": "encrypted-http-traffic",
+          "risk": "If C2 traffic is purely over TLS without inspection, the url_path analysis in hb_http_activity will be empty.",
+          "stage": "downloader-environment-verification-c2",
+          "question": "Are we missing HTTP metadata due to encryption?",
+          "requires": "TLS inspection or endpoint HTTP logging"
+        }
+      ]
+    },
+    "name": "OysterLoader Multi-Stage Evasive Infection",
+    "description": "This hunt targets the behavior of OysterLoader (aka CleanUp or Broomstick), a stealthy C2 loader associated with Rhysida ransomware. It begins by identifying hosts with suspicious software installations via MSI, then pivots to detect in-memory execution signatures (processes not on disk) following an installer launch. It corroborates this with prevalence analysis of injected processes and outbound network traffic patterns characteristic of an initial downloader check-in."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-execution-msi",
+            "steps": [
+              "suspicious-software-installations"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "textshell-packer-obfuscation",
+            "steps": [
+              "in-memory-execution-leads"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "shellcode-lzma-decompression",
+            "steps": [
+              "in-memory-execution-leads",
+              "rare-in-memory-processes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "downloader-environment-verification-c2",
+            "steps": [
+              "suspicious-http-checkins"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using trojanized MSI installers (impersonating tools like PuTTY or WinSCP) to execute a multi-stage loader that performs API hammering and custom LZMA decompression in-memory before checking in to a C2 server.",
+        "blind_spots": [
+          {
+            "id": "no-endpoint-visibility",
+            "risk": "Without hb_process_activity.on_disk, we cannot reliably detect the shellcode injection and LZMA unpacking stages.",
+            "stage": "shellcode-lzma-decompression",
+            "question": "Can we see if a process is running without a backing file?",
+            "requires": "EDR process reporting with on_disk status"
+          },
+          {
+            "id": "encrypted-http-traffic",
+            "risk": "If C2 traffic is purely over TLS without inspection, the url_path analysis in hb_http_activity will be empty.",
+            "stage": "downloader-environment-verification-c2",
+            "question": "Are we missing HTTP metadata due to encryption?",
+            "requires": "TLS inspection or endpoint HTTP logging"
+          }
+        ],
+        "scoping_notes": "The hunt should initially target all Windows workstations. If the software lures list is broad, focus on hosts with recent software installations via msiexec.",
+        "beyond_detection": "A simple detection rule might flag on_disk=0 or specific lures, but this hunt correlates the entire lifecycle: from the MSI lure to the rare in-memory execution and the resulting HTTP C2 patterns, reducing false positives from legitimate JIT processes."
+      }
+    },
+    {
+      "id": "suspicious-software-installations",
+      "type": "query",
+      "label": "Suspicious MSI software installations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name, install_path FROM hb_software_inventory WHERE (instr(',' || '{{impersonated_apps}}' || ',', ',' || package_name || ',') > 0 OR LOWER(package_name) LIKE '%authenticator%' OR LOWER(package_name) LIKE '%ai%') AND provider = 'osquery'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts that have recently installed software commonly used as lures for OysterLoader.",
+        "expected_signal": "A list of hosts and the specific software lures found. Benign installs of these tools are expected; the next steps filter for malicious activity."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Suspicious MSI software installations",
+        "reads": [
+          "device_hostname",
+          "install_path",
+          "package_name",
+          "package_version",
+          "provider",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name, install_path FROM hb_software_inventory WHERE (instr(',' || '{{impersonated_apps}}' || ',', ',' || package_name || ',') > 0 OR LOWER(package_name) LIKE '%authenticator%' OR LOWER(package_name) LIKE '%ai%') AND provider = 'osquery'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts and the specific software lures found. Benign installs of these tools are expected; the next steps filter for malicious activity.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "in-memory-execution-leads",
+      "type": "query",
+      "label": "In-memory execution following MSI or user launch",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE on_disk = 0 AND (LOWER(parent_process_name) LIKE '%msiexec.exe' OR LOWER(parent_process_name) LIKE '%explorer.exe') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find processes that are no longer on disk (on_disk = 0), which is a high-fidelity indicator of shellcode injection used by OysterLoader stages.",
+        "expected_signal": "Processes executing from memory without a corresponding file on disk. This indicates successful injection (Stage 2/3)."
+      },
+      "parents": [
+        {
+          "id": "suspicious-software-installations"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "In-memory execution following MSI or user launch",
+        "reads": [
+          "device_hostname",
+          "on_disk",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE on_disk = 0 AND (LOWER(parent_process_name) LIKE '%msiexec.exe' OR LOWER(parent_process_name) LIKE '%explorer.exe') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Processes executing from memory without a corresponding file on disk. This indicates successful injection (Stage 2/3).",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-in-memory-processes",
+      "type": "query",
+      "label": "Fleet-wide prevalence of in-memory code",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, user_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_process_activity WHERE on_disk = 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, user_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count the combination of process and user for in-memory execution to find anomalies.",
+        "expected_signal": "Malicious injection typically occurs on a small subset of hosts compared to legitimate browser-related JIT or update processes."
+      },
+      "parents": [
+        {
+          "id": "in-memory-execution-leads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Fleet-wide prevalence of in-memory code",
+        "reads": [
+          "device_hostname",
+          "on_disk",
+          "process_name",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, user_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_process_activity WHERE on_disk = 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, user_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Malicious injection typically occurs on a small subset of hosts compared to legitimate browser-related JIT or update processes.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "user_name"
+          ],
+          "rare_below": 4
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "suspicious-http-checkins",
+      "type": "query",
+      "label": "Suspicious HTTP downloader check-ins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, http_method, time FROM hb_http_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND http_method = 'GET' AND (url_path LIKE '%.php' OR url_path LIKE '%.dat' OR length(url_path) < 10) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Look for HTTP requests that follow the OysterLoader check-in pattern, often using rare paths or non-standard user agents.",
+        "expected_signal": "HTTP requests from suspected hosts to PHP endpoints or short random paths, which matches the Stage 4 downloader behavior."
+      },
+      "parents": [
+        {
+          "id": "in-memory-execution-leads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Suspicious HTTP downloader check-ins",
+        "reads": [
+          "device_hostname",
+          "http_method",
+          "time",
+          "url_hostname",
+          "url_path",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, http_method, time FROM hb_http_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND http_method = 'GET' AND (url_path LIKE '%.php' OR url_path LIKE '%.dat' OR length(url_path) < 10) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests from suspected hosts to PHP endpoints or short random paths, which matches the Stage 4 downloader behavior.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Analyze OysterLoader infection chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "suspicious-software-installations",
+          "in-memory-execution-leads",
+          "rare-in-memory-processes",
+          "suspicious-http-checkins"
+        ],
+        "objective": "Determine if any host shows evidence of trojanized software installation followed by in-memory process execution and suspicious HTTP traffic.",
+        "description": "Consolidate results to determine if a host shows the complete OysterLoader infection chain.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict linking the software lure, the in-memory execution, and the outbound network activity.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing the relevant rows from software, process, and network surfaces."
+      },
+      "parents": [
+        {
+          "id": "rare-in-memory-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "suspicious-http-checkins",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "logic-route",
+      "type": "checkpoint",
+      "label": "Route on Triage Result",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for at least one host, citing on_disk=0 processes and HTTP check-ins.",
+        "condition": "The triage verdict is malicious for at least one host, citing on_disk=0 processes and HTTP check-ins.",
+        "blind_spot": "no-endpoint-visibility",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Malicious Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further staging or ransomware delivery.",
+        "instructions": "Isolate the host immediately. Revoke credentials for the user active during the MSI installation. Collect the MSI file and memory dumps for the identified PIDs.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "logic-route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Manual Verification and Tuning",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review findings and tune the software lure list.",
+        "instructions": "Verify the MSI source and the in-memory process. Determine if the software lure is a new legitimate tool or part of an campaign. Document findings for the detection engineering team."
+      },
+      "parents": [
+        {
+          "id": "logic-route",
+          "branch": "default"
+        },
+        {
+          "id": "logic-route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document silence as evidence of absence.",
+        "instructions": "Report negative findings. Confirm that no suspicious on_disk=0 processes following MSI activity were found in the lookback window."
+      },
+      "parents": [
+        {
+          "id": "logic-route",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
