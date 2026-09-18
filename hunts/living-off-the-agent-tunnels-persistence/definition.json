@@ -1,0 +1,565 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "AI coding agents operate with significant local trust and can automate complex tasks. Their use as a proxy for remote management bypasses traditional firewall controls and session monitoring, making a negative result over developer machines an essential security verification."
+      },
+      "name": "Living-off-the-Agent: Coding Tunnels and Persistence",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1133",
+        "attack.t1218",
+        "attack.t1555.001",
+        "attack.t1572",
+        "attack.t1566"
+      ],
+      "related": [
+        {
+          "hunt": "mcp-server-anomalies",
+          "reason": "Model Context Protocol (MCP) servers represent another vector for local tool execution under agent control.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule on tunnel binaries (cloudflared, ngrok) would be too noisy for developers. This hunt correlates the trusted agent ancestry with rare networking behaviors and persistence, using a baseline to filter out fleet-wide dev-ops noise.",
+      "coverage": [
+        {
+          "stage": "agent-parented-shell-execution",
+          "steps": [
+            "agent-parented-behavior"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-access-and-exfiltration",
+          "steps": [
+            "agent-parented-behavior"
+          ],
+          "reason": "Covers credential-harvesting command patterns like 'security dump-keychain' and plaintext POST parameters.",
+          "status": "covered"
+        },
+        {
+          "stage": "reverse-tunnel-establishment",
+          "steps": [
+            "tunnel-prevalence",
+            "agent-parented-behavior"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "launchagent-persistence",
+          "steps": [
+            "persistence-check"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Coding Agent Shell Execution",
+            "slug": "agent-parented-shell-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1218"
+            ],
+            "observables": [
+              "Claude Code",
+              "Cursor",
+              "zsh",
+              "--allow-dangerously-skip-permissions",
+              "/tmp/mcp_clean_landers.py"
+            ]
+          },
+          {
+            "name": "Credential Access and Harvesting",
+            "slug": "credential-access-and-exfiltration",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555.001"
+            ],
+            "observables": [
+              "security dump-keychain",
+              "curl -X POST",
+              "user=",
+              "password=",
+              "/login",
+              "lhr.life",
+              "trycloudflare.com"
+            ]
+          },
+          {
+            "name": "Reverse Tunnel C2",
+            "slug": "reverse-tunnel-establishment",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1572"
+            ],
+            "observables": [
+              "cloudflared",
+              "ngrok",
+              "localhost.run",
+              "lhr.life",
+              "trycloudflare.com",
+              "api.trycloudflare.com"
+            ]
+          },
+          {
+            "name": "External Service Persistence",
+            "slug": "launchagent-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "LaunchAgents",
+              ".plist",
+              "launchd",
+              "~/.zshenv"
+            ]
+          }
+        ],
+        "summary": "This campaign involves the abuse of trusted coding agents like Claude Code and Cursor to proxy malicious activities, including credential harvesting from the macOS Keychain and the deployment of reverse tunnels using tools like cloudflared and ngrok. The attackers establish persistent remote access to local services via LaunchAgents, effectively bypassing firewall restrictions under the guise of legitimate developer operations."
+      },
+      "severity": "high",
+      "rationale": "Focus on workstations assigned to software engineering and data science teams. AI agents like Claude Code are often installed in user-profile paths, so behavioral queries use partial string matches to account for variable install locations.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is utilizing trusted, signed AI coding agents (Claude Code, Cursor) to execute shells, establish reverse tunnels, and maintain persistence via LaunchAgents on developer workstations.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional: Hostnames to restrict the hunt to after the scoping step."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "tunnel_domains": {
+          "from": {
+            "ref": "elastic-labs-coding-agent",
+            "kind": "article",
+            "observed": "2026-08-07"
+          },
+          "type": "list[domain]",
+          "default": [
+            "lhr.life",
+            "localhost.run",
+            "trycloudflare.com",
+            "api.trycloudflare.com",
+            "ngrok-free.app",
+            "ngrok.com"
+          ],
+          "description": "Common domains for free or ephemeral tunnel brokers."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/coding-agent-launchagent-tunnel-detection",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/coding-agent-launchagent-tunnel-detection",
+          "name": "Living off the coding agent: Two tales of tunnels and LaunchAgents"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "insufficient-process-ancestry-tracking",
+          "risk": "If the parent process is missing or truncated, the critical link between the trusted agent and the malicious child is lost, potentially misclassifying the alert as a generic user activity.",
+          "owner": "Endpoint Security Team",
+          "stage": "agent-parented-shell-execution",
+          "question": "Was the tunnel binary spawned directly by the agent or by an unrelated user shell?",
+          "requires": "EDR process tree tracking with full path depth",
+          "remediation": "Audit EDR configuration to ensure parent command lines and full executable paths are captured for all process launch events."
+        },
+        {
+          "id": "ephemeral-tunnel-subdomains",
+          "risk": "Tunnel brokers use randomized subdomains. If only the apex domain is logged, we cannot isolate the specific tunnel instance for cross-host correlation.",
+          "owner": "Network Engineering",
+          "stage": "reverse-tunnel-establishment",
+          "question": "What was the specific subdomain for the lhr.life tunnel?",
+          "requires": "hb_dns_activity or hb_http_activity with full URL",
+          "remediation": "Enable DNS query logging for all developer VLANs."
+        }
+      ]
+    },
+    "name": "Living-off-the-Agent: Coding Tunnels and Persistence",
+    "description": "This hunt targets 'vibe-coded' intrusions where a developer workstation's trust in signed AI agents is abused to create remote access. By scoping to hosts running these agents and looking for correlated signals\u2014agent-parented shells with dangerous flags, connections to free tunnel brokers (lhr.life, trycloudflare), and new LaunchAgent persistence\u2014this hunt identifies sessions where an agent is used as a living-off-the-land execution proxy. It focuses on the behavioral overlap between legitimate developer automation and unauthorized remote management."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "agent-parented-shell-execution",
+            "steps": [
+              "agent-parented-behavior"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-access-and-exfiltration",
+            "steps": [
+              "agent-parented-behavior"
+            ],
+            "reason": "Covers credential-harvesting command patterns like 'security dump-keychain' and plaintext POST parameters.",
+            "status": "covered"
+          },
+          {
+            "stage": "reverse-tunnel-establishment",
+            "steps": [
+              "tunnel-prevalence",
+              "agent-parented-behavior"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "launchagent-persistence",
+            "steps": [
+              "persistence-check"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is utilizing trusted, signed AI coding agents (Claude Code, Cursor) to execute shells, establish reverse tunnels, and maintain persistence via LaunchAgents on developer workstations.",
+        "blind_spots": [
+          {
+            "id": "insufficient-process-ancestry-tracking",
+            "risk": "If the parent process is missing or truncated, the critical link between the trusted agent and the malicious child is lost, potentially misclassifying the alert as a generic user activity.",
+            "owner": "Endpoint Security Team",
+            "stage": "agent-parented-shell-execution",
+            "question": "Was the tunnel binary spawned directly by the agent or by an unrelated user shell?",
+            "requires": "EDR process tree tracking with full path depth",
+            "remediation": "Audit EDR configuration to ensure parent command lines and full executable paths are captured for all process launch events."
+          },
+          {
+            "id": "ephemeral-tunnel-subdomains",
+            "risk": "Tunnel brokers use randomized subdomains. If only the apex domain is logged, we cannot isolate the specific tunnel instance for cross-host correlation.",
+            "owner": "Network Engineering",
+            "stage": "reverse-tunnel-establishment",
+            "question": "What was the specific subdomain for the lhr.life tunnel?",
+            "requires": "hb_dns_activity or hb_http_activity with full URL",
+            "remediation": "Enable DNS query logging for all developer VLANs."
+          }
+        ],
+        "scoping_notes": "Focus on workstations assigned to software engineering and data science teams. AI agents like Claude Code are often installed in user-profile paths, so behavioral queries use partial string matches to account for variable install locations.",
+        "beyond_detection": "A single rule on tunnel binaries (cloudflared, ngrok) would be too noisy for developers. This hunt correlates the trusted agent ancestry with rare networking behaviors and persistence, using a baseline to filter out fleet-wide dev-ops noise."
+      }
+    },
+    {
+      "id": "scoping-agent-hosts",
+      "type": "query",
+      "label": "Identify hosts with AI coding agents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%claude%' OR LOWER(package_name) LIKE '%cursor%' OR LOWER(vendor_name) LIKE '%anthropic%' OR LOWER(vendor_name) LIKE '%anysphere%')",
+        "surface": "hb_software_inventory",
+        "description": "Focus the hunt on machines where agents like Claude Code or Cursor are installed using partial match on package and vendor names.",
+        "expected_signal": "A list of hostnames belonging to developers using these agents. Silence suggests the agents are installed as portable binaries outside the package manager."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify hosts with AI coding agents",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%claude%' OR LOWER(package_name) LIKE '%cursor%' OR LOWER(vendor_name) LIKE '%anthropic%' OR LOWER(vendor_name) LIKE '%anysphere%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames belonging to developers using these agents. Silence suggests the agents are installed as portable binaries outside the package manager.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "agent-parented-behavior",
+      "type": "query",
+      "label": "Agent-parented shell and tunnel execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%claude%' OR LOWER(parent_process_name) LIKE '%cursor%' OR LOWER(process_name) LIKE '%claude%' OR LOWER(process_name) LIKE '%cursor%') AND (LOWER(process_name) LIKE '%/zsh' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%/python%' OR LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) LIKE '%/cloudflared' OR LOWER(process_name) LIKE '%/ngrok' OR LOWER(process_cmd_line) LIKE '%--allow-dangerously-skip-permissions%' OR LOWER(process_cmd_line) LIKE '%security dump-keychain%' OR LOWER(process_cmd_line) LIKE '%user=%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify shells, credentialed curl commands, or tunnel binaries spawned by the AI agent using partial path matching.",
+        "expected_signal": "Process trees where Claude or Cursor spawn shells with sensitive flags or credential-heavy command lines. This is the primary signal for 'living-off-the-agent' proxying."
+      },
+      "parents": [
+        {
+          "id": "scoping-agent-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Agent-parented shell and tunnel execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%claude%' OR LOWER(parent_process_name) LIKE '%cursor%' OR LOWER(process_name) LIKE '%claude%' OR LOWER(process_name) LIKE '%cursor%') AND (LOWER(process_name) LIKE '%/zsh' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%/python%' OR LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) LIKE '%/cloudflared' OR LOWER(process_name) LIKE '%/ngrok' OR LOWER(process_cmd_line) LIKE '%--allow-dangerously-skip-permissions%' OR LOWER(process_cmd_line) LIKE '%security dump-keychain%' OR LOWER(process_cmd_line) LIKE '%user=%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process trees where Claude or Cursor spawn shells with sensitive flags or credential-heavy command lines. This is the primary signal for 'living-off-the-agent' proxying.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "tunnel-prevalence",
+      "type": "query",
+      "label": "Rare tunnel broker connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT dst_endpoint_hostname, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE dst_endpoint_hostname IS NOT NULL AND instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_hostname HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_network_connection",
+        "description": "Stack-count connections to known tunnel brokers, filtering for domain-based activity to identify rare usage.",
+        "expected_signal": "A connection to a tunnel provider that stands out from fleet norms. Domain matching avoids noise from raw IP background traffic."
+      },
+      "parents": [
+        {
+          "id": "scoping-agent-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare tunnel broker connections",
+        "reads": [
+          "dst_endpoint_hostname",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT dst_endpoint_hostname, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE dst_endpoint_hostname IS NOT NULL AND instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_hostname HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A connection to a tunnel provider that stands out from fleet norms. Domain matching avoids noise from raw IP background traffic.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "persistence-check",
+      "type": "query",
+      "label": "Anomalous LaunchAgent persistence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_definition_path, job_cmd_line, time FROM hb_scheduled_job WHERE job_kind = 'launchd' AND (LOWER(job_definition_path) LIKE '%/launchagents/%' OR LOWER(job_cmd_line) LIKE '%cloudflared%' OR LOWER(job_cmd_line) LIKE '%ngrok%' OR LOWER(job_cmd_line) LIKE '%lhr.life%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_scheduled_job",
+        "description": "Check for new macOS persistence mechanisms that maintain tunnel connections outside of active sessions.",
+        "expected_signal": "LaunchAgent plists pointing to tunnel binaries or shell wrappers. Legitimate developers rarely install these for temporary testing."
+      },
+      "parents": [
+        {
+          "id": "scoping-agent-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Anomalous LaunchAgent persistence",
+        "reads": [
+          "device_hostname",
+          "job_name",
+          "job_definition_path",
+          "job_cmd_line",
+          "time"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_definition_path, job_cmd_line, time FROM hb_scheduled_job WHERE job_kind = 'launchd' AND (LOWER(job_definition_path) LIKE '%/launchagents/%' OR LOWER(job_cmd_line) LIKE '%cloudflared%' OR LOWER(job_cmd_line) LIKE '%ngrok%' OR LOWER(job_cmd_line) LIKE '%lhr.life%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "LaunchAgent plists pointing to tunnel binaries or shell wrappers. Legitimate developers rarely install these for temporary testing.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage",
+      "type": "analytic",
+      "label": "Triage agent-parented chains",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "agent-parented-behavior",
+          "tunnel-prevalence",
+          "persistence-check"
+        ],
+        "objective": "Determine if the observed behavior represents unauthorized remote access via a coding agent. Specifically look for credentials POSTed to tunnel URLs combined with persistent LaunchAgents.",
+        "description": "Weigh the correlation of ancestry, tunnel usage, and persistence to distinguish legitimate dev-ops from a remote intrusion.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict of malicious, suspicious, or benign citing specific evidence rows.",
+        "success_criteria": "A per-host verdict citing specific process command lines and tunnel domains."
+      },
+      "parents": [
+        {
+          "id": "agent-parented-behavior",
+          "kind": "merge"
+        },
+        {
+          "id": "tunnel-prevalence",
+          "kind": "merge"
+        },
+        {
+          "id": "persistence-check",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "insufficient-process-ancestry-tracking",
+        "confidence": "high",
+        "description": "Direct high-confidence findings to containment and suspicious findings to human review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate workstation",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the potential reverse tunnel and prevent lateral movement or further exfiltration.",
+        "instructions": "Isolate the host, terminate the agent-parented tunnel processes, and collect the LaunchAgent plists for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final human review to confirm developer intent and close the case.",
+        "instructions": "Examine the cited command lines. Determine if the developer was self-testing a local app or if the agent session was manipulated. If malicious, investigate the credentials POSTed to the tunnel URL and check for lateral movement attempts."
+      },
+      "parents": [
+        {
+          "id": "route",
+          "branch": "default"
+        },
+        {
+          "id": "route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    }
+  ]
+}

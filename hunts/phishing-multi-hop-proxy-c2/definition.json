@@ -1,0 +1,561 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Phishing is a high-volume attack vector, and multi-hop proxies are the primary method for maintaining stealthy C2. Correlating these two adjacent attack stages stops intrusions before they reach the lateral movement phase."
+      },
+      "name": "Phishing and Multi-hop Proxy C2 Hunt",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1090.003",
+        "attack.t1036.003"
+      ],
+      "related": [
+        {
+          "hunt": "rdp-over-tunneling-hunt",
+          "reason": "Once a proxy tunnel is established, attackers often use it to bring in RDP or SSH; a follow-up hunt on hb_auth_signin is recommended.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple rule detects 'tor.exe'. This hunt pivots on the behavioral anomaly of a renamed process ('masquerading') and requires an analyst/agent to weigh its temporal proximity to rare web traffic \u2014 a multi-surface context a single detection rule cannot evaluate without high false positive rates.",
+      "coverage": [
+        {
+          "stage": "initial-access-phishing",
+          "steps": [
+            "scope-high-risk-browsers",
+            "rare-http-browsing"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-multi-hop-proxy",
+          "steps": [
+            "masquerading-processes",
+            "proxy-network-pivots",
+            "proxy-dns-pivots"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Phishing for Initial Access",
+            "slug": "initial-access-phishing",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Inbound phishing lures targeting credentials or local access",
+              "HTTP requests to phishing-related landing pages",
+              "Network connections initiated from user interaction with malicious links"
+            ]
+          },
+          {
+            "name": "Multi-hop Proxy Command and Control",
+            "slug": "c2-multi-hop-proxy",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion domains and hidden services",
+              "Active network connections to known Tor relay nodes or bridge addresses",
+              "Use of ngrok tunnel subdomains (e.g., tunnel.us.ngrok.com)",
+              "Operational relay box (ORB) traffic through VPS or IoT devices",
+              "Local execution of proxy-related binaries such as tor.exe or ngrok.exe"
+            ]
+          }
+        ],
+        "summary": "The campaign begins with a phishing attempt to gain an initial foothold, likely through malicious links or landing pages. Subsequently, the adversary employs multi-hop proxying mechanisms, such as Tor hidden services or ngrok tunnels, to establish a stealthy command-and-control channel that obfuscates the origin of the traffic."
+      },
+      "severity": "medium",
+      "rationale": "Target hosts with high browser usage (Workstations/VDI). Developers are the highest-risk group due to standard usage of proxy/tunneling tools which may cause noise.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker has gained initial access via browser-based phishing and established command-and-control using a masqueraded proxy binary that originates from a renamed tunneling tool.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames to restrict the hunt to; leave empty to scan the full estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of historical telemetry to examine."
+        },
+        "suspect_processes": {
+          "type": "list[string]",
+          "default": [
+            "svchost.exe",
+            "taskhostw.exe",
+            "lsass.exe",
+            "runtimebroker.exe",
+            "powershell.exe",
+            "conhost.exe"
+          ],
+          "description": "Common system process names used as masquerade targets for proxy tools."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/soc-case-management-detection-rule-history",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/soc-case-management-detection-rule-history",
+          "name": "Elastic Security Labs \u2014 SOC case management and detection rule history"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "incomplete-process-metadata",
+          "risk": "If 'process_original_file_name' is NULL, masquerading detection fails, and the hunt relies solely on network rarity.",
+          "owner": "Endpoint Security Team",
+          "stage": "c2-multi-hop-proxy",
+          "question": "Does the EDR capture the PE header metadata for every process?",
+          "requires": "process_original_file_name from the EDR agent",
+          "remediation": "Ensure Sysmon or EDR collection includes version information for all binaries."
+        },
+        {
+          "id": "encrypted-proxy-headers",
+          "risk": "We can see the destination domain but not the inner proxy headers or paths, making it harder to distinguish generic HTTPS from a proxy tunnel.",
+          "owner": "Network Engineering",
+          "stage": "c2-multi-hop-proxy",
+          "question": "Is the proxy traffic encapsulated in HTTPS that we cannot inspect?",
+          "requires": "hb_http_activity full URL logging",
+          "remediation": "Implement TLS inspection for egress traffic to unknown/low-reputation domains."
+        }
+      ]
+    },
+    "name": "Phishing and Multi-hop Proxy C2 Hunt",
+    "description": "This hunt identifies the transition from initial access to persistent C2 by correlating high-risk browser configurations and rare web traffic with the execution of masqueraded binaries. It focuses on the 'masquerading' technique where proxy tools like Tor or Ngrok are renamed to appear as system processes (e.g., svchost.exe). By pivoting on the process name from a masquerading event to its network and DNS activity, we can distinguish legitimate system noise from an obfuscated network tunnel initiated within the same timeframe as a suspicious web download or click."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-phishing",
+            "steps": [
+              "scope-high-risk-browsers",
+              "rare-http-browsing"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-multi-hop-proxy",
+            "steps": [
+              "masquerading-processes",
+              "proxy-network-pivots",
+              "proxy-dns-pivots"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker has gained initial access via browser-based phishing and established command-and-control using a masqueraded proxy binary that originates from a renamed tunneling tool.",
+        "blind_spots": [
+          {
+            "id": "incomplete-process-metadata",
+            "risk": "If 'process_original_file_name' is NULL, masquerading detection fails, and the hunt relies solely on network rarity.",
+            "owner": "Endpoint Security Team",
+            "stage": "c2-multi-hop-proxy",
+            "question": "Does the EDR capture the PE header metadata for every process?",
+            "requires": "process_original_file_name from the EDR agent",
+            "remediation": "Ensure Sysmon or EDR collection includes version information for all binaries."
+          },
+          {
+            "id": "encrypted-proxy-headers",
+            "risk": "We can see the destination domain but not the inner proxy headers or paths, making it harder to distinguish generic HTTPS from a proxy tunnel.",
+            "owner": "Network Engineering",
+            "stage": "c2-multi-hop-proxy",
+            "question": "Is the proxy traffic encapsulated in HTTPS that we cannot inspect?",
+            "requires": "hb_http_activity full URL logging",
+            "remediation": "Implement TLS inspection for egress traffic to unknown/low-reputation domains."
+          }
+        ],
+        "scoping_notes": "Target hosts with high browser usage (Workstations/VDI). Developers are the highest-risk group due to standard usage of proxy/tunneling tools which may cause noise.",
+        "beyond_detection": "A simple rule detects 'tor.exe'. This hunt pivots on the behavioral anomaly of a renamed process ('masquerading') and requires an analyst/agent to weigh its temporal proximity to rare web traffic \u2014 a multi-surface context a single detection rule cannot evaluate without high false positive rates."
+      }
+    },
+    {
+      "id": "scope-high-risk-browsers",
+      "type": "query",
+      "label": "Identify high-risk browser execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%chrome%' OR LOWER(process_name) LIKE '%firefox%' OR LOWER(process_name) LIKE '%msedge%') AND (LOWER(process_cmd_line) LIKE '%--no-sandbox%' OR LOWER(process_cmd_line) LIKE '%--disable-web-security%' OR LOWER(process_cmd_line) LIKE '%--remote-debugging-port%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find hosts where browsers are running with insecure configurations or debugging flags often exploited or used by attackers to bypass security sandboxes.",
+        "expected_signal": "Hosts running browsers in a vulnerable state. Silence suggests browsers are running with default security postures."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify high-risk browser execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%chrome%' OR LOWER(process_name) LIKE '%firefox%' OR LOWER(process_name) LIKE '%msedge%') AND (LOWER(process_cmd_line) LIKE '%--no-sandbox%' OR LOWER(process_cmd_line) LIKE '%--disable-web-security%' OR LOWER(process_cmd_line) LIKE '%--remote-debugging-port%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts running browsers in a vulnerable state. Silence suggests browsers are running with default security postures.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-http-browsing",
+      "type": "query",
+      "label": "Rare URL hostname identification",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT url_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_http_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY url_hostname HAVING host_count <= 2 ORDER BY host_count ASC",
+        "surface": "hb_http_activity",
+        "description": "Identify rare URL hostnames accessed by processes, providing a baseline for potential phishing or credential harvesting sites.",
+        "expected_signal": "A list of hostnames accessed by 2 or fewer devices. Malicious lures are often specific to one or two targets."
+      },
+      "parents": [
+        {
+          "id": "scope-high-risk-browsers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare URL hostname identification",
+        "reads": [
+          "url_hostname",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT url_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_http_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY url_hostname HAVING host_count <= 2 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of hostnames accessed by 2 or fewer devices. Malicious lures are often specific to one or two targets.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "masquerading-processes",
+      "type": "query",
+      "label": "Detect masqueraded proxy binaries",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE process_name IS NOT NULL AND process_original_file_name IS NOT NULL AND LOWER(REPLACE(process_name, '.exe', '')) != LOWER(REPLACE(process_original_file_name, '.exe', '')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify processes where the disk name has been changed but the original file metadata reveals a different purpose (like a proxy tool).",
+        "expected_signal": "A process like 'lsass.exe' whose original name was 'tor.exe' or 'chisel.exe'."
+      },
+      "parents": [
+        {
+          "id": "rare-http-browsing"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect masqueraded proxy binaries",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_original_file_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE process_name IS NOT NULL AND process_original_file_name IS NOT NULL AND LOWER(REPLACE(process_name, '.exe', '')) != LOWER(REPLACE(process_original_file_name, '.exe', '')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A process like 'lsass.exe' whose original name was 'tor.exe' or 'chisel.exe'.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "proxy-network-pivots",
+      "type": "query",
+      "label": "Network activity from suspect processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (instr(',' || '{{suspect_processes}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || '{{suspect_processes}}' || ',', ',' || LOWER(REPLACE(process_name, '.exe', '')) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Pivot to network telemetry for the suspect processes to confirm they are establishing outbound connections.",
+        "expected_signal": "Outbound connections originating from a masqueraded process name."
+      },
+      "parents": [
+        {
+          "id": "rare-http-browsing"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Network activity from suspect processes",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (instr(',' || '{{suspect_processes}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || '{{suspect_processes}}' || ',', ',' || LOWER(REPLACE(process_name, '.exe', '')) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Outbound connections originating from a masqueraded process name.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "proxy-dns-pivots",
+      "type": "query",
+      "label": "DNS activity from suspect processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (instr(',' || '{{suspect_processes}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || '{{suspect_processes}}' || ',', ',' || LOWER(REPLACE(process_name, '.exe', '')) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Identify DNS lookups, particularly for hidden services or unusual hostnames, initiated by the suspect processes.",
+        "expected_signal": "DNS resolutions for external domains (especially .onion or .ngrok) coming from a process that was identified as masqueraded."
+      },
+      "parents": [
+        {
+          "id": "rare-http-browsing"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS activity from suspect processes",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (instr(',' || '{{suspect_processes}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || '{{suspect_processes}}' || ',', ',' || LOWER(REPLACE(process_name, '.exe', '')) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS resolutions for external domains (especially .onion or .ngrok) coming from a process that was identified as masqueraded.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage the attack chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network",
+          "web"
+        ],
+        "context": [
+          "scope-high-risk-browsers",
+          "rare-http-browsing",
+          "masquerading-processes",
+          "proxy-network-pivots",
+          "proxy-dns-pivots"
+        ],
+        "objective": "Determine if there is a temporal correlation (within +/- 1 hour) between rare HTTP traffic and the execution of a masqueraded process. Evaluate whether these processes are responsible for the network connections or DNS queries observed. Cite specific rows for the browser risk, the rare URL, and the proxy behavior.",
+        "description": "Correlate the time and host of the rare HTTP activity with the execution and network pivots of the masqueraded processes.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict citing the browser flags, the rare site hit, and the specific masqueraded process responsible for networking.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, with specific row citations."
+      },
+      "parents": [
+        {
+          "id": "masquerading-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "proxy-network-pivots",
+          "kind": "merge"
+        },
+        {
+          "id": "proxy-dns-pivots",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route based on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host involving a masqueraded process executing near a rare HTTP event.",
+        "condition": "the triage verdict is malicious for at least one host involving a masqueraded process executing near a rare HTTP event.",
+        "blind_spot": "incomplete-process-metadata",
+        "confidence": "high",
+        "description": "Direct high-confidence malicious findings to containment and others to analyst review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host and collect binary",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop C2 traffic and preserve the evidence binary for analysis.",
+        "instructions": "Isolate the host immediately. Collect the file identified in 'masquerading-processes' by its full path and calculate a SHA256 hash for lookup in threat intelligence.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-manual-review",
+      "type": "task",
+      "label": "Analyst manual review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final verification of the attack chain and coordination with SOC case management.",
+        "instructions": "Review the browser command lines and the rare URL hostnames. Check if the 'masqueraded' binary is a legitimate custom internal tool. If not, open a case using the 'Compromised Account' template as described in the Elastic Security 9.5 research."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out and tune",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and update allow-lists if the activity was benign.",
+        "instructions": "Record the examined hosts. If the rare URL or proxy activity was benign (e.g., developer testing), update the parameters or note the exclusion for future runs."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
