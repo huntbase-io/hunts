@@ -1,0 +1,573 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Threat actors are weaponizing trusted infrastructure that users are increasingly required to use for productivity. Identifying abuse of these 'trust boundaries'\u2014where a legitimate domain masks a malicious instruction\u2014is critical to preventing credential theft that traditional filters miss."
+      },
+      "name": "AI Platform Abuse and Clipboard Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566.002",
+        "attack.t1204.001",
+        "attack.t1204.002",
+        "attack.t1059.001",
+        "attack.t1059.004",
+        "attack.t1005",
+        "attack.t1552.004",
+        "attack.t1555.001"
+      ],
+      "related": [
+        {
+          "hunt": "socially-engineered-cli-patterns",
+          "reason": "General ClickFix patterns often share these shell indicators but use different lures (e.g., fake support pages).",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A static detection rule for 'curl piped to bash' is too noisy for developer estates. This hunt moves beyond a single rule by correlating that behavior with the preceding access to specific AI domains and the subsequent access to credential stores, while using prevalence counting to highlight attacker-crafted commands across the fleet.",
+      "coverage": [
+        {
+          "stage": "legitimate-ai-platform-access",
+          "steps": [
+            "dns-to-ai-platforms"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "malicious-domain-redirection",
+          "steps": [
+            "dns-to-ai-platforms"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "user-driven-clipboard-execution",
+          "steps": [
+            "rare-interpreter-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-secret-theft",
+          "steps": [
+            "credential-file-access"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Access to Trusted AI Platforms via SEO",
+            "slug": "legitimate-ai-platform-access",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566.002"
+            ],
+            "observables": [
+              "claude.ai",
+              "chatgpt.com",
+              "grok.com",
+              "claude.ai/share",
+              "Claude Artifacts"
+            ]
+          },
+          {
+            "name": "Redirection to Malicious Malware Hosting",
+            "slug": "malicious-domain-redirection",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.001"
+            ],
+            "observables": [
+              "downloading-api.it.com"
+            ]
+          },
+          {
+            "name": "User-Driven Command Execution",
+            "slug": "user-driven-clipboard-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1059.004",
+              "T1204.002"
+            ],
+            "observables": [
+              "curl",
+              "Terminal",
+              "PowerShell",
+              "ClaudeDesktop.exe",
+              "ClickFix instructions"
+            ]
+          },
+          {
+            "name": "Credential and Secret Exfiltration",
+            "slug": "credential-secret-theft",
+            "tactic": "collection",
+            "techniques": [
+              "T1005",
+              "T1552.004",
+              "T1555.001"
+            ],
+            "observables": [
+              "Keychain secrets",
+              "Telegram sessions",
+              "SSH keys",
+              "Cloud keys",
+              "Browser cookies",
+              "~/.ssh"
+            ]
+          }
+        ],
+        "summary": "Threat actors are exploiting the trust associated with AI platforms like Claude, ChatGPT, and Grok by using SEO poisoning and sponsored search results to lure users to malicious artifacts or shared conversations. Once on these legitimate domains, victims are tricked into downloading trojanized installers or pasting malicious terminal commands that deploy stealers such as AMOS, MacSync, and SectopRAT to exfiltrate credentials and sensitive system secrets."
+      },
+      "severity": "high",
+      "rationale": "The hunt scopes initially to hosts with browsers or shell environments. If the environment is developer-heavy, prioritize results where the AI domain traffic occurs within 10 minutes of a rare shell execution.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder is abusing trust in legitimate AI platforms (Claude, ChatGPT, Grok) to socially engineer users into executing malicious shell commands or downloading malware via shared conversations and artifacts.",
+      "parameters": {
+        "ai_domains": {
+          "from": {
+            "ref": "huntress-ai-attack-surface",
+            "kind": "article",
+            "observed": "2026-08-27"
+          },
+          "type": "list[domain]",
+          "default": [
+            "claude.ai",
+            "chatgpt.com",
+            "grok.com",
+            "openai.com"
+          ],
+          "description": "Legitimate AI domains identified in the research as hosting lures."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-pasted",
+            "kind": "manual",
+            "observed": "2026-08-27"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames to restrict the hunt to, typically those identified in the scoping or DNS steps."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2026-08-27"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "malicious_redirects": {
+          "from": {
+            "ref": "huntress-ai-attack-surface",
+            "kind": "article",
+            "observed": "2026-08-27"
+          },
+          "type": "list[domain]",
+          "default": [
+            "downloading-api.it.com"
+          ],
+          "description": "External domains identified as hosting malware following the AI lures."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/ai-attack-surface",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/ai-attack-surface",
+          "name": "Huntress \u2014 The AI Attack Surface: How Threat Actors Abuse Trusted AI Platforms"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "encrypted-uri-blindspot",
+          "risk": "Without full URI visibility, we rely on the temporal correlation of AI base domain traffic and terminal commands, which is less precise than identifying the malicious artifact URL directly.",
+          "stage": "legitimate-ai-platform-access",
+          "question": "whether the user specifically visited a /share/ or /artifact/ path on the AI domain.",
+          "requires": "hb_http_activity with full URI visibility"
+        },
+        {
+          "id": "clipboard-monitoring-gap",
+          "risk": "Direct evidence of a paste from a browser process into a shell process would definitively prove the social engineering vector; without it, we must infer it from timing and rarity.",
+          "stage": "user-driven-clipboard-execution",
+          "question": "whether the command was pasted from a browser into a terminal.",
+          "requires": "Endpoint telemetry for clipboard events"
+        }
+      ]
+    },
+    "name": "AI Platform Abuse and Clipboard Execution",
+    "description": "This hunt identifies the pivot from legitimate AI platform interaction to local execution of malicious payloads, a technique used to deliver stealers like MacSync and AMOS. It starts by identifying hosts with the necessary software surface (browsers and shells), then correlates DNS requests for AI-shared content with rare, attacker-crafted 'ClickFix' shell commands and subsequent sensitive file access. By weighing the sequence of events\u2014web traffic followed by clipboard-driven terminal execution\u2014the hunt distinguishes social engineering from developer activity."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "legitimate-ai-platform-access",
+            "steps": [
+              "dns-to-ai-platforms"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "malicious-domain-redirection",
+            "steps": [
+              "dns-to-ai-platforms"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "user-driven-clipboard-execution",
+            "steps": [
+              "rare-interpreter-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-secret-theft",
+            "steps": [
+              "credential-file-access"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder is abusing trust in legitimate AI platforms (Claude, ChatGPT, Grok) to socially engineer users into executing malicious shell commands or downloading malware via shared conversations and artifacts.",
+        "blind_spots": [
+          {
+            "id": "encrypted-uri-blindspot",
+            "risk": "Without full URI visibility, we rely on the temporal correlation of AI base domain traffic and terminal commands, which is less precise than identifying the malicious artifact URL directly.",
+            "stage": "legitimate-ai-platform-access",
+            "question": "whether the user specifically visited a /share/ or /artifact/ path on the AI domain.",
+            "requires": "hb_http_activity with full URI visibility"
+          },
+          {
+            "id": "clipboard-monitoring-gap",
+            "risk": "Direct evidence of a paste from a browser process into a shell process would definitively prove the social engineering vector; without it, we must infer it from timing and rarity.",
+            "stage": "user-driven-clipboard-execution",
+            "question": "whether the command was pasted from a browser into a terminal.",
+            "requires": "Endpoint telemetry for clipboard events"
+          }
+        ],
+        "scoping_notes": "The hunt scopes initially to hosts with browsers or shell environments. If the environment is developer-heavy, prioritize results where the AI domain traffic occurs within 10 minutes of a rare shell execution.",
+        "beyond_detection": "A static detection rule for 'curl piped to bash' is too noisy for developer estates. This hunt moves beyond a single rule by correlating that behavior with the preceding access to specific AI domains and the subsequent access to credential stores, while using prevalence counting to highlight attacker-crafted commands across the fleet."
+      }
+    },
+    {
+      "id": "scope-to-affected-software",
+      "type": "query",
+      "label": "Scope to hosts with browsers or shells",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) IN ('safari', 'google chrome', 'microsoft edge', 'firefox') OR LOWER(package_name) LIKE '%powershell%') AND (LOWER(vendor_name) IN ('apple', 'google', 'microsoft') OR vendor_name IS NULL)",
+        "surface": "hb_software_inventory",
+        "description": "Filter the estate to hosts that have the software required for this attack chain (browsers for the lure, shells for the execution).",
+        "expected_signal": "A list of hostnames. These are the systems where the attack vector is plausible."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to hosts with browsers or shells",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) IN ('safari', 'google chrome', 'microsoft edge', 'firefox') OR LOWER(package_name) LIKE '%powershell%') AND (LOWER(vendor_name) IN ('apple', 'google', 'microsoft') OR vendor_name IS NULL)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames. These are the systems where the attack vector is plausible.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "dns-to-ai-platforms",
+      "type": "query",
+      "label": "DNS activity to AI shares and redirects",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, MIN(time) as first_seen, COUNT(*) as lookup_count FROM hb_dns_activity WHERE (instr(',' || '{{ai_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR instr(',' || '{{malicious_redirects}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Identify hosts that visited the AI platforms or the malicious redirect domains named in the report within the scoped population.",
+        "expected_signal": "Hosts talking to Claude, ChatGPT, Grok, or the known malicious redirect domain. Silence means no observed interaction with these specific indicators."
+      },
+      "parents": [
+        {
+          "id": "scope-to-affected-software"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "DNS activity to AI shares and redirects",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, MIN(time) as first_seen, COUNT(*) as lookup_count FROM hb_dns_activity WHERE (instr(',' || '{{ai_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR instr(',' || '{{malicious_redirects}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts talking to Claude, ChatGPT, Grok, or the known malicious redirect domain. Silence means no observed interaction with these specific indicators.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-interpreter-commands",
+      "type": "query",
+      "label": "Rare ClickFix-style shell execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%curl%' OR LOWER(process_name) LIKE '%powershell%' OR LOWER(process_name) LIKE '%bash%' OR LOWER(process_name) LIKE '%sh' OR LOWER(process_name) LIKE '%zsh%') AND (LOWER(process_cmd_line) LIKE '%| bash%' OR LOWER(process_cmd_line) LIKE '%| sh%' OR LOWER(process_cmd_line) LIKE '%iex%' OR LOWER(process_cmd_line) LIKE '%-enc%' OR LOWER(process_cmd_line) LIKE '%curl %downloading-api%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING hosts <= 3",
+        "surface": "hb_process_activity",
+        "description": "Detect rare command-line patterns typically used when a user is tricked into pasting a command from an AI interface.",
+        "expected_signal": "Highly rare or unique command lines involving pipes to interpreters or download-and-execute patterns. Benign administrative commands will stack higher."
+      },
+      "parents": [
+        {
+          "id": "dns-to-ai-platforms"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Rare ClickFix-style shell execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%curl%' OR LOWER(process_name) LIKE '%powershell%' OR LOWER(process_name) LIKE '%bash%' OR LOWER(process_name) LIKE '%sh' OR LOWER(process_name) LIKE '%zsh%') AND (LOWER(process_cmd_line) LIKE '%| bash%' OR LOWER(process_cmd_line) LIKE '%| sh%' OR LOWER(process_cmd_line) LIKE '%iex%' OR LOWER(process_cmd_line) LIKE '%-enc%' OR LOWER(process_cmd_line) LIKE '%curl %downloading-api%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING hosts <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Highly rare or unique command lines involving pipes to interpreters or download-and-execute patterns. Benign administrative commands will stack higher.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 4
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "credential-file-access",
+      "type": "query",
+      "label": "Access to credential and secret stores",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/.ssh/%' OR LOWER(file_path) LIKE '%/keychain%' OR LOWER(file_path) LIKE '%/cookies%' OR LOWER(file_path) LIKE '%/login data%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Corroborate suspicious commands by looking for the final stage of the attack: reading sensitive local files.",
+        "expected_signal": "Access to identity-rich files by unexpected processes (not the browser itself)."
+      },
+      "parents": [
+        {
+          "id": "dns-to-ai-platforms"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Access to credential and secret stores",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/.ssh/%' OR LOWER(file_path) LIKE '%/keychain%' OR LOWER(file_path) LIKE '%/cookies%' OR LOWER(file_path) LIKE '%/login data%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Access to identity-rich files by unexpected processes (not the browser itself).",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage AI platform abuse",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "dns-to-ai-platforms",
+          "rare-interpreter-commands",
+          "credential-file-access"
+        ],
+        "objective": "Determine if the host's access to AI platforms was followed by a social-engineering-driven command execution that exfiltrated or accessed sensitive local secrets. Differentiate between developer activity and 'ClickFix' instructions.",
+        "description": "Determine if the sequence of events indicates a successful social engineering attack.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict of malicious, suspicious, or benign.",
+        "success_criteria": "A detailed verdict citing specifically which shell command correlates with which AI platform visit and subsequent file access."
+      },
+      "parents": [
+        {
+          "id": "rare-interpreter-commands",
+          "kind": "merge"
+        },
+        {
+          "id": "credential-file-access",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "verdict-decision",
+      "type": "checkpoint",
+      "label": "Route based on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host, indicating a high-confidence attack chain.",
+        "condition": "the triage verdict is malicious for at least one host, indicating a high-confidence attack chain.",
+        "blind_spot": "encrypted-uri-blindspot",
+        "confidence": "high",
+        "description": "Direct the hunt towards containment or manual review based on the agent's findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate affected host",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt further data theft or malware propagation.",
+        "instructions": "Isolate the host from the network. Collect all browser history and the full shell history (.bash_history, .zsh_history) for the affected user session.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Review and record findings",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final confirmation of the attack chain and extraction of new indicators.",
+        "instructions": "Confirm the malicious nature of the shell command. Verify the connection between the AI platform visit (e.g., share link or artifact) and the execution timestamp."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "default"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record a negative result and any tuning for benign rare commands.",
+        "instructions": "If shell activity was determined to be benign (e.g., development work), document the command pattern to reduce future noise. Record the percentage of the scoped estate that showed zero AI platform traffic."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

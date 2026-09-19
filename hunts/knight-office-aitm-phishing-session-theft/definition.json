@@ -1,0 +1,695 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Knight Office specifically targets valid session tokens to bypass MFA. Identifying the capture phase provides a narrow window for intervention before persistence is achieved."
+      },
+      "name": "Knight Office AiTM Phishing and Session Theft",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566.002",
+        "attack.t1090.003",
+        "attack.t1557"
+      ],
+      "series": {
+        "slug": "inside-knight-office-a-new-m365-aitm-phishing-kit",
+        "index": 1,
+        "title": "Inside Knight Office, a New M365 AiTM Phishing Kit",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "knight-office-token-replay",
+          "reason": "This hunt focuses on initial capture; a follow-on hunt should examine hb_auth_signin for subsequent replays and device registrations.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard rule alerts on any access to /devicelogin, but this hunt correlates the preceding SaaS redirect and the rarity of the referring .vu domain\u2014a behavioral chain that reduces false positives from legitimate IT activity.",
+      "coverage": [
+        {
+          "stage": "spearphishing-lure",
+          "reason": "Character substitution in email subjects/bodies is not visible on the provided hb_ surfaces.",
+          "status": "not_visible",
+          "blind_spot": "email-content-gap"
+        },
+        {
+          "stage": "redirect-chain",
+          "steps": [
+            "fleet-wide-vu-dns",
+            "saas-to-vu-referrers"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "aitm-token-theft",
+          "steps": [
+            "device-auth-login",
+            "kit-infrastructure-connections"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "session-token-replay",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "rogue-device-registration",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "whfb-persistence",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "DocuSign-themed phishing email",
+            "slug": "spearphishing-lure",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566.002"
+            ],
+            "observables": [
+              "IP: 154.127.53.78",
+              "Subject: Reminder: Signature Required - Approval Pending Your Review!!!",
+              "Subject: You Missed (2) lmportant VoiceMessage",
+              "Character substitution: lowercase 'L' for 'i' in 'lmportant', 'Slgnature', 'VERlVIED'"
+            ]
+          },
+          {
+            "name": "Evasive redirection through trusted infrastructure",
+            "slug": "redirect-chain",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Domain: monday.com",
+              "Platform: Joomla",
+              "TLD: .vu domains"
+            ]
+          },
+          {
+            "name": "AiTM session capture via device authentication",
+            "slug": "aitm-token-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1566",
+              "T1090.003"
+            ],
+            "observables": [
+              "Microsoft Device Authentication codes (deviceauth)",
+              "Spur callback proxies (Residential IP ranges)",
+              "Knight Office kit landing pages"
+            ]
+          },
+          {
+            "name": "Authentication bypass via token replay",
+            "slug": "session-token-replay",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1550.004"
+            ],
+            "observables": [
+              "IP: 104.37.188.94",
+              "User-Agent: python-requests/2.34.2, OAuth2:Token",
+              "Post-MFA authentication against Microsoft Authentication Broker"
+            ]
+          },
+          {
+            "name": "Unauthorized Entra ID device enrollment",
+            "slug": "rogue-device-registration",
+            "tactic": "persistence",
+            "techniques": [
+              "T1098.005"
+            ],
+            "observables": [
+              "IP: 104.37.188.94",
+              "Microsoft Entra ID host enrollment"
+            ]
+          },
+          {
+            "name": "Windows Hello for Business key binding",
+            "slug": "whfb-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1556.007"
+            ],
+            "observables": [
+              "User-Agent: Dsreg/10.0 (Windows 10.0.19044.1826)",
+              "Windows Hello for Business (WHfB) key binding",
+              "WHfB passwordless authentication successful sign-in"
+            ]
+          }
+        ],
+        "summary": "The Knight Office phishing campaign targets Microsoft 365 users using an Adversary-in-the-Middle (AiTM) kit to bypass MFA by capturing session tokens. Attackers use trusted redirects and residential proxies to steal tokens, subsequently registering rogue devices and binding Windows Hello for Business keys to maintain persistent access."
+      },
+      "severity": "high",
+      "rationale": "Scoping targets 'Executive' or 'Finance' naming conventions for systems (e.g., EXE, FIN) to prioritize higher-impact potential thefts. DNS and HTTP queries are filtered by these hosts when the parameter is populated.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using trusted SaaS redirectors and unusual .vu top-level domains to trick high-risk users into a Device Code authentication flow, capturing session tokens via residential proxies.",
+      "parameters": {
+        "kit_ips": {
+          "from": {
+            "ref": "huntress-knight-office",
+            "kind": "article",
+            "observed": "2026-09-02"
+          },
+          "type": "list[ip]",
+          "default": [
+            "154.127.53.78",
+            "104.37.188.94"
+          ],
+          "description": "IP addresses associated with Knight Office console and phishing delivery infrastructure."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hosts from the scoping step to focus the hunt; leave empty to hunt fleet-wide."
+        },
+        "saas_domains": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/inside-knight-office-m365-aitm-attack",
+            "kind": "article",
+            "observed": "2026-09-02"
+          },
+          "type": "list[domain]",
+          "default": [
+            "monday.com",
+            "notion.so",
+            "github.com",
+            "firebaseapp.com"
+          ],
+          "description": "High-reputation SaaS domains commonly used as initial redirectors."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of historical telemetry to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/inside-knight-office-m365-aitm-attack",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/inside-knight-office-m365-aitm-attack",
+          "name": "Inside Knight Office, a New M365 AiTM Phishing Kit"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "email-content-gap",
+          "risk": "The hunt starts at the network/HTTP level; the initial delivery of the lure via email is invisible on the provided endpoint surfaces.",
+          "stage": "spearphishing-lure",
+          "question": "whether the 'lmportant' character-substitution was present in the email body",
+          "requires": "Mailbox audit or Email Gateway logs"
+        },
+        {
+          "id": "residential-proxy-noise",
+          "risk": "Residential proxies are used to blend with legitimate work-from-home traffic; without specific IP intelligence metadata, these connections appear benign.",
+          "stage": "aitm-token-theft",
+          "question": "whether a source IP belongs to a callback proxy network",
+          "requires": "Residential IP intelligence (e.g., Spur)"
+        },
+        {
+          "id": "no-tls-decryption",
+          "risk": "We see the access to the endpoint (/devicelogin) but cannot see the payload data being entered, which confirms the capture.",
+          "stage": "aitm-token-theft",
+          "question": "the specific 'deviceauth' code being entered by the user",
+          "requires": "TLS decryption or endpoint-local browser monitoring"
+        }
+      ]
+    },
+    "name": "Knight Office AiTM Phishing and Session Theft",
+    "description": "This hunt identifies the capture phase of the Knight Office AiTM attack chain. It scopes the estate to high-risk department hosts, then monitors for a behavioral sequence: DNS resolutions for rare .vu domains, HTTP traffic with SaaS referrers (e.g., Monday.com) leading to .vu sites, and the interaction with the Microsoft Device Login endpoint. By correlating these triggers, an agent can distinguish malicious session capture from legitimate developer or IoT device registration."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "inside-knight-office-a-new-m365-aitm-phishing-kit",
+          "index": 1,
+          "title": "Inside Knight Office, a New M365 AiTM Phishing Kit",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "spearphishing-lure",
+            "reason": "Character substitution in email subjects/bodies is not visible on the provided hb_ surfaces.",
+            "status": "not_visible",
+            "blind_spot": "email-content-gap"
+          },
+          {
+            "stage": "redirect-chain",
+            "steps": [
+              "fleet-wide-vu-dns",
+              "saas-to-vu-referrers"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "aitm-token-theft",
+            "steps": [
+              "device-auth-login",
+              "kit-infrastructure-connections"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "session-token-replay",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "rogue-device-registration",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "whfb-persistence",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using trusted SaaS redirectors and unusual .vu top-level domains to trick high-risk users into a Device Code authentication flow, capturing session tokens via residential proxies.",
+        "blind_spots": [
+          {
+            "id": "email-content-gap",
+            "risk": "The hunt starts at the network/HTTP level; the initial delivery of the lure via email is invisible on the provided endpoint surfaces.",
+            "stage": "spearphishing-lure",
+            "question": "whether the 'lmportant' character-substitution was present in the email body",
+            "requires": "Mailbox audit or Email Gateway logs"
+          },
+          {
+            "id": "residential-proxy-noise",
+            "risk": "Residential proxies are used to blend with legitimate work-from-home traffic; without specific IP intelligence metadata, these connections appear benign.",
+            "stage": "aitm-token-theft",
+            "question": "whether a source IP belongs to a callback proxy network",
+            "requires": "Residential IP intelligence (e.g., Spur)"
+          },
+          {
+            "id": "no-tls-decryption",
+            "risk": "We see the access to the endpoint (/devicelogin) but cannot see the payload data being entered, which confirms the capture.",
+            "stage": "aitm-token-theft",
+            "question": "the specific 'deviceauth' code being entered by the user",
+            "requires": "TLS decryption or endpoint-local browser monitoring"
+          }
+        ],
+        "scoping_notes": "Scoping targets 'Executive' or 'Finance' naming conventions for systems (e.g., EXE, FIN) to prioritize higher-impact potential thefts. DNS and HTTP queries are filtered by these hosts when the parameter is populated.",
+        "beyond_detection": "A standard rule alerts on any access to /devicelogin, but this hunt correlates the preceding SaaS redirect and the rarity of the referring .vu domain\u2014a behavioral chain that reduces false positives from legitimate IT activity."
+      }
+    },
+    {
+      "id": "high-risk-scoping",
+      "type": "query",
+      "label": "Identify High-Risk Department Hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT hostname as device_hostname, device_uid, device_owner FROM hb_devices WHERE (LOWER(hostname) LIKE '%exe%' OR LOWER(hostname) LIKE '%fin%' OR LOWER(hostname) LIKE '%dir%' OR LOWER(hostname) LIKE '%treasury%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_devices",
+        "description": "Identify hosts likely belonging to sensitive departments (Executive, Finance) which are primary targets for Knight Office session theft.",
+        "expected_signal": "A list of hostnames matching sensitive naming conventions. This focuses the triage agent's attention on the most damaging potential compromises."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify High-Risk Department Hosts",
+        "reads": [
+          "hostname",
+          "device_uid",
+          "device_owner",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT hostname as device_hostname, device_uid, device_owner FROM hb_devices WHERE (LOWER(hostname) LIKE '%exe%' OR LOWER(hostname) LIKE '%fin%' OR LOWER(hostname) LIKE '%dir%' OR LOWER(hostname) LIKE '%treasury%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames matching sensitive naming conventions. This focuses the triage agent's attention on the most damaging potential compromises.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "fleet-wide-vu-dns",
+      "type": "query",
+      "label": "Fleet-Wide .vu TLD Resolution Rarity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_dns_activity WHERE LOWER(query_hostname) LIKE '%.vu' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count <= 5 ORDER BY host_count ASC",
+        "surface": "hb_dns_activity",
+        "description": "Establish a baseline of .vu TLD usage across the entire estate to identify rare phishing infrastructure.",
+        "expected_signal": "Rare .vu domain resolutions. Frequent resolutions might indicate legitimate region-specific software; single-host hits are high-priority."
+      },
+      "parents": [
+        {
+          "id": "high-risk-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Fleet-Wide .vu TLD Resolution Rarity",
+        "reads": [
+          "query_hostname",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_dns_activity WHERE LOWER(query_hostname) LIKE '%.vu' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count <= 5 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare .vu domain resolutions. Frequent resolutions might indicate legitimate region-specific software; single-host hits are high-priority.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 10
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "saas-to-vu-referrers",
+      "type": "query",
+      "label": "SaaS Redirects to .vu Domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, referrer, time FROM hb_http_activity WHERE LOWER(url_hostname) LIKE '%.vu' AND (instr(',' || '{{saas_domains}}' || ',', ',' || LOWER(referrer) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify HTTP requests where high-reputation SaaS platforms are the referrers for unusual .vu destinations.",
+        "expected_signal": "HTTP requests to .vu domains triggered by clicks on trusted platforms. This is a classic evasion technique to bypass simple URL reputation filters."
+      },
+      "parents": [
+        {
+          "id": "fleet-wide-vu-dns"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "SaaS Redirects to .vu Domains",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "url_path",
+          "referrer",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, referrer, time FROM hb_http_activity WHERE LOWER(url_hostname) LIKE '%.vu' AND (instr(',' || '{{saas_domains}}' || ',', ',' || LOWER(referrer) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests to .vu domains triggered by clicks on trusted platforms. This is a classic evasion technique to bypass simple URL reputation filters.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "device-auth-login",
+      "type": "query",
+      "label": "Microsoft Device Auth Flow",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, referrer, user_agent, time FROM hb_http_activity WHERE LOWER(url_hostname) LIKE '%microsoft.com' AND LOWER(url_path) LIKE '%/devicelogin%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify visits to the /devicelogin endpoint, which is where the victim enters the code provided by the phishing site.",
+        "expected_signal": "Access to the device login page. If the referrer is a .vu domain, this is highly indicative of token capture."
+      },
+      "parents": [
+        {
+          "id": "fleet-wide-vu-dns"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Microsoft Device Auth Flow",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "url_path",
+          "referrer",
+          "user_agent",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, referrer, user_agent, time FROM hb_http_activity WHERE LOWER(url_hostname) LIKE '%microsoft.com' AND LOWER(url_path) LIKE '%/devicelogin%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Access to the device login page. If the referrer is a .vu domain, this is highly indicative of token capture.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "kit-infrastructure-connections",
+      "type": "query",
+      "label": "Known Kit Infrastructure Connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE (instr(',' || '{{kit_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Find direct network connections to the IP addresses identified as hosting the Knight Office kit or console.",
+        "expected_signal": "Connections to kit IPs. Process names like 'chrome.exe' or 'msedge.exe' suggest a user being directed to the phishing site."
+      },
+      "parents": [
+        {
+          "id": "fleet-wide-vu-dns"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Known Kit Infrastructure Connections",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE (instr(',' || '{{kit_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Connections to kit IPs. Process names like 'chrome.exe' or 'msedge.exe' suggest a user being directed to the phishing site.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-kit-activity",
+      "type": "analytic",
+      "label": "Triage Session Capture Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network",
+          "web"
+        ],
+        "context": [
+          "high-risk-scoping",
+          "fleet-wide-vu-dns",
+          "saas-to-vu-referrers",
+          "device-auth-login",
+          "kit-infrastructure-connections"
+        ],
+        "objective": "Determine if any host, particularly high-risk ones, shows the sequence of SaaS redirect -> rare .vu domain resolution -> /devicelogin interaction, suggesting a successful Knight Office session capture.",
+        "description": "Analyze correlated signals across surfaces to determine if a Knight Office session capture occurred.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict of malicious, suspicious, or benign citing the specific behavioral chain.",
+        "success_criteria": "A per-host verdict citing specific DNS and HTTP events."
+      },
+      "parents": [
+        {
+          "id": "saas-to-vu-referrers",
+          "kind": "merge"
+        },
+        {
+          "id": "device-auth-login",
+          "kind": "merge"
+        },
+        {
+          "id": "kit-infrastructure-connections",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "residential-proxy-noise",
+        "confidence": "high",
+        "description": "Direct remediation if session theft is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-kit-activity"
+        }
+      ]
+    },
+    {
+      "id": "revoke-sessions",
+      "type": "action",
+      "label": "Revoke Session Tokens",
+      "config": {
+        "target": "identity",
+        "description": "Invalidate captured tokens before they can be used for persistence.",
+        "instructions": "Revoke all active M365 session tokens for the affected user, initiate a password reset, and check for rogue device registrations in Entra ID.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Downstream Impact Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Check for post-capture persistence such as rogue device registration or WHfB key addition.",
+        "instructions": "1. Review Entra ID logs for the affected user for successful logins from unusual IPs (specifically check for the residential proxies and 104.37.188.94). 2. Inspect for 'Add device' or 'Update WHfB credential' events. 3. Monitor for replay activity involving User-Agents like 'python-requests'."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "revoke-sessions"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt Close-Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize findings and record tuning for the detection candidate.",
+        "instructions": "Document the triage findings. If the /devicelogin query had high noise from legitimate IT operations, record those hostnames for future exclusions."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dual-Use RMM Network and Credential Theft Patterns · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is abusing legitimate RMM tools as C2 infrastructure and subsequently deploying credential stealers to target browser data stores.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/dual-use-rmm-network-credential-theft/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Dual-Use RMM Network and Credential Theft Patterns · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is abusing legitimate RMM tools as C2 infrastructure and subsequently deploying credential stealers to target browser data stores.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/dual-use-rmm-network-credential-theft/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">Dual-Use RMM Network and Credential Theft Patterns</h1>
+      <p class="hyp-lead">An adversary is abusing legitimate RMM tools as C2 infrastructure and subsequently deploying credential stealers to target browser data stores.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://redcanary.com/blog/security-operations/rmm-detection/" rel="noopener">Red Canary</a></span>
+<span>2026-09-17</span>        <span>10 steps · 4 queries</span>
+<span class="mono">T1059.001 T1071.001 T1555 T1566 T1574.002</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=dual-use-rmm-network-credential-theft" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Adversaries frequently leverage the 'professional veneer' of legitimate Remote Monitoring and Management (RMM) tools to maintain persistence and move laterally. As highlighted in Red Canary's <a href="https://redcanary.com/blog/security-operations/rmm-detection/" rel="noopener noreferrer">The dual-use dilemma: Rethinking detection for remote access tool abuse</a>, these signed, reputable binaries often bypass traditional security controls because they are technically authorized software. This hunt focuses on the subsequent stage of that abuse: the transition from RMM-based C2 to credential theft.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins with a scoping phase on the <code>hb_software_inventory</code> surface. We establish a baseline of hosts with known RMM packages like NetSupport, ScreenConnect, or Atera. This step is critical for understanding the 'known good' in the environment, though it is not definitive, as portable binaries may not appear in traditional package inventories.</p>
+<p>Next, the hunt pivots to network telemetry via <code>hb_http_activity</code> and <code>hb_dns_activity</code>. We look for RMM-specific User-Agent strings and rare DNS lookups for RMM infrastructure. By stack-counting these lookups, we identify anomalies where RMM tools are communicating from hosts that lack corresponding software records, suggesting unauthorized or 'shadow' deployments used for C2.</p>
+<p>The final behavioral pivot occurs on the <code>hb_file_activity</code> surface. Here, we correlate the RMM process names with access to sensitive file paths, specifically targeting browser profile components like 'Login Data' or 'Local State'. This is the core differentiator: while a system administrator might use an RMM to manage a machine, they rarely have a legitimate reason for the RMM binary itself to read raw browser credential stores.</p>
+<h3>Blind Spots</h3>
+<p>This hunt has two primary limitations. First, modern RMM agents typically communicate over HTTPS. Without SSL decryption at the proxy or endpoint-based network visibility, User-Agent strings and specific URI patterns in <code>hb_http_activity</code> will be invisible, leaving only DNS/SNI as a signal. Second, portable RMM agents (like SimpleHelp) do not install via standard package managers. If these tools are used, they will not appear in the initial inventory scoping and must be caught by the behavioral file and network steps.</p>
+<h3>How to Run the Hunt</h3>
+<p>This hunt is provided as an open <code>hunt.md</code> playbook. It can be imported directly into Huntbase or any runtime that supports the <code>hunt.md</code> specification. Because it correlates across three different telemetry surfaces, it is best run as a periodic check to identify persistence that has already evaded initial delivery detections. Based on the Red Canary research, we recommend a 14-day lookback for the initial baseline.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/rmm-suspicious-deployment/index.html">Part 1: Suspicious RMM Deployment and Service Persistence</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 7 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Web server / proxy logs</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is abusing legitimate RMM tools as C2 infrastructure and subsequently deploying credential stealers to target browser data stores.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Establish a baseline of hosts with recorded, potentially authorized RMM software.", "expected": "A list of hosts where RMM packages are present. Silence suggests either no RMM usage or that tools are portable/unauthorized.", "id": "rmm-inventory", "label": "Scoping: Known RMM Software", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%netsupport%\u0027 OR LOWER(package_name) LIKE \u0027%simplehelp%\u0027 OR LOWER(package_name) LIKE \u0027%syncro%\u0027 OR LOWER(package_name) LIKE \u0027%atera%\u0027 OR LOWER(package_name) LIKE \u0027%itarian%\u0027 OR LOWER(package_name) LIKE \u0027%screenconnect%\u0027 OR LOWER(package_name) LIKE \u0027%remotepc%\u0027) GROUP BY device_hostname, package_name, package_version, vendor_name", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Detect RMM-specific communication patterns via User-Agents or known C2 domains.", "expected": "HTTP requests matching RMM agent signatures or legitimate domains used as C2. Silence may occur if traffic is fully encrypted or the proxy lacks visibility.", "id": "rmm-network-c2", "label": "RMM Network C2 Patterns", "parents": [{"branch": null, "id": "rmm-inventory", "kind": null}], "query": "SELECT device_hostname, user_agent, url_hostname, time FROM hb_http_activity WHERE (instr(\u0027,\u0027 || \u0027{{rmm_user_agents}}\u0027 || \u0027,\u0027, \u0027,\u0027 || user_agent || \u0027,\u0027) \u003e 0 OR instr(\u0027,\u0027 || \u0027{{rmm_domains}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(url_hostname) || \u0027,\u0027) \u003e 0) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_http_activity", "type": "query"}, {"description": "Stack-count RMM infrastructure lookups to identify unauthorized or new RMM deployments (Shadow IT).", "expected": "DNS lookups for RMM domains from hosts that may not have corresponding software in inventory. Silence means RMM infrastructure is not being queried.", "id": "rare-rmm-domains", "label": "Rare RMM DNS Lookups", "parents": [{"branch": null, "id": "rmm-inventory", "kind": null}], "query": "SELECT query_hostname, device_hostname, COUNT(*) AS lookup_count, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(\u0027,\u0027 || \u0027{{rmm_domains}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(query_hostname) || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY query_hostname, device_hostname HAVING lookup_count \u003c= 10", "role": "baseline", "source": "hb_dns_activity", "type": "query"}, {"description": "Identify RMM tools or their processes accessing sensitive browser credential files.", "expected": "Confirmed file access events where an RMM binary (or child) touches Chromium/Windows credential files. High-confidence behavioral indicator of a stealer objective.", "id": "rmm-file-access", "label": "RMM Access to Credential Stores", "parents": [{"branch": null, "id": "rmm-inventory", "kind": null}], "query": "SELECT device_hostname, process_name, file_path, file_name, time FROM hb_file_activity WHERE (instr(\u0027,\u0027 || \u0027{{credential_keywords}}\u0027 || \u0027,\u0027, \u0027,\u0027 || file_name || \u0027,\u0027) \u003e 0) AND (instr(\u0027,\u0027 || \u0027{{rmm_binaries}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 OR LOWER(parent_process_name) LIKE \u0027%remote%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Synthesize software presence, network C2 indicators, and file access patterns into a verdict.", "expected": "A per-host verdict citing specific evidence from inventory, network, and file activity.", "id": "triage-rmm-behavior", "label": "Triage RMM Behavior and Intent", "parents": [{"branch": null, "id": "rmm-network-c2", "kind": "merge"}, {"branch": null, "id": "rare-rmm-domains", "kind": "merge"}, {"branch": null, "id": "rmm-file-access", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the response based on the agent\u0027s findings.", "expected": null, "id": "route-verdict", "label": "Route on Verdict", "parents": [{"branch": null, "id": "triage-rmm-behavior", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent further credential theft or lateral movement.", "expected": null, "id": "isolate-host", "label": "Isolate Host", "parents": [{"branch": "on_supports", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Final validation of RMM intent and tuning.", "expected": null, "id": "analyst-review", "label": "Analyst Review", "parents": [{"branch": "default", "id": "route-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Record findings and inventory gaps.", "expected": null, "id": "close-out", "label": "Close and Document", "parents": [{"branch": "on_refutes", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-rmm-inventory">
+          <div class="step-head">
+            <h3 class="heading-sm">Scoping: Known RMM Software</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Establish a baseline of hosts with recorded, potentially authorized RMM software.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%netsupport%&#39; OR LOWER(package_name) LIKE &#39;%simplehelp%&#39; OR LOWER(package_name) LIKE &#39;%syncro%&#39; OR LOWER(package_name) LIKE &#39;%atera%&#39; OR LOWER(package_name) LIKE &#39;%itarian%&#39; OR LOWER(package_name) LIKE &#39;%screenconnect%&#39; OR LOWER(package_name) LIKE &#39;%remotepc%&#39;) GROUP BY device_hostname, package_name, package_version, vendor_name</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts where RMM packages are present. Silence suggests either no RMM usage or that tools are portable/unauthorized.</p>        </li>
+        <li class="card step" id="step-rmm-network-c2">
+          <div class="step-head">
+            <h3 class="heading-sm">RMM Network C2 Patterns</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect RMM-specific communication patterns via User-Agents or known C2 domains.</p>          <div class="code"><div class="code-head"><span>reads hb_http_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, user_agent, url_hostname, time FROM hb_http_activity WHERE (instr(&#39;,&#39; || &#39;{{rmm_user_agents}}&#39; || &#39;,&#39;, &#39;,&#39; || user_agent || &#39;,&#39;) &gt; 0 OR instr(&#39;,&#39; || &#39;{{rmm_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(url_hostname) || &#39;,&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> HTTP requests matching RMM agent signatures or legitimate domains used as C2. Silence may occur if traffic is fully encrypted or the proxy lacks visibility.</p>        </li>
+        <li class="card step" id="step-rare-rmm-domains">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare RMM DNS Lookups</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count RMM infrastructure lookups to identify unauthorized or new RMM deployments (Shadow IT).</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT query_hostname, device_hostname, COUNT(*) AS lookup_count, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{rmm_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY query_hostname, device_hostname HAVING lookup_count &lt;= 10</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> DNS lookups for RMM domains from hosts that may not have corresponding software in inventory. Silence means RMM infrastructure is not being queried.</p>        </li>
+        <li class="card step" id="step-rmm-file-access">
+          <div class="step-head">
+            <h3 class="heading-sm">RMM Access to Credential Stores</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify RMM tools or their processes accessing sensitive browser credential files.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, file_path, file_name, time FROM hb_file_activity WHERE (instr(&#39;,&#39; || &#39;{{credential_keywords}}&#39; || &#39;,&#39;, &#39;,&#39; || file_name || &#39;,&#39;) &gt; 0) AND (instr(&#39;,&#39; || &#39;{{rmm_binaries}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(parent_process_name) LIKE &#39;%remote%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Confirmed file access events where an RMM binary (or child) touches Chromium/Windows credential files. High-confidence behavioral indicator of a stealer objective.</p>        </li>
+        <li class="card step" id="step-triage-rmm-behavior">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage RMM Behavior and Intent</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Synthesize software presence, network C2 indicators, and file access patterns into a verdict.</p>        </li>
+        <li class="card step" id="step-route-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the response based on the agent&#39;s findings.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent further credential theft or lateral movement.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final validation of RMM intent and tuning.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close and Document</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Record findings and inventory gaps.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Credential Stealer Deployment<br><span class="mono dim">T1555</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rmm-file-access, triage-rmm-behavior</td></tr>            <tr><td>RMM-Specific C2 Communication<br><span class="mono dim">T1071.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rmm-network-c2, rare-rmm-domains</td></tr>            <tr><td>Phishing with RMM Lures<br><span class="mono dim">T1566</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The dual-use dilemma: Rethinking detection for remote access tool abuse&#39; series.</td></tr>            <tr><td>RMM Loader Execution<br><span class="mono dim">T1059.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The dual-use dilemma: Rethinking detection for remote access tool abuse&#39; series.</td></tr>            <tr><td>RMM Service Establishment<br><span class="mono dim">T1543.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The dual-use dilemma: Rethinking detection for remote access tool abuse&#39; series.</td></tr>            <tr><td>Legitimate Binary Abuse and Relocation<br><span class="mono dim">T1574.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The dual-use dilemma: Rethinking detection for remote access tool abuse&#39; series.</td></tr>            <tr><td>Ransomware Preparation<br><span class="mono dim">T1486</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The dual-use dilemma: Rethinking detection for remote access tool abuse&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_http_activity with SSL decryption.</strong> Modern RMMs (Syncro, Atera) use HTTPS; without decryption, the User-Agent and specific URI patterns are invisible, leaving only SNI/DNS as a signal. <span class="dim">It would answer Are we seeing the User-Agent in encrypted HTTPS RMM traffic?.</span> <span class="dim">Remediation: Deploy endpoint-based network visibility or SSL decryption for RMM domains.</span></li>          <li class="card"><strong>Needs hb_software_inventory with more frequent collection.</strong> Portable RMM agents (SimpleHelp) do not install via package managers and will not appear in hb_software_inventory, making the behavior-based queries the primary detection source. <span class="dim">It would answer Does the software inventory capture portable binaries run once?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>credential_keywords</code></td><td class="mono dim">list[string]</td><td class="mono">Login Data, Cookies, Local State, Web Data</td><td>Specific file names Targeted by credential stealers (e.g. Chromium profile files).</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>rmm_binaries</code></td><td class="mono dim">list[string]</td><td class="mono">client32.exe, ScreenConnect.Client.exe, RMMService.exe, HostService.exe, SyncroLive.Agent.Runner.exe, remote access.exe</td><td>Common process names for RMM agents used to identify behavioral anomalies.</td></tr>            <tr><td><code>rmm_domains</code></td><td class="mono dim">list[domain]</td><td class="mono">remotepc.com, remotedesktop.com, syncromsp.com, syncroapi.com, kabutoservices.com, atera.com, cmdm.comodo.com, atera-agent-heartbeat.servicebus.windows.net</td><td>Legitimate RMM domains frequently abused by adversaries.</td></tr>            <tr><td><code>rmm_user_agents</code></td><td class="mono dim">list[string]</td><td class="mono">NetSupport Manager/1.3, JWrapperDownloader, Servicing/1.0.29.18406</td><td>User-Agent strings associated with RMM agent communication.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>The list of hosts identified in the scoping step as having known RMM software installed.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Web server / proxy logs</td><td class="dim">siem</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: This hunt correlates across three telemetry surfaces (Software, Network,
+  and File) to weigh intent. A single detection rule cannot distinguish between a
+  legitimate admin session and an adversary using that same tool to steal credentials;
+  this hunt asks whether the &#39;trusted&#39; tool is touching &#39;untrusted&#39; files like browser
+  cookies.
+blind_spots:
+- id: proxy-ssl-blind-spot
+  question: Are we seeing the User-Agent in encrypted HTTPS RMM traffic?
+  remediation: Deploy endpoint-based network visibility or SSL decryption for RMM
+    domains.
+  requires: hb_http_activity with SSL decryption
+  risk: Modern RMMs (Syncro, Atera) use HTTPS; without decryption, the User-Agent
+    and specific URI patterns are invisible, leaving only SNI/DNS as a signal.
+  stage: c2-rmm-network-patterns
+- id: portable-rmm-invisibility
+  question: Does the software inventory capture portable binaries run once?
+  requires: hb_software_inventory with more frequent collection
+  risk: Portable RMM agents (SimpleHelp) do not install via package managers and will
+    not appear in hb_software_inventory, making the behavior-based queries the primary
+    detection source.
+coverage:
+- stage: credential-access-stealers
+  status: covered
+  steps:
+  - rmm-file-access
+  - triage-rmm-behavior
+- stage: c2-rmm-network-patterns
+  status: covered
+  steps:
+  - rmm-network-c2
+  - rare-rmm-domains
+- reason: &#39;Belongs to another part of the &#39;&#39;The dual-use dilemma: Rethinking detection
+    for remote access tool abuse&#39;&#39; series.&#39;
+  stage: initial-access-phishing-lures
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;The dual-use dilemma: Rethinking detection
+    for remote access tool abuse&#39;&#39; series.&#39;
+  stage: execution-via-powershell-and-msi
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;The dual-use dilemma: Rethinking detection
+    for remote access tool abuse&#39;&#39; series.&#39;
+  stage: persistence-via-rmm-services
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;The dual-use dilemma: Rethinking detection
+    for remote access tool abuse&#39;&#39; series.&#39;
+  stage: defense-evasion-binary-relocation
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;The dual-use dilemma: Rethinking detection
+    for remote access tool abuse&#39;&#39; series.&#39;
+  stage: impact-pre-ransomware
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: Legitimate RMM tools are the &#39;favored payload&#39; for ransomware groups
+    in 2025/2026. This hunt provides a negative result over the estate for unauthorized
+    RMM persistence and confirmed stealer activity, which standard blocklists cannot
+    achieve.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is abusing legitimate RMM tools as C2 infrastructure and
+  subsequently deploying credential stealers to target browser data stores.
+labels:
+- hunt
+- attack.t1071.001
+- attack.t1555
+- attack.t1566
+- attack.t1059.001
+- attack.t1574.002
+name: Dual-Use RMM Network and Credential Theft Patterns
+parameters:
+  credential_keywords:
+    default:
+    - Login Data
+    - Cookies
+    - Local State
+    - Web Data
+    description: Specific file names Targeted by credential stealers (e.g. Chromium
+      profile files).
+    from:
+      kind: manual
+      observed: &#39;2026-06-17&#39;
+      ref: threat-hunting-standard
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    from:
+      kind: manual
+      observed: &#39;2026-06-17&#39;
+      ref: standard-retention
+    type: number
+  rmm_binaries:
+    default:
+    - client32.exe
+    - ScreenConnect.Client.exe
+    - RMMService.exe
+    - HostService.exe
+    - SyncroLive.Agent.Runner.exe
+    - remote access.exe
+    description: Common process names for RMM agents used to identify behavioral anomalies.
+    from:
+      kind: article
+      observed: &#39;2026-06-17&#39;
+      ref: red-canary-rmm
+    type: list[string]
+  rmm_domains:
+    default:
+    - remotepc.com
+    - remotedesktop.com
+    - syncromsp.com
+    - syncroapi.com
+    - kabutoservices.com
+    - atera.com
+    - cmdm.comodo.com
+    - atera-agent-heartbeat.servicebus.windows.net
+    description: Legitimate RMM domains frequently abused by adversaries.
+    from:
+      kind: article
+      observed: &#39;2026-06-17&#39;
+      ref: red-canary-rmm
+    type: list[domain]
+  rmm_user_agents:
+    default:
+    - NetSupport Manager/1.3
+    - JWrapperDownloader
+    - Servicing/1.0.29.18406
+    description: User-Agent strings associated with RMM agent communication.
+    from:
+      kind: article
+      observed: &#39;2026-06-17&#39;
+      ref: red-canary-rmm
+    type: list[string]
+  scope_hosts:
+    default: []
+    description: The list of hosts identified in the scoping step as having known
+      RMM software installed.
+    from:
+      kind: manual
+      observed: &#39;2026-06-17&#39;
+      ref: analyst-pasted
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://redcanary.com/blog/security-operations/rmm-detection/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: The scoping step identifies hosts with known RMM software. The behavior
+  queries use these hosts to narrow the search, but the DNS prevalence step remains
+  broad to identify &#39;Shadow IT&#39; RMM on hosts where no inventory record exists.
+references:
+- name: &#39;The dual-use dilemma: Rethinking detection for remote access tool abuse&#39;
+  url: https://redcanary.com/blog/security-operations/rmm-detection/
+related:
+- hunt: rmm-binary-relocation-evasion
+  reason: A sister hunt focuses on the relocation of RMM binaries to C:\Users\Public
+    as a defense evasion technique.
+  relation: sibling
+- hunt: rmm-suspicious-deployment
+  relation: follows
+scenario:
+  stages:
+  - name: Phishing with RMM Lures
+    observables:
+    - ssa.msi
+    - Ecard9140.exe
+    - invited.exe
+    - MSTeam-installer.msiin
+    - IRS-Statement_Pr2ui4J9cfA6YEu.exe
+    - docmentfilecsm_jw98evavuqm5gb3.exe
+    slug: initial-access-phishing-lures
+    tactic: initial-access
+    techniques:
+    - T1566
+  - name: RMM Loader Execution
+    observables:
+    - PowerShell scripts downloading ZIP files
+    - SyncroLive.Agent.Runner.exe spawning msiexec.exe
+    - msiexec.exe used to sideload ScreenConnect
+    - PowerShell cradles for ScreenConnect installation
+    slug: execution-via-powershell-and-msi
+    tactic: execution
+    techniques:
+    - T1059.001
+  - name: RMM Service Establishment
+    observables:
+    - HostService.exe
+    - remotepcservice.exe
+    - RMMService.exe
+    - JumpCloud installing GetScreen, ScreenConnect, and SuperOps
+    slug: persistence-via-rmm-services
+    tactic: persistence
+    techniques:
+    - T1543.003
+  - name: Legitimate Binary Abuse and Relocation
+    observables:
+    - client32.exe relocated to C:\Users\Public\
+    - client32.exe in folders with randomized names
+    - remotepchost1.exe setup process
+    - DicomPortable.exe sideloading malicious DLLs
+    slug: defense-evasion-binary-relocation
+    tactic: defense-evasion
+    techniques:
+    - T1574.002
+  - name: Credential Stealer Deployment
+    observables:
+    - DICOMportable.zip
+    - DeerStealer
+    - HijackLoader
+    slug: credential-access-stealers
+    tactic: credential-access
+    techniques:
+    - T1555
+  - name: RMM-Specific C2 Communication
+    observables:
+    - &#39;User-Agent: NetSupport Manager/1.3&#39;
+    - &#39;User-Agent: JWrapperDownloader&#39;
+    - &#39;User-Agent: Servicing/1.0.29.18406&#39;
+    - client32.ini Gateway Address
+    - remotepc.com
+    - remotedesktop.com
+    - syncromsp.com
+    - syncroapi.com
+    - kabutoservices.com
+    - atera.com
+    - atera-agent-heartbeat.servicebus.windows.net
+    - cmdm.comodo.com
+    - /access/JWrapper-Remote%20Access-version.txt
+    slug: c2-rmm-network-patterns
+    tactic: command-and-control
+    techniques:
+    - T1071.001
+  - name: Ransomware Preparation
+    observables:
+    - Precursor activity for ransomware deployment
+    slug: impact-pre-ransomware
+    tactic: impact
+    techniques:
+    - T1486
+  summary: Adversaries are increasingly abusing legitimate, signed Remote Monitoring
+    and Management (RMM) tools like ScreenConnect, NetSupport, and PDQ Connect to
+    bypass security controls. The campaign typically involves phishing for initial
+    access, followed by the deployment of multiple RMM agents as loaders and layers
+    of contingency to maintain persistent access before executing credential theft
+    or ransomware.
+series:
+  index: 2
+  slug: the-dual-use-dilemma-rethinking-detection-for-remote-access-tool-abuse
+  title: &#39;The dual-use dilemma: Rethinking detection for remote access tool abuse&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  web:
+    category: siem
+    name: Web server / proxy logs
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Dual-Use RMM Network and Credential Theft Patterns
+
+This hunt identifies the abuse of RMM (Remote Monitoring and Management) tools by correlating authorized software inventory against observed network C2 patterns and follow-on credential theft activity. It specifically targets &#39;shadow IT&#39; RMM deployments and identifies instances where signed, legitimate RMM agents (like NetSupport, Syncro, or Atera) are used to access sensitive browser profile files or communicate via known RMM-specific User-Agent strings. This approach allows for the detection of renamed tools or new stealer variants that leverage the professional veneer of RMM software.
+
+## rmm-inventory
+&lt;!-- Scoping: Known RMM Software --&gt;
+Establish a baseline of hosts with recorded, potentially authorized RMM software.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts where RMM packages are present. Silence suggests either
+  no RMM usage or that tools are portable/unauthorized.
+reads:
+- device_hostname
+- package_name
+- package_version
+- vendor_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%netsupport%&#39; OR LOWER(package_name) LIKE &#39;%simplehelp%&#39; OR LOWER(package_name) LIKE &#39;%syncro%&#39; OR LOWER(package_name) LIKE &#39;%atera%&#39; OR LOWER(package_name) LIKE &#39;%itarian%&#39; OR LOWER(package_name) LIKE &#39;%screenconnect%&#39; OR LOWER(package_name) LIKE &#39;%remotepc%&#39;) GROUP BY device_hostname, package_name, package_version, vendor_name
+```
+
+## parallel-rmm-behavior
+&lt;!-- Parallel Telemetry Collection --&gt;
+parallel:
+- → rmm-network-c2
+- → rare-rmm-domains
+- → rmm-file-access
+join: → triage-rmm-behavior
+
+## rmm-network-c2
+&lt;!-- RMM Network C2 Patterns --&gt;
+Detect RMM-specific communication patterns via User-Agents or known C2 domains.
+
+```sqlite target=web role=detection-candidate params=(rmm_user_agents=rmm_user_agents, rmm_domains=rmm_domains, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: HTTP requests matching RMM agent signatures or legitimate domains used as
+  C2. Silence may occur if traffic is fully encrypted or the proxy lacks visibility.
+reads:
+- device_hostname
+- user_agent
+- url_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_http_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, user_agent, url_hostname, time FROM hb_http_activity WHERE (instr(&#39;,&#39; || &#39;{{rmm_user_agents}}&#39; || &#39;,&#39;, &#39;,&#39; || user_agent || &#39;,&#39;) &gt; 0 OR instr(&#39;,&#39; || &#39;{{rmm_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(url_hostname) || &#39;,&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-rmm-domains
+&lt;!-- Rare RMM DNS Lookups --&gt;
+Stack-count RMM infrastructure lookups to identify unauthorized or new RMM deployments (Shadow IT).
+
+```sqlite target=endpoint role=baseline params=(rmm_domains=rmm_domains, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: DNS lookups for RMM domains from hosts that may not have corresponding software
+  in inventory. Silence means RMM infrastructure is not being queried.
+prevalence:
+  by: device_hostname
+  key:
+  - query_hostname
+  rare_below: 3
+reads:
+- query_hostname
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT query_hostname, device_hostname, COUNT(*) AS lookup_count, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{rmm_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY query_hostname, device_hostname HAVING lookup_count &lt;= 10
+```
+
+## rmm-file-access
+&lt;!-- RMM Access to Credential Stores --&gt;
+Identify RMM tools or their processes accessing sensitive browser credential files.
+
+```sqlite target=endpoint role=enrichment params=(credential_keywords=credential_keywords, rmm_binaries=rmm_binaries, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Confirmed file access events where an RMM binary (or child) touches Chromium/Windows
+  credential files. High-confidence behavioral indicator of a stealer objective.
+reads:
+- device_hostname
+- process_name
+- file_path
+- file_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, file_path, file_name, time FROM hb_file_activity WHERE (instr(&#39;,&#39; || &#39;{{credential_keywords}}&#39; || &#39;,&#39;, &#39;,&#39; || file_name || &#39;,&#39;) &gt; 0) AND (instr(&#39;,&#39; || &#39;{{rmm_binaries}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(parent_process_name) LIKE &#39;%remote%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-rmm-behavior
+&lt;!-- Triage RMM Behavior and Intent --&gt;
+```agent target=hunter
+cite: required
+context:
+- rmm-inventory
+- rmm-network-c2
+- rare-rmm-domains
+- rmm-file-access
+max_iterations: 5
+objective: Determine if the RMM activity is malicious based on the presence of credential
+  store access (file-access), rare DNS patterns on non-inventory hosts (rare-dns),
+  or specific C2 user-agents. Evaluate if the RMM is &#39;Shadow IT&#39; or a threat actor
+  loader.
+success_criteria: A verdict of malicious, suspicious, or benign per host with citations.
+tools:
+- endpoint
+- web
+```
+
+## route-verdict
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host involving credential theft or unauthorized C2&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: proxy-ssl-blind-spot)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the affected host. Revoke all active SSO/Cloud sessions for users observed on the host during the stealer activity.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review --&gt;
+```manual target=analyst
+Review the file access and network rows. Confirm if the RMM usage violated policy or was a confirmed intrusion. Record a tuning note if the RMM was authorized but triggered the rare-domain check.
+```
+→ end
+
+## close-out
+&lt;!-- Close and Document --&gt;
+```manual target=analyst
+Document the RMM tenant information if found. Update the organization&#39;s &#39;authorized RMM&#39; inventory to avoid false positives in future runs.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=dual-use-rmm-network-credential-theft" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

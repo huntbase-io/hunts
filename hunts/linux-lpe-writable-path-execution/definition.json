@@ -1,0 +1,574 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Local privilege escalation is the critical pivot in Linux intrusions. Identifying the outcome (root transition) and precursors (writable paths) provides a durable defense against novel exploit implementations that bypass name-based rules."
+      },
+      "name": "Linux LPE via Writable Path Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1548.001",
+        "attack.t1068",
+        "attack.t1190",
+        "attack.t1033"
+      ],
+      "related": [
+        {
+          "hunt": "suid-helper-abuse",
+          "reason": "Focuses on the SUID helpers themselves rather than the path of execution.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple rule might alert on any root process in /tmp, but this hunt uses fleet-wide prevalence to filter noise, scopes via known vulnerabilities, and uses an agent to weigh the entire lifecycle (path + root + discovery).",
+      "coverage": [
+        {
+          "stage": "initial-foothold-execution",
+          "steps": [
+            "root-processes-in-writable-paths",
+            "rare-writable-binaries"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privilege-escalation-trigger",
+          "steps": [
+            "root-processes-in-writable-paths",
+            "identify-vulnerable-linux-hosts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privilege-transition-to-root",
+          "steps": [
+            "root-processes-in-writable-paths"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "post-escalation-verification",
+          "steps": [
+            "post-escalation-discovery"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Execution from Writable Path",
+            "slug": "initial-foothold-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1190",
+              "T1059.004"
+            ],
+            "observables": [
+              "/tmp/*",
+              "/var/tmp/*",
+              "/dev/shm/*",
+              "/run/user/*",
+              "/var/run/user/*",
+              "/home/*/*",
+              "interpreter: python",
+              "interpreter: perl",
+              "interpreter: ruby",
+              "interpreter: lua",
+              "interpreter: php",
+              "interpreter: node"
+            ]
+          },
+          {
+            "name": "Exploitation of SUID Helpers or Kernel Interfaces",
+            "slug": "privilege-escalation-trigger",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1548.001",
+              "T1068"
+            ],
+            "observables": [
+              "su",
+              "sudo",
+              "pkexec",
+              "passwd",
+              "umount",
+              "mount",
+              "chsh",
+              "chfn",
+              "gpasswd",
+              "newgrp",
+              "socket",
+              "splice",
+              "bind",
+              "pedit COW",
+              "RefluXFS",
+              "OVSwrap",
+              "Copy Fail",
+              "DirtyFrag",
+              "Fragnesia",
+              "DirtyDecrypt",
+              "DirtyClone"
+            ]
+          },
+          {
+            "name": "Privilege Transition to Root",
+            "slug": "privilege-transition-to-root",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1548.001"
+            ],
+            "observables": [
+              "user_name: root",
+              "process.user.id == 0",
+              "process.real_user.id != 0",
+              "uid_change to 0"
+            ]
+          },
+          {
+            "name": "Root Status Verification",
+            "slug": "post-escalation-verification",
+            "tactic": "discovery",
+            "techniques": [
+              "T1033"
+            ],
+            "observables": [
+              "whoami",
+              "id",
+              "logname"
+            ]
+          }
+        ],
+        "summary": "Exploit binaries are executed from writable Linux directories like /tmp or /dev/shm to trigger kernel memory bugs or abuse SUID-root helpers. This results in a privilege transition where an unprivileged process lineage gains root access, often followed by diagnostic commands like whoami."
+      },
+      "severity": "high",
+      "rationale": "Start with Linux servers hosting public-facing applications or those with known kernel vulnerabilities (CVEs) as identified in the scoping step.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker has achieved root privileges on a Linux host by executing an exploit from a world-writable directory, followed by a transition of the process lineage to UID 0.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to focus on; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of process and vulnerability history to examine."
+        },
+        "discovery_tools": {
+          "from": {
+            "ref": "Elastic LPE Research",
+            "kind": "article",
+            "observed": "2026-09-11"
+          },
+          "type": "list[string]",
+          "default": [
+            "whoami",
+            "id",
+            "logname",
+            "hostname",
+            "uname"
+          ],
+          "description": "Common commands used to verify root status after escalation."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/linux-privilege-escalation-detection-framework",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/linux-privilege-escalation-detection-framework",
+          "name": "Elastic Security Labs: Linux Detection Engineering - Local Privilege Escalation"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-endpoint-telemetry",
+          "risk": "A host missing an agent will appear silent, potentially hiding a successful exploit.",
+          "stage": "initial-foothold-execution",
+          "question": "whether a host without an endpoint agent is running payloads in /tmp",
+          "requires": "hb_process_activity from every host"
+        },
+        {
+          "id": "in-memory-only-exploit",
+          "risk": "A purely in-memory exploit that does not drop a binary to a writable path will bypass the primary behavior query.",
+          "stage": "privilege-escalation-trigger",
+          "question": "whether an exploit was loaded as a kernel module or used a fileless mechanism",
+          "requires": "hb_module_activity and Auditd syscall logs"
+        }
+      ]
+    },
+    "name": "Linux LPE via Writable Path Execution",
+    "description": "Local privilege escalation (LPE) in Linux often involves a predictable lifecycle: a binary is dropped into a world-writable directory like /tmp or /dev/shm, executed, and leverages a kernel vulnerability or SUID helper to gain root status. This hunt identifies this transition by monitoring processes launched from suspicious paths that eventually run as root, baselining their prevalence across the fleet to identify unique exploit payloads, and corroborating these with post-escalation discovery commands like whoami."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-foothold-execution",
+            "steps": [
+              "root-processes-in-writable-paths",
+              "rare-writable-binaries"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privilege-escalation-trigger",
+            "steps": [
+              "root-processes-in-writable-paths",
+              "identify-vulnerable-linux-hosts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privilege-transition-to-root",
+            "steps": [
+              "root-processes-in-writable-paths"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "post-escalation-verification",
+            "steps": [
+              "post-escalation-discovery"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker has achieved root privileges on a Linux host by executing an exploit from a world-writable directory, followed by a transition of the process lineage to UID 0.",
+        "blind_spots": [
+          {
+            "id": "no-endpoint-telemetry",
+            "risk": "A host missing an agent will appear silent, potentially hiding a successful exploit.",
+            "stage": "initial-foothold-execution",
+            "question": "whether a host without an endpoint agent is running payloads in /tmp",
+            "requires": "hb_process_activity from every host"
+          },
+          {
+            "id": "in-memory-only-exploit",
+            "risk": "A purely in-memory exploit that does not drop a binary to a writable path will bypass the primary behavior query.",
+            "stage": "privilege-escalation-trigger",
+            "question": "whether an exploit was loaded as a kernel module or used a fileless mechanism",
+            "requires": "hb_module_activity and Auditd syscall logs"
+          }
+        ],
+        "scoping_notes": "Start with Linux servers hosting public-facing applications or those with known kernel vulnerabilities (CVEs) as identified in the scoping step.",
+        "beyond_detection": "A simple rule might alert on any root process in /tmp, but this hunt uses fleet-wide prevalence to filter noise, scopes via known vulnerabilities, and uses an agent to weigh the entire lifecycle (path + root + discovery)."
+      }
+    },
+    {
+      "id": "identify-vulnerable-linux-hosts",
+      "type": "query",
+      "label": "Identify potentially vulnerable Linux hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT d.hostname AS device_hostname, f.cve_uid, f.title FROM hb_vulnerability_finding f JOIN hb_devices d ON f.device_uid = d.device_uid WHERE (LOWER(f.title) LIKE '%privilege escalation%' OR LOWER(f.title) LIKE '%kernel%') AND f.status != 'suppressed' AND f.provider IN ('wiz', 'aws', 'vanta')",
+        "surface": "hb_vulnerability_finding",
+        "description": "Scope the hunt to Linux hosts that have reported privilege escalation vulnerabilities or general Linux devices by joining vulnerability findings with device inventory.",
+        "expected_signal": "A list of hostnames with known LPE vulnerabilities. This narrows the scope for more intensive telemetry analysis."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify potentially vulnerable Linux hosts",
+        "reads": [
+          "device_uid",
+          "cve_uid",
+          "title",
+          "status",
+          "provider"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT d.hostname AS device_hostname, f.cve_uid, f.title FROM hb_vulnerability_finding f JOIN hb_devices d ON f.device_uid = d.device_uid WHERE (LOWER(f.title) LIKE '%privilege escalation%' OR LOWER(f.title) LIKE '%kernel%') AND f.status != 'suppressed' AND f.provider IN ('wiz', 'aws', 'vanta')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames with known LPE vulnerabilities. This narrows the scope for more intensive telemetry analysis.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "root-processes-in-writable-paths",
+      "type": "query",
+      "label": "Root processes launched from writable paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, parent_process_name, time FROM hb_process_activity WHERE user_name = 'root' AND (process_path LIKE '/tmp/%' OR process_path LIKE '/var/tmp/%' OR process_path LIKE '/dev/shm/%' OR process_path LIKE '/run/user/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify processes running as root whose image resides in world-writable directories, a core indicator of LPE.",
+        "expected_signal": "A row indicates a process that achieved root privileges while running from a directory normally restricted for system binaries."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-linux-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Root processes launched from writable paths",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "process_cmd_line",
+          "user_name",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, parent_process_name, time FROM hb_process_activity WHERE user_name = 'root' AND (process_path LIKE '/tmp/%' OR process_path LIKE '/var/tmp/%' OR process_path LIKE '/dev/shm/%' OR process_path LIKE '/run/user/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A row indicates a process that achieved root privileges while running from a directory normally restricted for system binaries.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-writable-binaries",
+      "type": "query",
+      "label": "Rare binaries in writable paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_path) AS full_path, LOWER(process_name) AS proc_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (process_path LIKE '/tmp/%' OR process_path LIKE '/dev/shm/%' OR process_path LIKE '/var/tmp/%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY full_path, proc_name HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_process_activity",
+        "description": "Identify one-off exploit payloads by baselining the prevalence of all binaries executing from world-writable paths.",
+        "expected_signal": "Unique or rare paths/binaries in /tmp or /dev/shm. Routine scripts appear on many hosts; exploits are typically rare."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-linux-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare binaries in writable paths",
+        "reads": [
+          "process_path",
+          "process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_path) AS full_path, LOWER(process_name) AS proc_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (process_path LIKE '/tmp/%' OR process_path LIKE '/dev/shm/%' OR process_path LIKE '/var/tmp/%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY full_path, proc_name HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Unique or rare paths/binaries in /tmp or /dev/shm. Routine scripts appear on many hosts; exploits are typically rare.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "full_path",
+            "proc_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "post-escalation-discovery",
+      "type": "query",
+      "label": "Post-escalation discovery by root",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE user_name = 'root' AND instr(',' || '{{discovery_tools}}' || ',', ',' || REPLACE(REPLACE(LOWER(process_name), '/usr/bin/', ''), '/bin/', '') || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find root-owned discovery processes to corroborate that a privilege transition was successful and followed by verification.",
+        "expected_signal": "A 'whoami' or 'id' command running as root. This is the 'finishing move' that confirms the exploit worked."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-linux-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Post-escalation discovery by root",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE user_name = 'root' AND instr(',' || '{{discovery_tools}}' || ',', ',' || REPLACE(REPLACE(LOWER(process_name), '/usr/bin/', ''), '/bin/', '') || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A 'whoami' or 'id' command running as root. This is the 'finishing move' that confirms the exploit worked.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-escalation",
+      "type": "analytic",
+      "label": "Triage escalation evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "root-processes-in-writable-paths",
+          "rare-writable-binaries",
+          "post-escalation-discovery"
+        ],
+        "objective": "Determine if any host shows a rare binary running from a writable path that successfully transitioned to root UID, followed by discovery tools like 'whoami'. Cite the specific process and time of transition.",
+        "description": "Correlate rare binary execution from writable paths with root transitions and discovery command activity.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict linking a specific process in a writable path to root-level activity.",
+        "success_criteria": "A verdict citing specific rows that confirm the LPE lifecycle."
+      },
+      "parents": [
+        {
+          "id": "root-processes-in-writable-paths",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-writable-binaries",
+          "kind": "merge"
+        },
+        {
+          "id": "post-escalation-discovery",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decision-route",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host showing the writable-to-root flow",
+        "condition": "the triage verdict is malicious for at least one host showing the writable-to-root flow",
+        "blind_spot": "no-endpoint-telemetry",
+        "confidence": "high",
+        "description": "Determine whether to contain the host based on the triage verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-escalation"
+        }
+      ]
+    },
+    {
+      "id": "contain-host",
+      "type": "action",
+      "label": "Isolate Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the host to prevent lateral movement after confirmed LPE.",
+        "instructions": "Isolate the host immediately. Collect the binary identified in the writable directory for reverse engineering.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review the hunt results and finalize the incident report.",
+        "instructions": "Review the process lineage to identify the initial entry point (e.g., a vulnerable web service). Validate the rare binary and check for signs of credential theft or persistence."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "default"
+        },
+        {
+          "id": "decision-route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "decision-route",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "contain-host"
+        }
+      ]
+    }
+  ]
+}

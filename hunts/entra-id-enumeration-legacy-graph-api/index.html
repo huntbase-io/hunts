@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entra ID Enumeration via Legacy Graph API · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An attacker is using offensive tools like ROADrecon or AADInternals to perform bulk directory enumeration against the legacy Azure AD Graph API (graph.windows.net), specifically abusing the 1.61-internal API version to extract sensitive directory details.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/entra-id-enumeration-legacy-graph-api/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Entra ID Enumeration via Legacy Graph API · Huntbase Hunts">
+  <meta property="og:description" content="An attacker is using offensive tools like ROADrecon or AADInternals to perform bulk directory enumeration against the legacy Azure AD Graph API (graph.windows.net), specifically abusing the 1.61-internal API version to extract sensitive directory details.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/entra-id-enumeration-legacy-graph-api/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+      </div>
+      <h1 class="heading-xl">Entra ID Enumeration via Legacy Graph API</h1>
+      <p class="hyp-lead">An attacker is using offensive tools like ROADrecon or AADInternals to perform bulk directory enumeration against the legacy Azure AD Graph API (graph.windows.net), specifically abusing the 1.61-internal API version to extract sensitive directory details.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.elastic.co/security-labs/blog/aad-graph-activity-logs-threat-detection" rel="noopener">Elastic Security Labs</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1059.001 T1190</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=entra-id-enumeration-legacy-graph-api" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why This Hunt Matters</h3>
+<p>Recent research by Elastic Security Labs, titled <a href="https://www.elastic.co/security-labs/blog/aad-graph-activity-logs-threat-detection" rel="noopener noreferrer">Azure AD Graph Activity Logs: Ingestion and threat detection to close the visibility gap</a>, highlights a persistent security challenge: the legacy Azure AD Graph API. While Microsoft is moving toward the modern Microsoft Graph, the legacy endpoint (<code>graph.windows.net</code>) remains active and is frequently targeted by offensive tools for bulk directory enumeration. Because this legacy surface often lacks the same level of default monitoring as its modern counterpart, it serves as a quiet channel for reconnaissance.</p>
+<h3>How the Hunt Flows</h3>
+<p>The first phase focuses on scoping. We look for the presence of known enumeration packages in the software inventory. This is a precursor step; while silence here doesn't mean a tool isn't present (as many are run as portable scripts), finding a confirmed installation on a server or developer workstation provides a high-fidelity starting point for the rest of the investigation.</p>
+<p>Next, we analyze process activity. We look for command-line arguments that match known offensive functions like <code>Get-AADInt</code> or the execution of <code>roadrecon</code>. This catches the act of discovery in progress. Because an attacker can easily rename a binary to bypass simple detections, this step is used to feed a broader analysis rather than serve as a standalone alert.</p>
+<p>In the final phase, we pivot to network telemetry. This involves a three-pronged analysis: identifying DNS resolutions for the legacy Graph domain, inspecting HTTP requests for the <code>1.61-internal</code> version string in the query parameters, and stack-counting User-Agents. We are specifically looking for rare or non-standard libraries—like <code>aiohttp</code> or <code>python-requests</code>—targeting the Graph API, which are common signatures of scripted offensive tooling in environments where first-party Microsoft clients usually dominate.</p>
+<h3>What This Hunt Cannot See</h3>
+<p>This hunt has two primary blind spots. First, if your network does not perform HTTPS inspection or your EDR does not capture full URI query strings for encrypted traffic, you will miss the specific <code>api-version</code> indicators. In those cases, you must rely more heavily on the User-Agent stacking and process-level correlations.</p>
+<p>Second, this hunt is endpoint-centric. It cannot see what the server-side response was or what specific objects were exfiltrated. For that level of detail, you must enable <code>AzureADGraphActivityLogs</code> in your Entra ID Diagnostic Settings. Without those logs, we can identify that enumeration occurred, but the full scope of the data loss remains opaque.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 2 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Web server / proxy logs</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An attacker is using offensive tools like ROADrecon or AADInternals to perform bulk directory enumeration against the legacy Azure AD Graph API (graph.windows.net), specifically abusing the 1.61-internal API version to extract sensitive directory details.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify endpoints where ROADrecon or AADInternals are present in the software inventory as a scoping precursor.", "expected": "A list of hosts with these packages. Silence does not prove absence if tools are run as portable scripts.", "id": "scoping-installed-tools", "label": "Scope hosts with directory tools installed", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (instr(LOWER(package_name), \u0027roadrecon\u0027) \u003e 0 OR instr(LOWER(package_name), \u0027aadinternals\u0027) \u003e 0)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Detect the actual execution of enumeration tools via command line keywords.", "expected": "Process execution events with tool-specific strings. Renamed tools will be missed by this step but caught by network prevalence.", "id": "execution-of-discovery-tools", "label": "Execution of directory discovery tools", "parents": [{"branch": null, "id": "scoping-installed-tools", "kind": null}], "query": "SELECT device_hostname, user_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (instr(LOWER(process_cmd_line), \u0027roadrecon\u0027) \u003e 0 OR instr(LOWER(process_cmd_line), \u0027aadinternals\u0027) \u003e 0 OR instr(LOWER(process_cmd_line), \u0027get-aadint\u0027) \u003e 0) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Detect HTTP requests targeting the legacy Graph domain using the internal version string.", "expected": "HTTP requests targeting directory collections with offensive API versioning. Silence is evidence of absence if proxy inspection is active.", "id": "http-internal-api-usage", "label": "Usage of internal Graph API versions", "parents": [{"branch": null, "id": "execution-of-discovery-tools", "kind": null}], "query": "SELECT device_hostname, src_endpoint_ip, http_method, url_path, url_query, user_agent, time FROM hb_http_activity WHERE url_hostname = \u0027{{legacy_graph_domain}}\u0027 AND (instr(LOWER(url_query), \u0027{{internal_api_version}}\u0027) \u003e 0 OR instr(LOWER(url_query), \u0027api-version=1.6\u0027) \u003e 0) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_http_activity", "type": "query"}, {"description": "Identify which processes are resolving the legacy domain to corroborate activity from scripting interpreters.", "expected": "Resolution events originating from python.exe, powershell.exe, or unknown binaries.", "id": "dns-graph-resolutions", "label": "DNS resolutions for legacy Graph", "parents": [{"branch": null, "id": "execution-of-discovery-tools", "kind": null}], "query": "SELECT device_hostname, process_name, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE query_hostname = \u0027{{legacy_graph_domain}}\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY device_hostname, process_name, query_hostname", "role": "enrichment", "source": "hb_dns_activity", "type": "query"}, {"description": "Stack-count User-Agents to identify rare scripting libraries or custom offensive tool headers.", "expected": "User-Agents like \u0027aiohttp\u0027, \u0027python-requests\u0027, or empty strings that stand out from first-party Microsoft clients.", "id": "rare-user-agents-to-graph", "label": "Rare User-Agents against legacy Graph", "parents": [{"branch": null, "id": "execution-of-discovery-tools", "kind": null}], "query": "SELECT user_agent, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS requests, MIN(time) AS first_seen FROM hb_http_activity WHERE url_hostname = \u0027{{legacy_graph_domain}}\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY user_agent HAVING hosts \u003c= 2", "role": "baseline", "source": "hb_http_activity", "type": "query"}, {"description": "Weigh the evidence from process execution, legacy API version usage, and rare User-Agents to determine if bulk enumeration is occurring.", "expected": "A per-host verdict citing specific API calls and process command lines.", "id": "triage-agent", "label": "Triage directory enumeration", "parents": [{"branch": null, "id": "http-internal-api-usage", "kind": "merge"}, {"branch": null, "id": "dns-graph-resolutions", "kind": "merge"}, {"branch": null, "id": "rare-user-agents-to-graph", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Route to containment if enumeration is confirmed.", "expected": null, "id": "decision-route", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-agent", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Halt the enumeration by isolating the host and revoking Entra ID credentials.", "expected": null, "id": "contain-host", "label": "Isolate host and revoke sessions", "parents": [{"branch": "on_supports", "id": "decision-route", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Perform final verification and record tuning notes.", "expected": null, "id": "analyst-review", "label": "Forensic review of Graph activity", "parents": [{"branch": "default", "id": "decision-route", "kind": null}, {"branch": "on_unavailable", "id": "decision-route", "kind": null}, {"branch": null, "id": "contain-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Record examination results.", "expected": null, "id": "close-out", "label": "Close out hunt", "parents": [{"branch": "on_refutes", "id": "decision-route", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scoping-installed-tools">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope hosts with directory tools installed</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify endpoints where ROADrecon or AADInternals are present in the software inventory as a scoping precursor.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (instr(LOWER(package_name), &#39;roadrecon&#39;) &gt; 0 OR instr(LOWER(package_name), &#39;aadinternals&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts with these packages. Silence does not prove absence if tools are run as portable scripts.</p>        </li>
+        <li class="card step" id="step-execution-of-discovery-tools">
+          <div class="step-head">
+            <h3 class="heading-sm">Execution of directory discovery tools</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect the actual execution of enumeration tools via command line keywords.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, user_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (instr(LOWER(process_cmd_line), &#39;roadrecon&#39;) &gt; 0 OR instr(LOWER(process_cmd_line), &#39;aadinternals&#39;) &gt; 0 OR instr(LOWER(process_cmd_line), &#39;get-aadint&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Process execution events with tool-specific strings. Renamed tools will be missed by this step but caught by network prevalence.</p>        </li>
+        <li class="card step" id="step-http-internal-api-usage">
+          <div class="step-head">
+            <h3 class="heading-sm">Usage of internal Graph API versions</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Detect HTTP requests targeting the legacy Graph domain using the internal version string.</p>          <div class="code"><div class="code-head"><span>reads hb_http_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, src_endpoint_ip, http_method, url_path, url_query, user_agent, time FROM hb_http_activity WHERE url_hostname = &#39;{{legacy_graph_domain}}&#39; AND (instr(LOWER(url_query), &#39;{{internal_api_version}}&#39;) &gt; 0 OR instr(LOWER(url_query), &#39;api-version=1.6&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> HTTP requests targeting directory collections with offensive API versioning. Silence is evidence of absence if proxy inspection is active.</p>        </li>
+        <li class="card step" id="step-dns-graph-resolutions">
+          <div class="step-head">
+            <h3 class="heading-sm">DNS resolutions for legacy Graph</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify which processes are resolving the legacy domain to corroborate activity from scripting interpreters.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE query_hostname = &#39;{{legacy_graph_domain}}&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, process_name, query_hostname</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Resolution events originating from python.exe, powershell.exe, or unknown binaries.</p>        </li>
+        <li class="card step" id="step-rare-user-agents-to-graph">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare User-Agents against legacy Graph</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count User-Agents to identify rare scripting libraries or custom offensive tool headers.</p>          <div class="code"><div class="code-head"><span>reads hb_http_activity</span><span>sql</span></div><pre><code>SELECT user_agent, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS requests, MIN(time) AS first_seen FROM hb_http_activity WHERE url_hostname = &#39;{{legacy_graph_domain}}&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY user_agent HAVING hosts &lt;= 2</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> User-Agents like &#39;aiohttp&#39;, &#39;python-requests&#39;, or empty strings that stand out from first-party Microsoft clients.</p>        </li>
+        <li class="card step" id="step-triage-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage directory enumeration</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Weigh the evidence from process execution, legacy API version usage, and rare User-Agents to determine if bulk enumeration is occurring.</p>        </li>
+        <li class="card step" id="step-decision-route">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Route to containment if enumeration is confirmed.</p>        </li>
+        <li class="card step" id="step-contain-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate host and revoke sessions</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Halt the enumeration by isolating the host and revoking Entra ID credentials.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Forensic review of Graph activity</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Perform final verification and record tuning notes.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close out hunt</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Record examination results.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Offensive Tool Execution<br><span class="mono dim">T1059.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>scoping-installed-tools, execution-of-discovery-tools</td></tr>            <tr><td>Legacy Graph API Enumeration<br><span class="mono dim">T1190</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>http-internal-api-usage, dns-graph-resolutions, rare-user-agents-to-graph</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs AzureADGraphActivityLogs enabled in Diagnostic Settings.</strong> Without platform-side logs, we rely on endpoint telemetry which can miss the server-side outcome and the full scope of data exfiltration. <span class="dim">It would answer What exact directory objects (users, groups) were accessed and what was the server&#39;s full response?.</span> <span class="dim">Remediation: Enable &#39;AzureADGraphActivityLogs&#39; in Entra ID Diagnostic Settings and route to the security data platform.</span></li>          <li class="card"><strong>Needs Proxy HTTPS inspection for graph.windows.net.</strong> If the traffic is encrypted and not inspected at the network boundary, the internal-api-version signal will be missing, leaving only domain-level DNS/network telemetry. <span class="dim">It would answer Are url_query parameters (like api-version) visible in the telemetry?.</span> <span class="dim">Remediation: Ensure proxy or EDR solutions are configured to log full request URIs for cloud infrastructure domains.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>internal_api_version</code></td><td class="mono dim">string</td><td class="mono">1.61-internal</td><td>The specific internal API version used by ROADrecon to pull sensitive data.</td></tr>            <tr><td><code>legacy_graph_domain</code></td><td class="mono dim">domain</td><td class="mono">graph.windows.net</td><td>The legacy AAD Graph endpoint targeted by offensive tools.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>A list of hostnames to focus the investigation on; leave empty for the entire estate.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Web server / proxy logs</td><td class="dim">siem</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple detection rule for tool filenames is easily evaded by renaming
+  the binary. This hunt correlates software presence, rare User-Agents, and specific
+  API abuse patterns (internal versioning) across three surfaces (process, DNS, and
+  HTTP) to detect the behavior.
+blind_spots:
+- id: missing-cloud-logs
+  owner: Cloud Infrastructure Team
+  question: What exact directory objects (users, groups) were accessed and what was
+    the server&#39;s full response?
+  remediation: Enable &#39;AzureADGraphActivityLogs&#39; in Entra ID Diagnostic Settings and
+    route to the security data platform.
+  requires: AzureADGraphActivityLogs enabled in Diagnostic Settings
+  risk: Without platform-side logs, we rely on endpoint telemetry which can miss the
+    server-side outcome and the full scope of data exfiltration.
+  stage: legacy-api-enumeration
+- id: http-encryption-blind-spot
+  owner: Security Engineering
+  question: Are url_query parameters (like api-version) visible in the telemetry?
+  remediation: Ensure proxy or EDR solutions are configured to log full request URIs
+    for cloud infrastructure domains.
+  requires: Proxy HTTPS inspection for graph.windows.net
+  risk: If the traffic is encrypted and not inspected at the network boundary, the
+    internal-api-version signal will be missing, leaving only domain-level DNS/network
+    telemetry.
+  stage: legacy-api-enumeration
+coverage:
+- stage: offensive-tool-execution
+  status: covered
+  steps:
+  - scoping-installed-tools
+  - execution-of-discovery-tools
+- stage: legacy-api-enumeration
+  status: covered
+  steps:
+  - http-internal-api-usage
+  - dns-graph-resolutions
+  - rare-user-agents-to-graph
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: The legacy AAD Graph API remains a primary blind spot and a preferred
+    target for bulk directory enumeration. Closing this visibility gap is essential
+    to detecting reconnaissance that precedes lateral movement.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An attacker is using offensive tools like ROADrecon or AADInternals to
+  perform bulk directory enumeration against the legacy Azure AD Graph API (graph.windows.net),
+  specifically abusing the 1.61-internal API version to extract sensitive directory
+  details.
+labels:
+- hunt
+- attack.t1059.001
+- attack.t1190
+name: Entra ID Enumeration via Legacy Graph API
+parameters:
+  internal_api_version:
+    default: 1.61-internal
+    description: The specific internal API version used by ROADrecon to pull sensitive
+      data.
+    from:
+      kind: article
+      observed: &#39;2026-06-19&#39;
+      ref: elastic-security-labs
+    type: string
+  legacy_graph_domain:
+    default: graph.windows.net
+    description: The legacy AAD Graph endpoint targeted by offensive tools.
+    from:
+      kind: article
+      observed: &#39;2026-06-19&#39;
+      ref: elastic-security-labs
+    type: domain
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    from:
+      kind: manual
+      observed: &#39;2026-06-19&#39;
+      ref: hunt-standard
+    type: number
+  scope_hosts:
+    default: []
+    description: A list of hostnames to focus the investigation on; leave empty for
+      the entire estate.
+    from:
+      kind: manual
+      observed: &#39;2026-06-19&#39;
+      ref: analyst-defined
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.elastic.co/security-labs/blog/aad-graph-activity-logs-threat-detection
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with servers and developer workstations; focus on hosts where directory
+  tools like ROADrecon are found in the software inventory.
+references:
+- name: &#34;Elastic Security Labs \u2014 Azure AD Graph Activity Logs: Ingestion and\
+    \ threat detection&#34;
+  url: https://www.elastic.co/security-labs/blog/aad-graph-activity-logs-threat-detection
+related:
+- hunt: microsoft-graph-bulk-enumeration
+  reason: Targets the modern graph.microsoft.com surface which requires different
+    API permissions and monitoring.
+  relation: sibling
+scenario:
+  stages:
+  - name: Offensive Tool Execution
+    observables:
+    - pip install roadrecon
+    - roadrecon gather
+    - roadrecon auth --device-code
+    - AADInternals PowerShell cmdlets
+    - Python aiohttp User-Agent
+    - Microsoft.OData.Client
+    slug: offensive-tool-execution
+    tactic: execution
+    techniques:
+    - T1059.001
+  - name: Legacy Graph API Enumeration
+    observables:
+    - graph.windows.net
+    - api-version=1.61-internal
+    - api-version=1.6
+    - &#39;url.path: /users&#39;
+    - &#39;url.path: /groups&#39;
+    - &#39;url.path: /servicePrincipals&#39;
+    - &#39;url.path: /applications&#39;
+    - &#39;url.path: /tenantDetails&#39;
+    - strongAuthenticationDetail
+    - &#39;User-Agent: Microsoft.OData.Client&#39;
+    - &#39;User-Agent: Microsoft Azure Graph Client Library&#39;
+    - &#39;User-Agent: Microsoft ADO.NET Data Services&#39;
+    - HTTP 4xx status code surges
+    slug: legacy-api-enumeration
+    tactic: initial-access
+    techniques:
+    - T1190
+  summary: Adversaries utilize offensive toolkits like ROADrecon and AADInternals
+    to perform bulk enumeration of Entra ID directory objects by abusing the legacy
+    and often unmonitored Azure AD Graph API (graph.windows.net). This activity exploits
+    a visibility gap in legacy logging and leverages internal API versions, such as
+    1.61-internal, to extract sensitive authentication data that is more restricted
+    in modern Microsoft Graph endpoints.
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  web:
+    category: siem
+    name: Web server / proxy logs
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Entra ID Enumeration via Legacy Graph API
+
+This hunt identifies the gap between endpoint tool execution and legacy cloud API abuse. It begins by scoping hosts where directory enumeration tools are installed or executing, then correlates that with high-volume network activity targeting &#39;graph.windows.net&#39;. It specifically looks for the &#39;1.61-internal&#39; API version—a known indicator of offensive directory walkers—and stack-counts User-Agents to identify rare scripting libraries or custom headers typical of offensive tooling.
+
+## scoping-installed-tools
+&lt;!-- Scope hosts with directory tools installed --&gt;
+Identify endpoints where ROADrecon or AADInternals are present in the software inventory as a scoping precursor.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts with these packages. Silence does not prove absence if tools
+  are run as portable scripts.
+reads:
+- device_hostname
+- package_name
+- package_version
+- vendor_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (instr(LOWER(package_name), &#39;roadrecon&#39;) &gt; 0 OR instr(LOWER(package_name), &#39;aadinternals&#39;) &gt; 0)
+```
+
+## execution-of-discovery-tools
+&lt;!-- Execution of directory discovery tools --&gt;
+Detect the actual execution of enumeration tools via command line keywords.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Process execution events with tool-specific strings. Renamed tools will
+  be missed by this step but caught by network prevalence.
+reads:
+- device_hostname
+- user_name
+- process_cmd_line
+- parent_process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, user_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (instr(LOWER(process_cmd_line), &#39;roadrecon&#39;) &gt; 0 OR instr(LOWER(process_cmd_line), &#39;aadinternals&#39;) &gt; 0 OR instr(LOWER(process_cmd_line), &#39;get-aadint&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-network-evidence
+&lt;!-- Parallel network and behavior analysis --&gt;
+parallel:
+- → http-internal-api-usage
+- → dns-graph-resolutions
+- → rare-user-agents-to-graph
+join: → triage-agent
+
+## http-internal-api-usage
+&lt;!-- Usage of internal Graph API versions --&gt;
+Detect HTTP requests targeting the legacy Graph domain using the internal version string.
+
+```sqlite target=web role=triage params=(lookback_days=lookback_days, legacy_graph_domain=legacy_graph_domain, internal_api_version=internal_api_version, scope_hosts=scope_hosts)
+~~~yaml
+expected: HTTP requests targeting directory collections with offensive API versioning.
+  Silence is evidence of absence if proxy inspection is active.
+reads:
+- device_hostname
+- src_endpoint_ip
+- http_method
+- url_path
+- url_query
+- user_agent
+- time
+silence: evidence_of_absence
+source: hb_http_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, src_endpoint_ip, http_method, url_path, url_query, user_agent, time FROM hb_http_activity WHERE url_hostname = &#39;{{legacy_graph_domain}}&#39; AND (instr(LOWER(url_query), &#39;{{internal_api_version}}&#39;) &gt; 0 OR instr(LOWER(url_query), &#39;api-version=1.6&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## dns-graph-resolutions
+&lt;!-- DNS resolutions for legacy Graph --&gt;
+Identify which processes are resolving the legacy domain to corroborate activity from scripting interpreters.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, legacy_graph_domain=legacy_graph_domain, scope_hosts=scope_hosts)
+~~~yaml
+expected: Resolution events originating from python.exe, powershell.exe, or unknown
+  binaries.
+reads:
+- device_hostname
+- process_name
+- query_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE query_hostname = &#39;{{legacy_graph_domain}}&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, process_name, query_hostname
+```
+
+## rare-user-agents-to-graph
+&lt;!-- Rare User-Agents against legacy Graph --&gt;
+Stack-count User-Agents to identify rare scripting libraries or custom offensive tool headers.
+
+```sqlite target=web role=baseline params=(lookback_days=lookback_days, legacy_graph_domain=legacy_graph_domain, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: User-Agents like &#39;aiohttp&#39;, &#39;python-requests&#39;, or empty strings that stand
+  out from first-party Microsoft clients.
+prevalence:
+  by: device_hostname
+  key:
+  - user_agent
+  rare_below: 2
+reads:
+- user_agent
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_http_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT user_agent, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS requests, MIN(time) AS first_seen FROM hb_http_activity WHERE url_hostname = &#39;{{legacy_graph_domain}}&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY user_agent HAVING hosts &lt;= 2
+```
+
+## triage-agent
+&lt;!-- Triage directory enumeration --&gt;
+```agent target=hunter
+cite: required
+context:
+- scoping-installed-tools
+- execution-of-discovery-tools
+- http-internal-api-usage
+- dns-graph-resolutions
+- rare-user-agents-to-graph
+max_iterations: 5
+objective: Determine if any host is successfully using offensive tools to perform
+  unauthorized directory enumeration against the legacy Entra ID Graph API.
+success_criteria: A per-host verdict of malicious | suspicious | benign citing rows.
+tools:
+- endpoint
+- web
+```
+
+## decision-route
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for legacy directory enumeration on at least one host&#34; (confidence: high, judge=hunter)
+then: → contain-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: missing-cloud-logs)
+else: → close-out
+
+## contain-host
+&lt;!-- Isolate host and revoke sessions --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the identified host and revoke all Entra ID sessions for the involved users.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Forensic review of Graph activity --&gt;
+```manual target=analyst
+Review the cited rows. If Entra ID logs are available, check &#39;AzureADGraphActivityLogs&#39; for exfiltrated data.
+```
+→ end
+
+## close-out
+&lt;!-- Close out hunt --&gt;
+```manual target=analyst
+Document the findings and whether to schedule as a recurring hunt.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=entra-id-enumeration-legacy-graph-api" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

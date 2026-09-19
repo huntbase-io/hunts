@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Node.js Backdoor and Internal Pivot · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder is maintaining command-and-control via a portable Node.js runtime hidden in a user profile and is performing internal discovery or lateral movement via WinRM.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/nodejs-backdoor-internal-pivot/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Node.js Backdoor and Internal Pivot · Huntbase Hunts">
+  <meta property="og:description" content="An intruder is maintaining command-and-control via a portable Node.js runtime hidden in a user profile and is performing internal discovery or lateral movement via WinRM.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/nodejs-backdoor-internal-pivot/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev medium">medium</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">Node.js Backdoor and Internal Pivot</h1>
+      <p class="hyp-lead">An intruder is maintaining command-and-control via a portable Node.js runtime hidden in a user profile and is performing internal discovery or lateral movement via WinRM.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/" rel="noopener">Microsoft</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1018 T1021.006 T1059.001 T1071 T1566.003</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=nodejs-backdoor-internal-pivot" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Recent reporting by Microsoft in "Impersonating IT support: how threat actors turn a remote session into enterprise-wide access" (https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/) describes a social engineering flow where attackers leverage Microsoft Teams and tools like Quick Assist to gain initial access. The technical pivot occurs when they deploy a portable Node.js runtime to establish a command-and-control channel. This hunt is designed to find that implant and the subsequent lateral movement attempts.</p>
+<p>The hypothesis assumes that an intruder is maintaining command-and-control through a Node.js runtime located in a user-writable directory and is using WinRM for internal discovery or movement toward sensitive infrastructure. Because Node.js is a legitimate administrative and development tool, this hunt relies on behavioral correlation rather than simple indicators of compromise.</p>
+<p>The hunt begins by scoping for suspicious file creations in the LocalAppData directory. Attackers often use non-standard extensions like .tmp, .cfg, or .dat for their loaders and configuration files. This stage identifies hosts that have recently received new, unusual files in user profiles that might serve as the staging area for the implant.</p>
+<p>Next, we examine the execution of the Node.js runtime itself. We focus on instances where node.exe (or a binary with the original filename node.exe) is running from LocalAppData rather than standard Program Files paths. We then apply stack-counting to these paths across the environment. Legitimate developer tools and internal applications typically appear across many hosts, whereas a targeted implant will appear on a very small subset of the estate.</p>
+<p>The third phase involves looking for active pivots originating from the flagged hosts. We examine outbound network connections on port 5985 (WinRM). We also inspect script telemetry for Active Directory Service Interfaces (ADSI) queries or WMI commands used to map the network or identify installed security software. These actions are highly characteristic of an operator-led intrusion.</p>
+<p>There are two primary blind spots to consider. First, if script block logging is not enabled, the specific discovery commands issued by the attacker will be invisible, and the hunt must rely solely on process and network metadata. Second, if an attacker renames the Node.js binary and the endpoint security solution does not capture the original filename, a hunt based on the runtime's identity may fail to see the execution.</p>
+<p>This hunt is provided as a hunt.md playbook. It can be imported into Huntbase or any environment that supports the hunt.md specification. By automating the correlation of these different surfaces, the hunt identifies the breach before the attacker successfully pivots to the domain controller or other critical infrastructure.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 7 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder is maintaining command-and-control via a portable Node.js runtime hidden in a user profile and is performing internal discovery or lateral movement via WinRM.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify hosts where files with the report\u0027s non-standard extensions were created in LocalAppData, a precursor to the Node.js implant execution.", "expected": "Creation of files with extensions like .tmp or .cfg in a user\u0027s LocalAppData folder. Legitimate apps use these, but they serve as a lead when combined with unusual process execution.", "id": "suspicious-files-in-profile", "label": "Suspicious implant files in LocalAppData", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, file_name, file_path, time FROM hb_file_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND LOWER(file_path) LIKE \u0027%\\appdata\\local\\%\u0027 AND instr(\u0027,\u0027 || \u0027{{implant_extensions}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(SUBSTR(file_name, -4)) || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_file_activity", "type": "query"}, {"description": "Find instances where node.exe (or a renamed runtime) is running from a user profile rather than Program Files.", "expected": "Any host running Node.js from a user\u0027s LocalAppData folder. This is a high-fidelity indicator for portable runtimes dropped by attackers.", "id": "nodejs-from-profile", "label": "Node.js execution from LocalAppData", "parents": [{"branch": null, "id": "suspicious-files-in-profile", "kind": null}], "query": "SELECT device_hostname, process_name, process_path, process_cmd_line, process_original_file_name, user_name, time FROM hb_process_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(process_path) LIKE \u0027%\\appdata\\local\\%\u0027) AND (LOWER(process_name) LIKE \u0027%node.exe%\u0027 OR LOWER(process_original_file_name) = \u0027node.exe\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Stack-count the Node.js paths to identify one-off portable runtimes used in specific attacks.", "expected": "Paths seen on only one or two hosts are highly suspicious, whereas paths seen fleet-wide likely represent internal developer tools.", "id": "rare-process-paths", "label": "Rare Node.js paths in profiles", "parents": [{"branch": null, "id": "suspicious-files-in-profile", "kind": null}], "query": "SELECT LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_path) LIKE \u0027%\\appdata\\local\\%\u0027) AND (LOWER(process_name) LIKE \u0027%node.exe%\u0027 OR LOWER(process_original_file_name) = \u0027node.exe\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY LOWER(process_path) HAVING hosts \u003c= 3 ORDER BY hosts ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Detect outbound WinRM connections from suspicious endpoints, specifically targeting domain controllers or certificate authorities.", "expected": "Outbound TCP 5985 traffic from a host that also shows the Node.js implant is a near-certain indicator of lateral movement.", "id": "lateral-winrm-activity", "label": "WinRM lateral movement on port 5985", "parents": [{"branch": null, "id": "suspicious-files-in-profile", "kind": null}], "query": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE dst_endpoint_port = 5985 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_network_connection", "type": "query"}, {"description": "Examine script block telemetry for environment discovery commands issued by the operator via the Node.js C2 channel.", "expected": "PowerShell or other scripts querying for Domain Controllers, installed AV, or virtualization tells indicate an active attacker mapping the host and network.", "id": "discovery-script-activity", "label": "ADSI and AV discovery scripts", "parents": [{"branch": null, "id": "suspicious-files-in-profile", "kind": null}], "query": "SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(script_content) LIKE \u0027%adsisearcher%\u0027 OR LOWER(script_content) LIKE \u0027%antivirusproduct%\u0027 OR LOWER(script_content) LIKE \u0027%win32_videoadapter%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_script_activity", "type": "query"}, {"description": "Correlate rare Node.js execution, non-standard file extensions, discovery scripts, and lateral movement attempts to confirm a compromise.", "expected": "A detailed verdict citing the specific Node.js process and subsequent pivot actions.", "id": "triage-node-pivot", "label": "Triage Node.js and Pivot evidence", "parents": [{"branch": null, "id": "nodejs-from-profile", "kind": "merge"}, {"branch": null, "id": "rare-process-paths", "kind": "merge"}, {"branch": null, "id": "lateral-winrm-activity", "kind": "merge"}, {"branch": null, "id": "discovery-script-activity", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Decide the response action based on the agent\u0027s triage result.", "expected": null, "id": "route-verdict", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-node-pivot", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Isolate the compromised host and collect forensic artifacts.", "expected": null, "id": "isolate-host", "label": "Isolate host and collect logs", "parents": [{"branch": "on_supports", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Confirm the attacker\u0027s path and verify containment.", "expected": null, "id": "manual-review", "label": "Analyst manual review", "parents": [{"branch": "default", "id": "route-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Finalize the hunt and document findings.", "expected": null, "id": "close-out", "label": "Close out", "parents": [{"branch": "on_refutes", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-suspicious-files-in-profile">
+          <div class="step-head">
+            <h3 class="heading-sm">Suspicious implant files in LocalAppData</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify hosts where files with the report&#39;s non-standard extensions were created in LocalAppData, a precursor to the Node.js implant execution.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_name, file_path, time FROM hb_file_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND LOWER(file_path) LIKE &#39;%\appdata\local\%&#39; AND instr(&#39;,&#39; || &#39;{{implant_extensions}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(SUBSTR(file_name, -4)) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Creation of files with extensions like .tmp or .cfg in a user&#39;s LocalAppData folder. Legitimate apps use these, but they serve as a lead when combined with unusual process execution.</p>        </li>
+        <li class="card step" id="step-nodejs-from-profile">
+          <div class="step-head">
+            <h3 class="heading-sm">Node.js execution from LocalAppData</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Find instances where node.exe (or a renamed runtime) is running from a user profile rather than Program Files.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_path, process_cmd_line, process_original_file_name, user_name, time FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_path) LIKE &#39;%\appdata\local\%&#39;) AND (LOWER(process_name) LIKE &#39;%node.exe%&#39; OR LOWER(process_original_file_name) = &#39;node.exe&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Any host running Node.js from a user&#39;s LocalAppData folder. This is a high-fidelity indicator for portable runtimes dropped by attackers.</p>        </li>
+        <li class="card step" id="step-rare-process-paths">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare Node.js paths in profiles</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count the Node.js paths to identify one-off portable runtimes used in specific attacks.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_path) LIKE &#39;%\appdata\local\%&#39;) AND (LOWER(process_name) LIKE &#39;%node.exe%&#39; OR LOWER(process_original_file_name) = &#39;node.exe&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY LOWER(process_path) HAVING hosts &lt;= 3 ORDER BY hosts ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Paths seen on only one or two hosts are highly suspicious, whereas paths seen fleet-wide likely represent internal developer tools.</p>        </li>
+        <li class="card step" id="step-lateral-winrm-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">WinRM lateral movement on port 5985</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect outbound WinRM connections from suspicious endpoints, specifically targeting domain controllers or certificate authorities.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE dst_endpoint_port = 5985 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Outbound TCP 5985 traffic from a host that also shows the Node.js implant is a near-certain indicator of lateral movement.</p>        </li>
+        <li class="card step" id="step-discovery-script-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">ADSI and AV discovery scripts</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Examine script block telemetry for environment discovery commands issued by the operator via the Node.js C2 channel.</p>          <div class="code"><div class="code-head"><span>reads hb_script_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(script_content) LIKE &#39;%adsisearcher%&#39; OR LOWER(script_content) LIKE &#39;%antivirusproduct%&#39; OR LOWER(script_content) LIKE &#39;%win32_videoadapter%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> PowerShell or other scripts querying for Domain Controllers, installed AV, or virtualization tells indicate an active attacker mapping the host and network.</p>        </li>
+        <li class="card step" id="step-triage-node-pivot">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage Node.js and Pivot evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate rare Node.js execution, non-standard file extensions, discovery scripts, and lateral movement attempts to confirm a compromise.</p>        </li>
+        <li class="card step" id="step-route-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Decide the response action based on the agent&#39;s triage result.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate host and collect logs</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Isolate the compromised host and collect forensic artifacts.</p>        </li>
+        <li class="card step" id="step-manual-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst manual review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Confirm the attacker&#39;s path and verify containment.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Finalize the hunt and document findings.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Node.js HTTPS Backdoor<br><span class="mono dim">T1071</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>suspicious-files-in-profile, nodejs-from-profile, rare-process-paths</td></tr>            <tr><td>Active Directory and Host Discovery</td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>discovery-script-activity</td></tr>            <tr><td>WinRM Lateral Movement</td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>lateral-winrm-activity</td></tr>            <tr><td>IT Support Impersonation via Teams<br><span class="mono dim">T1566.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Impersonating IT support: how threat actors turn a remote session into enterprise-wide access&#39; series.</td></tr>            <tr><td>PowerShell MSI Delivery<br><span class="mono dim">T1059.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Impersonating IT support: how threat actors turn a remote session into enterprise-wide access&#39; series.</td></tr>            <tr><td>EdgeUpdate Persistence</td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Impersonating IT support: how threat actors turn a remote session into enterprise-wide access&#39; series.</td></tr>            <tr><td>Execution via Rundll32<br><span class="mono dim">T1218.011</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Impersonating IT support: how threat actors turn a remote session into enterprise-wide access&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_script_activity with full PowerShell logging.</strong> Without script block logging, operator-issued reconnaissance commands are invisible. <span class="dim">It would answer What specific Active Directory queries were performed?.</span></li>          <li class="card"><strong>Needs hb_process_activity.process_original_file_name.</strong> If the attacker renames the Node.js binary and the EDR does not capture original file metadata, a simple name-based hunt will miss the execution. <span class="dim">It would answer Is the runtime renamed to a benign name?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>implant_extensions</code></td><td class="mono dim">list[string]</td><td class="mono">.tmp, .ini, .dat, .bin, .cfg</td><td>Non-standard extensions used by the Node.js loader and implant.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to focus the hunt; empty means the entire estate.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A static detection for node.exe might fire on legitimate developers. This
+  hunt uses stack-counting (prevalence) to isolate rare runtimes in user profiles
+  and corroborates them with network pivots and script-based discovery that only occur
+  during a live intrusion.
+blind_spots:
+- id: no-script-logging
+  question: What specific Active Directory queries were performed?
+  requires: hb_script_activity with full PowerShell logging
+  risk: Without script block logging, operator-issued reconnaissance commands are
+    invisible.
+  stage: discovery-host-and-domain
+- id: node-renaming
+  question: Is the runtime renamed to a benign name?
+  requires: hb_process_activity.process_original_file_name
+  risk: If the attacker renames the Node.js binary and the EDR does not capture original
+    file metadata, a simple name-based hunt will miss the execution.
+  stage: c2-nodejs-implant
+coverage:
+- stage: c2-nodejs-implant
+  status: covered
+  steps:
+  - suspicious-files-in-profile
+  - nodejs-from-profile
+  - rare-process-paths
+- stage: discovery-host-and-domain
+  status: covered
+  steps:
+  - discovery-script-activity
+- stage: lateral-movement-winrm
+  status: covered
+  steps:
+  - lateral-winrm-activity
+- reason: &#39;Belongs to another part of the &#39;&#39;Impersonating IT support: how threat actors
+    turn a remote session into enterprise-wide access&#39;&#39; series.&#39;
+  stage: initial-access-teams-vishing
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Impersonating IT support: how threat actors
+    turn a remote session into enterprise-wide access&#39;&#39; series.&#39;
+  stage: execution-powershell-msi-loader
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Impersonating IT support: how threat actors
+    turn a remote session into enterprise-wide access&#39;&#39; series.&#39;
+  stage: persistence-edgeupdate-run-key
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Impersonating IT support: how threat actors
+    turn a remote session into enterprise-wide access&#39;&#39; series.&#39;
+  stage: defense-evasion-rundll32-proxy
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: This intrusion campaign bypasses standard phishing filters by using
+    legitimate Teams collaboration. Detecting the Node.js implant is critical because
+    it represents the transition from social engineering to an interactive breach.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder is maintaining command-and-control via a portable Node.js
+  runtime hidden in a user profile and is performing internal discovery or lateral
+  movement via WinRM.
+labels:
+- hunt
+- attack.t1071
+- attack.t1059.001
+- attack.t1021.006
+- attack.t1018
+- attack.t1566.003
+name: Node.js Backdoor and Internal Pivot
+parameters:
+  implant_extensions:
+    default:
+    - .tmp
+    - .ini
+    - .dat
+    - .bin
+    - .cfg
+    description: Non-standard extensions used by the Node.js loader and implant.
+    from:
+      kind: article
+      observed: &#39;2026-09-02&#39;
+      ref: msrc-blog-2026-09-02
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to focus the hunt; empty means the entire
+      estate.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on workstations and endpoints assigned to users with high privilege
+  or domain-admin access. Servers should be monitored for WinRM incoming traffic on
+  5985 from these workstations.
+references:
+- name: &#39;Impersonating IT support: how threat actors turn a remote session into enterprise-wide
+    access&#39;
+  url: https://www.microsoft.com/en-us/security/blog/2026/09/02/impersonating-it-support-threat-actors-turn-remote-session-into-enterprise-wide-access/
+related:
+- hunt: teams-vishing-initial-access
+  reason: This hunt picks up after the remote session is established; the initial
+    Teams vishing is a separate vector.
+  relation: precedes
+scenario:
+  stages:
+  - name: IT Support Impersonation via Teams
+    observables:
+    - Microsoft Teams external tenant chat
+    - QuickAssist.exe execution
+    - Remote control requests for screen-sharing
+    slug: initial-access-teams-vishing
+    tactic: initial-access
+    techniques:
+    - T1566.003
+  - name: PowerShell MSI Delivery
+    observables:
+    - PowerShell download from cloud storage (Azure Blob, GitHub, Dropbox)
+    - msiexec /qn /i
+    - &#39;MSI filenames: devfix.msi, Hotfix.msi&#39;
+    slug: execution-powershell-msi-loader
+    tactic: execution
+    techniques:
+    - T1059.001
+  - name: EdgeUpdate Persistence
+    observables:
+    - HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run\EdgeUpdate
+    - &#39;Startup folder shortcut: EdgeUpdate.lnk&#39;
+    - LocalAppData directory staged with Node.js runtime
+    slug: persistence-edgeupdate-run-key
+    tactic: persistence
+  - name: Node.js HTTPS Backdoor
+    observables:
+    - node.exe execution from LocalAppData
+    - HTTPS long-polling to randomized C2 domains
+    - &#39;JavaScript loaders with extensions: .tmp, .ini, .dat, .bin, .cfg&#39;
+    slug: c2-nodejs-implant
+    tactic: command-and-control
+    techniques:
+    - T1071
+  - name: Active Directory and Host Discovery
+    observables:
+    - ADSI queries for domain controllers and CAs
+    - Discovery of AV products and virtualization environment
+    - Screen capture exfiltration via Base64 encoded files
+    slug: discovery-host-and-domain
+    tactic: discovery
+  - name: Execution via Rundll32
+    observables:
+    - rundll32.exe loading actor-supplied DLLs
+    slug: defense-evasion-rundll32-proxy
+    tactic: defense-evasion
+    techniques:
+    - T1218.011
+  - name: WinRM Lateral Movement
+    observables:
+    - Outbound connections on TCP port 5985
+    - Targeting of domain controllers and certificate authorities
+    slug: lateral-movement-winrm
+    tactic: lateral-movement
+  summary: A human-operated campaign impersonates IT support via Microsoft Teams to
+    trick users into granting remote access. Attackers then use PowerShell to deploy
+    a malicious MSI that installs a Node.js-based implant for persistent command-and-control,
+    environmental reconnaissance, and lateral movement via WinRM.
+series:
+  index: 2
+  slug: impersonating-it-support-how-threat-actors-turn-a-remote-session-into-enterprise-wide-access
+  title: &#39;Impersonating IT support: how threat actors turn a remote session into enterprise-wide
+    access&#39;
+  total: 2
+severity: medium
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Node.js Backdoor and Internal Pivot
+
+This hunt targets the post-compromise activity associated with IT-support impersonation campaigns. It focuses on identifying unusual Node.js runtime execution from user-writable paths (LocalAppData), which threat actors use to execute obfuscated JavaScript implants. The hunt corroborates this activity by looking for subsequent Active Directory discovery and lateral movement attempts via the WinRM protocol (TCP 5985) toward sensitive infrastructure.
+
+## suspicious-files-in-profile
+&lt;!-- Suspicious implant files in LocalAppData --&gt;
+Identify hosts where files with the report&#39;s non-standard extensions were created in LocalAppData, a precursor to the Node.js implant execution.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days, scope_hosts=scope_hosts, implant_extensions=implant_extensions)
+~~~yaml
+expected: Creation of files with extensions like .tmp or .cfg in a user&#39;s LocalAppData
+  folder. Legitimate apps use these, but they serve as a lead when combined with unusual
+  process execution.
+reads:
+- device_hostname
+- file_name
+- file_path
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_name, file_path, time FROM hb_file_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND LOWER(file_path) LIKE &#39;%\appdata\local\%&#39; AND instr(&#39;,&#39; || &#39;{{implant_extensions}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(SUBSTR(file_name, -4)) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## nodejs-corroboration
+&lt;!-- Corroborate Node.js activity across surfaces --&gt;
+parallel:
+- → nodejs-from-profile
+- → rare-process-paths
+- → lateral-winrm-activity
+- → discovery-script-activity
+join: → triage-node-pivot
+
+## nodejs-from-profile
+&lt;!-- Node.js execution from LocalAppData --&gt;
+Find instances where node.exe (or a renamed runtime) is running from a user profile rather than Program Files.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Any host running Node.js from a user&#39;s LocalAppData folder. This is a high-fidelity
+  indicator for portable runtimes dropped by attackers.
+reads:
+- device_hostname
+- process_name
+- process_path
+- process_cmd_line
+- process_original_file_name
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_path, process_cmd_line, process_original_file_name, user_name, time FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_path) LIKE &#39;%\appdata\local\%&#39;) AND (LOWER(process_name) LIKE &#39;%node.exe%&#39; OR LOWER(process_original_file_name) = &#39;node.exe&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-process-paths
+&lt;!-- Rare Node.js paths in profiles --&gt;
+Stack-count the Node.js paths to identify one-off portable runtimes used in specific attacks.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Paths seen on only one or two hosts are highly suspicious, whereas paths
+  seen fleet-wide likely represent internal developer tools.
+prevalence:
+  by: device_hostname
+  key:
+  - process_path
+  rare_below: 3
+reads:
+- process_path
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_path) LIKE &#39;%\appdata\local\%&#39;) AND (LOWER(process_name) LIKE &#39;%node.exe%&#39; OR LOWER(process_original_file_name) = &#39;node.exe&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY LOWER(process_path) HAVING hosts &lt;= 3 ORDER BY hosts ASC
+```
+
+## lateral-winrm-activity
+&lt;!-- WinRM lateral movement on port 5985 --&gt;
+Detect outbound WinRM connections from suspicious endpoints, specifically targeting domain controllers or certificate authorities.
+
+```sqlite target=network role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Outbound TCP 5985 traffic from a host that also shows the Node.js implant
+  is a near-certain indicator of lateral movement.
+reads:
+- device_hostname
+- process_name
+- dst_endpoint_ip
+- dst_endpoint_port
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE dst_endpoint_port = 5985 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## discovery-script-activity
+&lt;!-- ADSI and AV discovery scripts --&gt;
+Examine script block telemetry for environment discovery commands issued by the operator via the Node.js C2 channel.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: PowerShell or other scripts querying for Domain Controllers, installed AV,
+  or virtualization tells indicate an active attacker mapping the host and network.
+reads:
+- device_hostname
+- script_content
+- script_type
+- time
+silence: not_evidence_of_absence
+source: hb_script_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(script_content) LIKE &#39;%adsisearcher%&#39; OR LOWER(script_content) LIKE &#39;%antivirusproduct%&#39; OR LOWER(script_content) LIKE &#39;%win32_videoadapter%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-node-pivot
+&lt;!-- Triage Node.js and Pivot evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- suspicious-files-in-profile
+- nodejs-from-profile
+- rare-process-paths
+- lateral-winrm-activity
+- discovery-script-activity
+max_iterations: 6
+objective: Determine if any host shows evidence of a Node.js-based backdoor used for
+  environment reconnaissance or lateral movement.
+success_criteria: A per-host verdict of malicious, suspicious, or benign citing the
+  Node.js path and network destination.
+tools:
+- endpoint
+- network
+```
+
+## route-verdict
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host running node.exe from LocalAppData&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → manual-review
+unavailable: → manual-review (blind_spot: no-script-logging)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate host and collect logs --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host from the network. Collect the Node.js runtime and all .tmp, .ini, .dat, .bin, .cfg files from the user&#39;s LocalAppData folder. Identify and revoke any leaked domain credentials.
+```
+→ manual-review
+
+## manual-review
+&lt;!-- Analyst manual review --&gt;
+```manual target=analyst
+Review the Node.js execution time against the user&#39;s Teams history. Look for legitimate remote-support apps (Quick Assist, ScreenConnect) launched just before the Node.js installation. Confirm if WinRM connections successfully hit Domain Controllers.
+```
+→ end
+
+## close-out
+&lt;!-- Close out --&gt;
+```manual target=analyst
+If no intrusion was found, record the hosts examined and the lookback window. If developer noise was high, consider tuning the &#39;rare-process-paths&#39; query.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=nodejs-backdoor-internal-pivot" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

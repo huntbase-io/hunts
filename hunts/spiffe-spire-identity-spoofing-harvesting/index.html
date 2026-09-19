@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPIFFE/SPIRE Identity Spoofing and Harvesting · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An attacker with root access on a Kubernetes node is interrogating /proc metadata to spoof workload selectors and harvest SVID credentials from the SPIRE agent.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/spiffe-spire-identity-spoofing-harvesting/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="SPIFFE/SPIRE Identity Spoofing and Harvesting · Huntbase Hunts">
+  <meta property="og:description" content="An attacker with root access on a Kubernetes node is interrogating /proc metadata to spoof workload selectors and harvest SVID credentials from the SPIRE agent.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/spiffe-spire-identity-spoofing-harvesting/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">SPIFFE/SPIRE Identity Spoofing and Harvesting</h1>
+      <p class="hyp-lead">An attacker with root access on a Kubernetes node is interrogating /proc metadata to spoof workload selectors and harvest SVID credentials from the SPIRE agent.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/" rel="noopener">Unit 42</a></span>
+<span>2026-09-17</span>        <span>9 steps · 4 queries</span>
+<span class="mono">T1090.003 T1190</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=spiffe-spire-identity-spoofing-harvesting" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Identity-as-a-service for microservices often relies on the infrastructure providing verifiable proof of a process's identity. In Kubernetes, SPIFFE/SPIRE is a common choice, where a node-local agent issues identities (SVIDs) based on selectors like Pod names or UIDs. However, as detailed by Unit 42 in their article "The Machine With Many Faces," these selectors are not immutable secrets; they are often observable in the Linux /proc filesystem by any process with sufficient privileges. Our new hunt focuses on the post-exploitation phase where an attacker, having already gained root on a Kubernetes node, attempts to harvest identities to move laterally or access sensitive secrets. The hypothesis is that the attacker must first discover the correct workload metadata by interrogating /proc/cgroups or /proc/mountinfo before they can successfully spoof an identity to the SPIRE agent socket.\n\nHow the hunt flows:\n\nThe first phase is scoping. We identify nodes within the environment that are actually running SPIRE agents or relevant container runtimes like the kubelet and containerd. This limits the data volume and focuses the analysis on the infrastructure where this specific attack surface exists.\n\nThe second phase monitors for discovery and interrogation. We look for non-standard processes—those not belonging to the kubelet, containerd, or the spire-agent itself—that are reading the cgroup or mount metadata for other processes. Ad-hoc use of shell utilities or unknown binaries reading these paths is a strong indicator of an attacker trying to map out the available identities on the host.\n\nThe third phase involves pivoting to identify the actual harvesting attempt. We look for rare processes across the fleet that contain keywords related to SVID fetching or cgroup manipulation. This is then corroborated with file activity telemetry showing these same processes interacting with the SPIRE agent's Unix domain socket. By combining the "how" (discovery) with the "what" (socket interaction), we can isolate unauthorized identity requests.\n\nThis hunt has specific blind spots. If an attacker uses a custom binary that performs direct syscalls to read /proc without spawning child processes or using standard shell commands, it may bypass command-line monitoring. Additionally, if the endpoint telemetry does not capture Unix domain socket access specifically, we are forced to rely on process behavioral indicators alone.\n\nWe have published this as a hunt.md playbook. Because legitimate sidecars and service meshes frequently perform similar actions, this activity is best approached as a hunt rather than a static detection rule. The use of fleet-wide prevalence allows us to distinguish between standard deployment patterns and isolated, malicious harvesting attempts. The playbook can be imported into Huntbase or any hunt.md-aware runtime. \n\nUnit 42 — The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/spiffe-spire-identity-misuse-impersonation/index.html">Part 2: SPIFFE/SPIRE Identity Misuse and Workload Impersonation</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An attacker with root access on a Kubernetes node is interrogating /proc metadata to spoof workload selectors and harvest SVID credentials from the SPIRE agent.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Scope the hunt to nodes that are actually running the SPIRE agent or relevant container runtimes.", "expected": "A list of hostnames belonging to Kubernetes nodes and SPIRE agent hosts. Silence here suggests SPIRE is not deployed using standard package names.", "id": "identify-spire-nodes", "label": "Identify nodes running SPIRE components", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%spire-agent%\u0027 OR LOWER(package_name) LIKE \u0027%kubelet%\u0027 OR LOWER(package_name) LIKE \u0027%containerd%\u0027) AND collected_at \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Identify non-standard processes reading cgroup or mount metadata, which are the selectors used for SPIRE workload attestation.", "expected": "Ad-hoc interrogation of /proc by shell utilities or unknown binaries. This is a high-confidence signal for manual discovery of workload metadata.", "id": "detect-proc-interrogation", "label": "Detect suspicious /proc interrogation", "parents": [{"branch": null, "id": "identify-spire-nodes", "kind": null}], "query": "SELECT device_hostname, process_cmd_line, process_path, user_name, time FROM hb_process_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(process_cmd_line) LIKE \u0027%/proc/%/cgroup%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%/proc/%/mountinfo%\u0027) AND NOT (LOWER(process_path) LIKE \u0027%/kube%\u0027 OR LOWER(process_path) LIKE \u0027%/spire-agent%\u0027 OR LOWER(process_path) LIKE \u0027%/containerd%\u0027 OR LOWER(process_path) LIKE \u0027%/containerd-shim%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Find rare processes whose command lines contain spoofing keywords like \u0027Spooffe\u0027 or SVID fetching operations.", "expected": "Processes or scripts referencing SVID fetching that are not fleet-wide sidecars.", "id": "rare-spire-processes", "label": "Identify rare processes and SPIRE indicators", "parents": [{"branch": null, "id": "detect-proc-interrogation", "kind": null}], "query": "SELECT process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(process_cmd_line) LIKE \u0027%spooffe%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%fetchx509svid%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%fetchjwtsvid%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%kubepods.slice%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY process_name, process_cmd_line HAVING hosts \u003c= 3 ORDER BY hosts ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Confirm which processes are directly opening the SPIRE socket to request identities.", "expected": "A list of processes that touched the SPIRE socket. Combined with the prevalence query, this isolates unknown actors from legitimate sidecars.", "id": "socket-file-activity", "label": "File activity on SPIRE agent sockets", "parents": [{"branch": null, "id": "detect-proc-interrogation", "kind": null}], "query": "SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND instr(\u0027,\u0027 || \u0027{{spire_socket_paths}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(file_path) || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Synthesize results from process activity, prevalence, and socket interactions.", "expected": "A host-by-host verdict on whether SPIRE access was authorized or a spoofing attempt.", "id": "triage-agent", "label": "Triage identity harvesting activity", "parents": [{"branch": null, "id": "rare-spire-processes", "kind": "merge"}, {"branch": null, "id": "socket-file-activity", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct confirmed harvesting to containment.", "expected": null, "id": "route-on-verdict", "label": "Route on triage verdict", "parents": [{"branch": null, "id": "triage-agent", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent further SVID harvesting and lateral movement from the node.", "expected": null, "id": "isolate-node", "label": "Isolate compromised Kubernetes node", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review findings and perform follow-on forensics.", "expected": null, "id": "analyst-review", "label": "Analyst review and manual triage", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-node", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-identify-spire-nodes">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify nodes running SPIRE components</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Scope the hunt to nodes that are actually running the SPIRE agent or relevant container runtimes.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%spire-agent%&#39; OR LOWER(package_name) LIKE &#39;%kubelet%&#39; OR LOWER(package_name) LIKE &#39;%containerd%&#39;) AND collected_at &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames belonging to Kubernetes nodes and SPIRE agent hosts. Silence here suggests SPIRE is not deployed using standard package names.</p>        </li>
+        <li class="card step" id="step-detect-proc-interrogation">
+          <div class="step-head">
+            <h3 class="heading-sm">Detect suspicious /proc interrogation</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify non-standard processes reading cgroup or mount metadata, which are the selectors used for SPIRE workload attestation.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_cmd_line, process_path, user_name, time FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_cmd_line) LIKE &#39;%/proc/%/cgroup%&#39; OR LOWER(process_cmd_line) LIKE &#39;%/proc/%/mountinfo%&#39;) AND NOT (LOWER(process_path) LIKE &#39;%/kube%&#39; OR LOWER(process_path) LIKE &#39;%/spire-agent%&#39; OR LOWER(process_path) LIKE &#39;%/containerd%&#39; OR LOWER(process_path) LIKE &#39;%/containerd-shim%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Ad-hoc interrogation of /proc by shell utilities or unknown binaries. This is a high-confidence signal for manual discovery of workload metadata.</p>        </li>
+        <li class="card step" id="step-rare-spire-processes">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify rare processes and SPIRE indicators</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Find rare processes whose command lines contain spoofing keywords like &#39;Spooffe&#39; or SVID fetching operations.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_cmd_line) LIKE &#39;%spooffe%&#39; OR LOWER(process_cmd_line) LIKE &#39;%fetchx509svid%&#39; OR LOWER(process_cmd_line) LIKE &#39;%fetchjwtsvid%&#39; OR LOWER(process_cmd_line) LIKE &#39;%kubepods.slice%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_name, process_cmd_line HAVING hosts &lt;= 3 ORDER BY hosts ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Processes or scripts referencing SVID fetching that are not fleet-wide sidecars.</p>        </li>
+        <li class="card step" id="step-socket-file-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">File activity on SPIRE agent sockets</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Confirm which processes are directly opening the SPIRE socket to request identities.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND instr(&#39;,&#39; || &#39;{{spire_socket_paths}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of processes that touched the SPIRE socket. Combined with the prevalence query, this isolates unknown actors from legitimate sidecars.</p>        </li>
+        <li class="card step" id="step-triage-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage identity harvesting activity</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Synthesize results from process activity, prevalence, and socket interactions.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on triage verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct confirmed harvesting to containment.</p>        </li>
+        <li class="card step" id="step-isolate-node">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate compromised Kubernetes node</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent further SVID harvesting and lateral movement from the node.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst review and manual triage</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review findings and perform follow-on forensics.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Kubernetes Node Initial Access<br><span class="mono dim">T1190</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>identify-spire-nodes</td></tr>            <tr><td>Workload Metadata Discovery</td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>detect-proc-interrogation</td></tr>            <tr><td>SPIRE Attestation Spoofing</td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-spire-processes</td></tr>            <tr><td>SVID Identity Extraction</td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>socket-file-activity</td></tr>            <tr><td>Workload Identity Misuse<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_file_activity with socket support.</strong> Without socket file-open events, we must rely on process command-line keywords which are easily obfuscated. <span class="dim">It would answer Which specific process opened the SPIRE socket?.</span> <span class="dim">Remediation: Deploy eBPF-based monitoring to capture Unix socket access.</span></li>          <li class="card"><strong>Needs syscall-level logging.</strong> Compiled tools like Spooffe can read /proc/cgroups without spawning shell utilities, bypassing process command-line monitoring. <span class="dim">It would answer Did the process read /proc directly via syscalls?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to focus the hunt; leave empty for fleet-wide.</td></tr>            <tr><td><code>spire_socket_paths</code></td><td class="mono dim">list[path]</td><td class="mono">/run/spire/sockets/agent.sock, /var/lib/spire/agent.sock</td><td>Common paths for the SPIRE Workload API socket.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: This hunt combines behavioral signals (metadata interrogation) with fleet-wide
+  stack counting and cross-surface corroboration (process vs file/socket) that a single
+  detection rule cannot reliably do without high false positives.
+blind_spots:
+- id: missing-socket-telemetry
+  question: Which specific process opened the SPIRE socket?
+  remediation: Deploy eBPF-based monitoring to capture Unix socket access.
+  requires: hb_file_activity with socket support
+  risk: Without socket file-open events, we must rely on process command-line keywords
+    which are easily obfuscated.
+  stage: svid-credential-harvesting
+- id: direct-syscall-metadata-access
+  question: Did the process read /proc directly via syscalls?
+  requires: syscall-level logging
+  risk: Compiled tools like Spooffe can read /proc/cgroups without spawning shell
+    utilities, bypassing process command-line monitoring.
+  stage: workload-metadata-enumeration
+coverage:
+- stage: initial-k8s-node-compromise
+  status: covered
+  steps:
+  - identify-spire-nodes
+- stage: workload-metadata-enumeration
+  status: covered
+  steps:
+  - detect-proc-interrogation
+- stage: spire-attestation-spoofing
+  status: covered
+  steps:
+  - rare-spire-processes
+- stage: svid-credential-harvesting
+  status: covered
+  steps:
+  - socket-file-activity
+- reason: &#39;Belongs to another part of the &#39;&#39;The Machine With Many Faces: Post-Exploitation
+    Identity Misuse in SPIFFE/SPIRE&#39;&#39; series.&#39;
+  stage: lateral-workload-impersonation
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: SPIFFE/SPIRE provides the backbone for workload identity in Kubernetes.
+    A single node compromise allowing identity spoofing threatens the security of
+    the entire cluster.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An attacker with root access on a Kubernetes node is interrogating /proc
+  metadata to spoof workload selectors and harvest SVID credentials from the SPIRE
+  agent.
+labels:
+- hunt
+- attack.t1090.003
+- attack.t1190
+name: SPIFFE/SPIRE Identity Spoofing and Harvesting
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to focus the hunt; leave empty for fleet-wide.
+    type: list[host]
+  spire_socket_paths:
+    default:
+    - /run/spire/sockets/agent.sock
+    - /var/lib/spire/agent.sock
+    description: Common paths for the SPIRE Workload API socket.
+    from:
+      kind: article
+      observed: &#39;2026-09-10&#39;
+      ref: unit42-spiffe-spire
+    type: list[path]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Scope to nodes running spire-agent. The initial access often happens via
+  an exploit on a public application; prioritize nodes with internet exposure.
+references:
+- name: &#34;Unit 42 \u2014 The Machine With Many Faces: Post-Exploitation Identity Misuse\
+    \ in SPIFFE/SPIRE&#34;
+  url: https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/
+related:
+- hunt: lateral-workload-impersonation
+  reason: Detection of harvested SVID use in other services (e.g. at the API Gateway)
+    is outside the scope of host-level harvesting.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: Kubernetes Node Initial Access
+    observables:
+    - exploit of public-facing application
+    - root access on Kubernetes node
+    slug: initial-k8s-node-compromise
+    tactic: initial-access
+    techniques:
+    - T1190
+  - name: Workload Metadata Discovery
+    observables:
+    - /proc/[pid]/cgroups
+    - /proc/[pid]/mountinfo
+    - kubepods.slice
+    - kubepods-besteffort.slice
+    - pod UID identification
+    - container ID identification
+    slug: workload-metadata-enumeration
+    tactic: discovery
+  - name: SPIRE Attestation Spoofing
+    observables:
+    - Spooffe tool
+    - cgroup metadata manipulation
+    - spoofing GetPodUIDAndContainerID calls
+    - impersonating workload selectors
+    slug: spire-attestation-spoofing
+    tactic: defense-evasion
+  - name: SVID Identity Extraction
+    observables:
+    - /run/spire/sockets/agent.sock
+    - FetchJWTSVID
+    - FetchX509SVID
+    - X.509 SVID extraction
+    - JWT SVID harvesting
+    - SPIRE Workload API interaction
+    slug: svid-credential-harvesting
+    tactic: credential-access
+  - name: Workload Identity Misuse
+    observables:
+    - mTLS handshake with stolen SVID
+    - spiffe://example.com/
+    - spiffe://example.org/
+    - unauthorized service-to-service authentication
+    slug: lateral-workload-impersonation
+    tactic: lateral-movement
+    techniques:
+    - T1090.003
+  summary: An attacker with root access on a Kubernetes node exploits the trust assumptions
+    of the SPIFFE/SPIRE identity framework by spoofing Linux cgroup and mountinfo
+    metadata. By manipulating how the SPIRE agent attests processes, the attacker
+    can harvest short-lived SVID credentials (X.509 or JWT) belonging to co-located
+    workloads, enabling unauthorized cross-workload impersonation and lateral movement.
+series:
+  index: 1
+  slug: the-machine-with-many-faces-post-exploitation-identity-misuse-in-spiffe-spire
+  title: &#39;The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# SPIFFE/SPIRE Identity Spoofing and Harvesting
+
+This hunt identifies post-exploitation activity where an attacker attempts to impersonate Kubernetes workloads by spoofing Linux control group (cgroup) information used during SPIRE workload attestation. By identifying ad-hoc interrogation of /proc/cgroups and /proc/mountinfo and correlating this with rare processes accessing the SPIRE agent&#39;s Unix domain socket, the hunt detects attempts to harvest short-lived X.509 and JWT identities (SVIDs).
+
+## identify-spire-nodes
+&lt;!-- Identify nodes running SPIRE components --&gt;
+Scope the hunt to nodes that are actually running the SPIRE agent or relevant container runtimes.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames belonging to Kubernetes nodes and SPIRE agent hosts.
+  Silence here suggests SPIRE is not deployed using standard package names.
+reads:
+- device_hostname
+- package_name
+- collected_at
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%spire-agent%&#39; OR LOWER(package_name) LIKE &#39;%kubelet%&#39; OR LOWER(package_name) LIKE &#39;%containerd%&#39;) AND collected_at &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## detect-proc-interrogation
+&lt;!-- Detect suspicious /proc interrogation --&gt;
+Identify non-standard processes reading cgroup or mount metadata, which are the selectors used for SPIRE workload attestation.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Ad-hoc interrogation of /proc by shell utilities or unknown binaries. This
+  is a high-confidence signal for manual discovery of workload metadata.
+reads:
+- device_hostname
+- process_cmd_line
+- process_path
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_cmd_line, process_path, user_name, time FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_cmd_line) LIKE &#39;%/proc/%/cgroup%&#39; OR LOWER(process_cmd_line) LIKE &#39;%/proc/%/mountinfo%&#39;) AND NOT (LOWER(process_path) LIKE &#39;%/kube%&#39; OR LOWER(process_path) LIKE &#39;%/spire-agent%&#39; OR LOWER(process_path) LIKE &#39;%/containerd%&#39; OR LOWER(process_path) LIKE &#39;%/containerd-shim%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## corroboration-parallel
+&lt;!-- Corroborate via socket interaction and prevalence --&gt;
+parallel:
+- → rare-spire-processes
+- → socket-file-activity
+join: → triage-agent
+
+## rare-spire-processes
+&lt;!-- Identify rare processes and SPIRE indicators --&gt;
+Find rare processes whose command lines contain spoofing keywords like &#39;Spooffe&#39; or SVID fetching operations.
+
+```sqlite target=endpoint role=baseline params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Processes or scripts referencing SVID fetching that are not fleet-wide sidecars.
+prevalence:
+  by: device_hostname
+  key:
+  - process_name
+  - process_cmd_line
+  rare_below: 4
+reads:
+- process_name
+- process_cmd_line
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_cmd_line) LIKE &#39;%spooffe%&#39; OR LOWER(process_cmd_line) LIKE &#39;%fetchx509svid%&#39; OR LOWER(process_cmd_line) LIKE &#39;%fetchjwtsvid%&#39; OR LOWER(process_cmd_line) LIKE &#39;%kubepods.slice%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_name, process_cmd_line HAVING hosts &lt;= 3 ORDER BY hosts ASC
+```
+
+## socket-file-activity
+&lt;!-- File activity on SPIRE agent sockets --&gt;
+Confirm which processes are directly opening the SPIRE socket to request identities.
+
+```sqlite target=endpoint role=enrichment params=(scope_hosts=scope_hosts, spire_socket_paths=spire_socket_paths, lookback_days=lookback_days)
+~~~yaml
+expected: A list of processes that touched the SPIRE socket. Combined with the prevalence
+  query, this isolates unknown actors from legitimate sidecars.
+reads:
+- device_hostname
+- process_name
+- file_path
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND instr(&#39;,&#39; || &#39;{{spire_socket_paths}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-agent
+&lt;!-- Triage identity harvesting activity --&gt;
+```agent target=hunter
+cite: required
+context:
+- detect-proc-interrogation
+- rare-spire-processes
+- socket-file-activity
+max_iterations: 5
+objective: Determine if any host shows evidence of metadata interrogation concurrent
+  with access to the SPIRE agent socket by a rare or suspicious process.
+success_criteria: A verdict of malicious | suspicious | benign per host, citing relevant
+  process and file rows.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on triage verdict --&gt;
+if~: &#34;the triage verdict is malicious for identity spoofing or harvesting&#34; (confidence: high, judge=hunter)
+then: → isolate-node
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: missing-socket-telemetry)
+else: → analyst-review
+
+## isolate-node
+&lt;!-- Isolate compromised Kubernetes node --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host and immediately alert the Kubernetes platform team. Review the pod inventory for any co-located workloads whose identities may have been harvested.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst review and manual triage --&gt;
+```manual target=analyst
+Review the processes flagged for /proc interrogation. Check for presence of the &#39;Spooffe&#39; tool or similar compiled binaries. If benign, refine the &#39;detect-proc-interrogation&#39; exclusions list.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=spiffe-spire-identity-spoofing-harvesting" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

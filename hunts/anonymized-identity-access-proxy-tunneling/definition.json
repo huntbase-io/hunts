@@ -1,0 +1,577 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries use multi-hop proxies to evade geographical controls and mask C2 traffic. Correlating SaaS logs with endpoint behavior is a high-friction task that requires automated data shaping to scale, making it a prime candidate for a hunt over simple detection rules."
+      },
+      "name": "Anonymized Identity Access and Proxy Tunneling",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "mfa-fatigue-and-anomalous-logon",
+          "reason": "MFA fatigue often precedes a successful sign-in from a masked source.",
+          "relation": "precedes"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "While rules exist for known Tor domains, this hunt pivots across the identity layer and uses prevalence to find non-standard tunneling tools and command-line arguments that single-surface rules miss.",
+      "coverage": [
+        {
+          "stage": "identity-authentication-via-multi-hop-proxy",
+          "steps": [
+            "vps-authentications"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "covert-c2-via-proxy-tunneling",
+          "steps": [
+            "rare-proxy-processes",
+            "anomalous-proxy-ports",
+            "onion-dns-lookups"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Identity authentication via multi-hop proxy",
+            "slug": "identity-authentication-via-multi-hop-proxy",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Okta sign-in events from known VPS provider IP ranges",
+              "Authentication attempts from Tor exit nodes",
+              "Successful logins following MFA challenges from disparate geolocations"
+            ]
+          },
+          {
+            "name": "Covert C2 via proxy tunneling",
+            "slug": "covert-c2-via-proxy-tunneling",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion or .hiddenservice.net domains",
+              "Network connections to known Tor relay node ports 9001 and 9050",
+              "Execution of proxy or tunneling binaries like tor.exe or ngrok",
+              "High-frequency network traffic to cloud VPS instances on non-standard ports"
+            ]
+          }
+        ],
+        "summary": "An adversary uses multi-hop proxies to obfuscate their geographic and network origin while authenticating to identity providers like Okta. Following access, the attacker establishes covert command-and-control channels using tunneling tools and operational relay boxes to mask ongoing activity from internal endpoints."
+      },
+      "severity": "medium",
+      "rationale": "The hunt scopes to hosts with known proxy/VPN software in their inventory (hb_software_inventory) to focus correlation on the most likely beachheads for multi-hop C2.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has compromised an identity (Okta) via multi-hop proxy infrastructure and is currently maintaining persistent command-and-control using tunneling software on a managed endpoint.",
+      "parameters": {
+        "vps_ips": {
+          "from": {
+            "ref": "red-canary-threat-hunting-scaled",
+            "kind": "article",
+            "observed": "2026-06-11"
+          },
+          "type": "list[ip]",
+          "default": [
+            "185.220.101.0",
+            "162.247.74.0",
+            "104.244.72.0",
+            "176.10.99.200",
+            "192.42.116.16"
+          ],
+          "description": "Known Tor exit nodes or VPS provider IPs used for source masking."
+        },
+        "proxy_ports": {
+          "type": "list[string]",
+          "default": [
+            "9001",
+            "9050",
+            "9051",
+            "9150"
+          ],
+          "description": "Default ports commonly used by Tor or other proxy relays."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts to narrow endpoint correlation; paste results from the scoping step here."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "proxy_software_patterns": {
+          "type": "list[string]",
+          "default": [
+            "tor",
+            "ngrok",
+            "chisel",
+            "tailscale",
+            "zerotier",
+            "ligolo",
+            "frp"
+          ],
+          "description": "Software packages associated with network proxying or tunneling."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://redcanary.com/blog/threat-detection/threat-hunting-scaled/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://redcanary.com/blog/threat-detection/threat-hunting-scaled/",
+          "name": "Red Canary \u2014 How threat hunting evolves at scale"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "unmanaged-device-blindspot",
+          "risk": "Authentications from VPS IPs are visible in Okta, but the subsequent tunneling on unmanaged hardware will be invisible to the endpoint surfaces.",
+          "stage": "covert-c2-via-proxy-tunneling",
+          "question": "Was the proxy software executed on a BYOD or unmanaged server?",
+          "requires": "EDR agent coverage on all devices"
+        },
+        {
+          "id": "residential-proxy-evasion",
+          "risk": "The vps_ips list primarily captures datacenter infrastructure; botnet-based proxies will likely bypass this specific identity filter.",
+          "stage": "identity-authentication-via-multi-hop-proxy",
+          "question": "Did the attacker use a residential botnet proxy rather than a datacenter VPS?",
+          "requires": "Residential proxy IP reputation feed"
+        }
+      ]
+    },
+    "name": "Anonymized Identity Access and Proxy Tunneling",
+    "description": "This hunt bridges the gap between identity-level authentication anomalies and endpoint-level network behavior. It first identifies managed hosts with proxy-capable software, then correlates successful authentications from known VPS/Tor infrastructure with subsequent execution of rare tunneling binaries and connections to proxy ports. By joining these surfaces, we can distinguish between legitimate remote access and an active multi-hop proxy intrusion."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "identity-authentication-via-multi-hop-proxy",
+            "steps": [
+              "vps-authentications"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "covert-c2-via-proxy-tunneling",
+            "steps": [
+              "rare-proxy-processes",
+              "anomalous-proxy-ports",
+              "onion-dns-lookups"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has compromised an identity (Okta) via multi-hop proxy infrastructure and is currently maintaining persistent command-and-control using tunneling software on a managed endpoint.",
+        "blind_spots": [
+          {
+            "id": "unmanaged-device-blindspot",
+            "risk": "Authentications from VPS IPs are visible in Okta, but the subsequent tunneling on unmanaged hardware will be invisible to the endpoint surfaces.",
+            "stage": "covert-c2-via-proxy-tunneling",
+            "question": "Was the proxy software executed on a BYOD or unmanaged server?",
+            "requires": "EDR agent coverage on all devices"
+          },
+          {
+            "id": "residential-proxy-evasion",
+            "risk": "The vps_ips list primarily captures datacenter infrastructure; botnet-based proxies will likely bypass this specific identity filter.",
+            "stage": "identity-authentication-via-multi-hop-proxy",
+            "question": "Did the attacker use a residential botnet proxy rather than a datacenter VPS?",
+            "requires": "Residential proxy IP reputation feed"
+          }
+        ],
+        "scoping_notes": "The hunt scopes to hosts with known proxy/VPN software in their inventory (hb_software_inventory) to focus correlation on the most likely beachheads for multi-hop C2.",
+        "beyond_detection": "While rules exist for known Tor domains, this hunt pivots across the identity layer and uses prevalence to find non-standard tunneling tools and command-line arguments that single-surface rules miss."
+      }
+    },
+    {
+      "id": "find-proxy-capable-hosts",
+      "type": "query",
+      "label": "Identify hosts with proxy/tunneling software",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (instr(',' || '{{proxy_software_patterns}}' || ',', ',' || LOWER(package_name) || ',') > 0 OR LOWER(package_name) LIKE '%tunnel%')",
+        "surface": "hb_software_inventory",
+        "description": "Scope the hunt to endpoints that have known proxying or tunneling software installed, which could be leveraged for multi-hop C2.",
+        "expected_signal": "A list of hosts with proxy-related software installed. Silence indicates no managed hosts have these specific packages in their inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify hosts with proxy/tunneling software",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (instr(',' || '{{proxy_software_patterns}}' || ',', ',' || LOWER(package_name) || ',') > 0 OR LOWER(package_name) LIKE '%tunnel%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts with proxy-related software installed. Silence indicates no managed hosts have these specific packages in their inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "vps-authentications",
+      "type": "query",
+      "label": "Successful Okta logons from VPS/Tor IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND instr(',' || '{{vps_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify successful authentications at the identity provider level (Okta) that originated from known anonymization infrastructure.",
+        "expected_signal": "Login events from provided IPs. Any hit suggests a user session originating from infrastructure commonly used for source-masking."
+      },
+      "parents": [
+        {
+          "id": "find-proxy-capable-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Successful Okta logons from VPS/Tor IPs",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "time",
+          "status_id",
+          "activity_id"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND instr(',' || '{{vps_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Login events from provided IPs. Any hit suggests a user session originating from infrastructure commonly used for source-masking.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-proxy-processes",
+      "type": "query",
+      "label": "Rare proxy binary execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '% -proxy %' OR LOWER(process_cmd_line) LIKE '% -socks %' OR LOWER(process_cmd_line) LIKE '% -tunnel %' OR LOWER(process_cmd_line) LIKE '% -remote %') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, process_cmd_line HAVING host_count <= 3",
+        "surface": "hb_process_activity",
+        "description": "Identify execution of rare or atypically named binaries that use common proxying command-line arguments, prioritizing those on the scoped hosts.",
+        "expected_signal": "A binary or command line used for proxying seen on very few hosts. This highlights non-standard tools used for tunneling."
+      },
+      "parents": [
+        {
+          "id": "vps-authentications"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare proxy binary execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '% -proxy %' OR LOWER(process_cmd_line) LIKE '% -socks %' OR LOWER(process_cmd_line) LIKE '% -tunnel %' OR LOWER(process_cmd_line) LIKE '% -remote %') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, process_cmd_line HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A binary or command line used for proxying seen on very few hosts. This highlights non-standard tools used for tunneling.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "anomalous-proxy-ports",
+      "type": "query",
+      "label": "Connections to Tor and relay ports",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND instr(',' || '{{proxy_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Capture network connections directed at ports commonly associated with Tor relays and multi-hop infrastructure.",
+        "expected_signal": "Endpoints communicating via traditional Tor ports (9001/9050)."
+      },
+      "parents": [
+        {
+          "id": "vps-authentications"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Connections to Tor and relay ports",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND instr(',' || '{{proxy_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Endpoints communicating via traditional Tor ports (9001/9050).",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "onion-dns-lookups",
+      "type": "query",
+      "label": "DNS queries for hidden services",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(query_hostname) LIKE '%.onion%' OR LOWER(query_hostname) LIKE '%.hiddenservice.net%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Identify DNS activity for TLDs used by the Tor network, which indicates the use of an onion proxy on the endpoint.",
+        "expected_signal": "Lookups for .onion domains; this is a high-fidelity marker for Tor usage."
+      },
+      "parents": [
+        {
+          "id": "vps-authentications"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "DNS queries for hidden services",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(query_hostname) LIKE '%.onion%' OR LOWER(query_hostname) LIKE '%.hiddenservice.net%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Lookups for .onion domains; this is a high-fidelity marker for Tor usage.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Correlate identity and endpoint events",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "vps-authentications",
+          "rare-proxy-processes",
+          "anomalous-proxy-ports",
+          "onion-dns-lookups"
+        ],
+        "objective": "Review the successful VPS logons (vps-authentications) and correlate them with the rare proxy execution (rare-proxy-processes), anomalous ports (anomalous-proxy-ports), and onion DNS lookups (onion-dns-lookups). Look for temporal alignment between the login and the networking/process activity.",
+        "description": "Determine if authentication from a masked source aligns with the presence of proxy software and tunneling activity on the associated host.",
+        "max_iterations": 5,
+        "expected_signal": "A citation-backed verdict per host.",
+        "success_criteria": "A verdict of malicious, suspicious, or benign per host, citing the relevant rows from all surfaces."
+      },
+      "parents": [
+        {
+          "id": "rare-proxy-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "anomalous-proxy-ports",
+          "kind": "merge"
+        },
+        {
+          "id": "onion-dns-lookups",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "triage-decision",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host exhibiting both VPS sign-ins and endpoint tunneling",
+        "condition": "the triage verdict is malicious for at least one host exhibiting both VPS sign-ins and endpoint tunneling",
+        "blind_spot": "unmanaged-device-blindspot",
+        "confidence": "high",
+        "description": "Isolate hosts with confirmed multi-hop proxy C2 and escalate others for review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Terminate the multi-hop proxy session and prevent lateral movement.",
+        "instructions": "Isolate the endpoint. Revoke all active Okta sessions for the identified user. Block the src_endpoint_ip at the firewall.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "triage-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Review correlated intrusion",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review agent results and tuning opportunities for the rare-proxy and onion-dns signals.",
+        "instructions": "Verify if the proxy software found was authorized for business use. Investigate the identified user for signs of credential theft (e.g., unusual password resets or MFA updates)."
+      },
+      "parents": [
+        {
+          "id": "triage-decision",
+          "branch": "default"
+        },
+        {
+          "id": "triage-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "triage-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close hunt and tune",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and update parameters.",
+        "instructions": "Log any new VPS IPs found. If the onion DNS signal was high fidelity, promote it to a standing detection rule."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,608 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The AD RMS SLC key is the master root for all organizationally protected data. Its extraction allows permanent, offline decryption that is undetectable post-extraction and persists across infrastructure rebuilds. Confirming it is secure is a top-tier data protection priority."
+      },
+      "name": "AD RMS Root Key Discovery and Extraction",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1003.001",
+        "attack.t1190",
+        "attack.t1082",
+        "attack.t1083"
+      ],
+      "related": [
+        {
+          "hunt": "rms-client-side-disarms",
+          "reason": "This hunt focuses on server-side root key extraction; client-side protection stripping (DisARMS) is a separate threat.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard rule may flag the SharpRMS binary, but this hunt pivots between infrastructure discovery (SQL/RMS server identification), behavioral command analysis (keyprotection), fleet-wide tool prevalence, and anomalous sign-ins to confirm a root key theft across several telemetry surfaces.",
+      "coverage": [
+        {
+          "stage": "initial-access-privileged-account",
+          "steps": [
+            "service-account-auth"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "discovery-protected-files",
+          "reason": "hb_file_activity cannot see internal OLE compound file magic or EncryptedPackage streams.",
+          "status": "not_visible",
+          "blind_spot": "ole-magic-visibility"
+        },
+        {
+          "stage": "discovery-rms-configuration",
+          "steps": [
+            "rms-tooling-behavior",
+            "rare-rms-tools"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-access-slc-extraction",
+          "steps": [
+            "rms-tooling-behavior",
+            "non-browser-web-traffic"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Compromise of AD RMS Service Group Account",
+            "slug": "initial-access-privileged-account",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "tony.soprano",
+              "AD RMS Service Group account"
+            ]
+          },
+          {
+            "name": "Identification of RMS-Protected Documents",
+            "slug": "discovery-protected-files",
+            "tactic": "discovery",
+            "techniques": [
+              "T1083"
+            ],
+            "observables": [
+              "D0-CF-11-E0-A1-B1-1A-E1",
+              "EncryptedPackage stream",
+              "Primary (publishing license) stream",
+              "OLE compound file magic"
+            ]
+          },
+          {
+            "name": "RMS Service and Key Configuration Recon",
+            "slug": "discovery-rms-configuration",
+            "tactic": "discovery",
+            "techniques": [
+              "T1082"
+            ],
+            "observables": [
+              "keyprotection",
+              "IsServicePrivateKeySoftwareBased: true",
+              "DatabaseConnectionString",
+              "VESUVIO",
+              "BARONE"
+            ]
+          },
+          {
+            "name": "SLC Private Key Extraction",
+            "slug": "credential-access-slc-extraction",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1003.001"
+            ],
+            "observables": [
+              "SharpRMS",
+              "Trusted Publishing Domain (TPD) export",
+              "AD RMS admin SOAP surface",
+              "AD RMS configuration database (SQL)",
+              "integrated security=SSPI"
+            ]
+          }
+        ],
+        "summary": "An attacker compromises a privileged AD RMS Service Group account to discover protected documents and configuration details. By extracting the 255-year-valid Server Licensor Certificate (SLC) private key via SOAP export or direct SQL database access, the attacker gains the ability to decrypt every document ever protected by the deployment offline."
+      },
+      "severity": "high",
+      "rationale": "Start by identifying the AD RMS cluster nodes and the SQL database server. Analysis of process and auth logs should focus on these high-value targets identified in the first query.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has compromised an AD RMS Service Group account to discover configuration (software-backed keys) and extract the SLC private key via TPD export or direct SQL access.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Limit the hunt to specific hosts; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "browser_processes": {
+          "type": "list[string]",
+          "default": [
+            "chrome.exe",
+            "msedge.exe",
+            "iexplore.exe",
+            "firefox.exe"
+          ],
+          "description": "Common browser process names to exclude from administrative SOAP traffic analysis."
+        },
+        "rms_infrastructure_list": {
+          "type": "list[host]",
+          "default": [],
+          "description": "The AD RMS nodes and SQL backends identified in the scoping step."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/ad-rms-slc-encryption-key",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/ad-rms-slc-encryption-key",
+          "name": "AD Rights Management Service (Part 2): Extraction, Offline Decryption, and the Unrotatable Key"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "ole-magic-visibility",
+          "risk": "An attacker can sweep shares for RMS-protected files without detection if only path-level telemetry is available.",
+          "stage": "discovery-protected-files",
+          "question": "whether a process is specifically searching for the D0-CF OLE magic or RMS streams",
+          "requires": "hb_file_activity with content magic inspection",
+          "remediation": "Deploy file scanning solutions that report on OLE compound file streams in transit."
+        },
+        {
+          "id": "soap-payload-visibility",
+          "risk": "Legitimate admin activity and malicious extraction use the same SOAP surface; without payload visibility, detection relies on process and account anomalies.",
+          "stage": "credential-access-slc-extraction",
+          "question": "the specific SOAP method (e.g., TPD export) being invoked over HTTPS",
+          "requires": "HTTPS decryption or AD RMS server-side audit logs",
+          "remediation": "Enable AD RMS administrative SOAP logging to capture export events."
+        }
+      ]
+    },
+    "name": "AD RMS Root Key Discovery and Extraction",
+    "description": "This hunt targets the critical extraction of the AD RMS Server Licensor Certificate (SLC) private key. This 255-year root key allows for permanent, offline decryption of all documents protected by the cluster. The hunt identifies the execution of discovery tools like SharpRMS and the 'keyprotection' command, assesses the prevalence of these tools across the fleet, and corroborates with anomalous logins and unusual web traffic to the RMS administrative SOAP surface. By targeting the servers identified during infrastructure scoping, it avoids broad detection noise and focuses on high-impact administrative bypasses."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-privileged-account",
+            "steps": [
+              "service-account-auth"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "discovery-protected-files",
+            "reason": "hb_file_activity cannot see internal OLE compound file magic or EncryptedPackage streams.",
+            "status": "not_visible",
+            "blind_spot": "ole-magic-visibility"
+          },
+          {
+            "stage": "discovery-rms-configuration",
+            "steps": [
+              "rms-tooling-behavior",
+              "rare-rms-tools"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-access-slc-extraction",
+            "steps": [
+              "rms-tooling-behavior",
+              "non-browser-web-traffic"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has compromised an AD RMS Service Group account to discover configuration (software-backed keys) and extract the SLC private key via TPD export or direct SQL access.",
+        "blind_spots": [
+          {
+            "id": "ole-magic-visibility",
+            "risk": "An attacker can sweep shares for RMS-protected files without detection if only path-level telemetry is available.",
+            "stage": "discovery-protected-files",
+            "question": "whether a process is specifically searching for the D0-CF OLE magic or RMS streams",
+            "requires": "hb_file_activity with content magic inspection",
+            "remediation": "Deploy file scanning solutions that report on OLE compound file streams in transit."
+          },
+          {
+            "id": "soap-payload-visibility",
+            "risk": "Legitimate admin activity and malicious extraction use the same SOAP surface; without payload visibility, detection relies on process and account anomalies.",
+            "stage": "credential-access-slc-extraction",
+            "question": "the specific SOAP method (e.g., TPD export) being invoked over HTTPS",
+            "requires": "HTTPS decryption or AD RMS server-side audit logs",
+            "remediation": "Enable AD RMS administrative SOAP logging to capture export events."
+          }
+        ],
+        "scoping_notes": "Start by identifying the AD RMS cluster nodes and the SQL database server. Analysis of process and auth logs should focus on these high-value targets identified in the first query.",
+        "beyond_detection": "A standard rule may flag the SharpRMS binary, but this hunt pivots between infrastructure discovery (SQL/RMS server identification), behavioral command analysis (keyprotection), fleet-wide tool prevalence, and anomalous sign-ins to confirm a root key theft across several telemetry surfaces."
+      }
+    },
+    {
+      "id": "scope-rms-infrastructure",
+      "type": "query",
+      "label": "Scope AD RMS and SQL Infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%rights management%' OR LOWER(package_name) LIKE '%sql server%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Identify potential AD RMS servers and SQL backends hosting the configuration database.",
+        "expected_signal": "Hosts running AD RMS or SQL Server. Silence indicates no such software was inventoried via this surface."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope AD RMS and SQL Infrastructure",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%rights management%' OR LOWER(package_name) LIKE '%sql server%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts running AD RMS or SQL Server. Silence indicates no such software was inventoried via this surface.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rms-tooling-behavior",
+      "type": "query",
+      "label": "Detection of RMS Recon and Extraction Tools",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%keyprotection%' OR LOWER(process_cmd_line) LIKE '%sharprms%' OR LOWER(process_cmd_line) LIKE '%tpdexport%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_process_activity",
+        "description": "Find execution of the 'keyprotection' command or SharpRMS tool used to find and extract root keys.",
+        "expected_signal": "Evidence of an operator querying the RMS service configuration for software-based keys or performing a TPD export. Promoted to a rule if consistent."
+      },
+      "parents": [
+        {
+          "id": "scope-rms-infrastructure"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detection of RMS Recon and Extraction Tools",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "process_name",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%keyprotection%' OR LOWER(process_cmd_line) LIKE '%sharprms%' OR LOWER(process_cmd_line) LIKE '%tpdexport%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "evidence_of_absence",
+        "expected": "Evidence of an operator querying the RMS service configuration for software-based keys or performing a TPD export. Promoted to a rule if consistent.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-rms-tools",
+      "type": "query",
+      "label": "Prevalence of RMS Configuration Tools",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_name) AS tool, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS run_count, MIN(time) AS first_run FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%keyprotection%' OR LOWER(process_cmd_line) LIKE '%sharprms%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY tool HAVING host_count < 5 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count specific RMS configuration tools to identify rare/unauthorized usage across the estate.",
+        "expected_signal": "Rare tools appearing on only one or two hosts, potentially indicating lateral movement or unauthorized admin activity."
+      },
+      "parents": [
+        {
+          "id": "rms-tooling-behavior"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Prevalence of RMS Configuration Tools",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_name) AS tool, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS run_count, MIN(time) AS first_run FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%keyprotection%' OR LOWER(process_cmd_line) LIKE '%sharprms%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY tool HAVING host_count < 5 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare tools appearing on only one or two hosts, potentially indicating lateral movement or unauthorized admin activity.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "service-account-auth",
+      "type": "query",
+      "label": "Sign-ins to RMS Infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "identity",
+        "content": "SELECT actor_user_name, dst_endpoint_name, src_endpoint_ip, auth_protocol, time FROM hb_auth_signin WHERE (('{{rms_infrastructure_list}}' = '' OR instr(',' || '{{rms_infrastructure_list}}' || ',', ',' || dst_endpoint_name || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify any sign-ins to the identified RMS servers, looking for non-standard actors.",
+        "expected_signal": "Logins to the RMS/SQL nodes. An analyst or agent weighs these to see if they match expected admin behavior or indicate credential compromise."
+      },
+      "parents": [
+        {
+          "id": "rare-rms-tools"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Sign-ins to RMS Infrastructure",
+        "reads": [
+          "actor_user_name",
+          "auth_protocol",
+          "dst_endpoint_name",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, dst_endpoint_name, src_endpoint_ip, auth_protocol, time FROM hb_auth_signin WHERE (('{{rms_infrastructure_list}}' = '' OR instr(',' || '{{rms_infrastructure_list}}' || ',', ',' || dst_endpoint_name || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Logins to the RMS/SQL nodes. An analyst or agent weighs these to see if they match expected admin behavior or indicate credential compromise.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "non-browser-web-traffic",
+      "type": "query",
+      "label": "Non-Browser Traffic to RMS Infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_hostname, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE dst_endpoint_port IN (80, 443) AND NOT (instr(',' || '{{browser_processes}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{rms_infrastructure_list}}' = '' OR instr(',' || '{{rms_infrastructure_list}}' || ',', ',' || dst_endpoint_hostname || ',') > 0 OR instr(',' || '{{rms_infrastructure_list}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify SOAP automation or custom extraction binaries connecting specifically to the RMS administrative ports.",
+        "expected_signal": "A script, PowerShell, or unknown binary (e.g., SharpRMS) communicating with the RMS administrative nodes. Browser traffic is excluded to reduce noise."
+      },
+      "parents": [
+        {
+          "id": "rare-rms-tools"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Non-Browser Traffic to RMS Infrastructure",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_hostname, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE dst_endpoint_port IN (80, 443) AND NOT (instr(',' || '{{browser_processes}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{rms_infrastructure_list}}' = '' OR instr(',' || '{{rms_infrastructure_list}}' || ',', ',' || dst_endpoint_hostname || ',') > 0 OR instr(',' || '{{rms_infrastructure_list}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A script, PowerShell, or unknown binary (e.g., SharpRMS) communicating with the RMS administrative nodes. Browser traffic is excluded to reduce noise.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-rms-activity",
+      "type": "analytic",
+      "label": "Triage AD RMS Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "scope-rms-infrastructure",
+          "rms-tooling-behavior",
+          "rare-rms-tools",
+          "service-account-auth",
+          "non-browser-web-traffic"
+        ],
+        "objective": "Determine if the AD RMS root key (SLC) has been extracted by correlating 'keyprotection' discovery commands, rare tooling prevalence, and non-browser web traffic to the RMS servers.",
+        "description": "Analyze the overlap of scoping, commands, prevalence, auth, and network activity to determine if a root key extraction occurred.",
+        "max_iterations": 5,
+        "expected_signal": "A verdict citing specific hosts where discovery followed by extraction traffic is observed.",
+        "success_criteria": "A verdict of malicious, suspicious, or benign per host, citing the overlap of tools and traffic."
+      },
+      "parents": [
+        {
+          "id": "service-account-auth",
+          "kind": "merge"
+        },
+        {
+          "id": "non-browser-web-traffic",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for an extraction attempt using SharpRMS or TPD export patterns targeting identified infrastructure.",
+        "condition": "The triage verdict is malicious for an extraction attempt using SharpRMS or TPD export patterns targeting identified infrastructure.",
+        "blind_spot": "soap-payload-visibility",
+        "confidence": "high",
+        "description": "Route the hunt to isolation or manual review based on the triage agent's findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-rms-activity"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Host and Revoke Credentials",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further extraction or use of the stolen SLC key material.",
+        "instructions": "Isolate the compromised RMS/SQL server immediately. Revoke the credentials for any compromised account identified in the triage. Begin forensic recovery and SLC key audit.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review findings where the agent was undecided or data was unavailable.",
+        "instructions": "Manually inspect the process and network events on the flagged hosts. Check database audit logs if available for direct table access to SLC keys on the SQL backend."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and document the security posture.",
+        "instructions": "Document the hosts examined. If software-based keys are confirmed but no extraction occurred, recommend the infrastructure team move the SLC to an HSM."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

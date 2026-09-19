@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VerdantBamboo Edge Appliance Backdoor and Pivot · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder has compromised an edge appliance (Egnyte, Synology, or pfSense) using stolen credentials, escalated privileges via a sudo misconfiguration, and deployed the BRICKSTORM backdoor using DoH for command-and-control.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/verdantbamboo-edge-appliance-backdoor/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="VerdantBamboo Edge Appliance Backdoor and Pivot · Huntbase Hunts">
+  <meta property="og:description" content="An intruder has compromised an edge appliance (Egnyte, Synology, or pfSense) using stolen credentials, escalated privileges via a sudo misconfiguration, and deployed the BRICKSTORM backdoor using DoH for command-and-control.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/verdantbamboo-edge-appliance-backdoor/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">VerdantBamboo Edge Appliance Backdoor and Pivot</h1>
+      <p class="hyp-lead">An intruder has compromised an edge appliance (Egnyte, Synology, or pfSense) using stolen credentials, escalated privileges via a sudo misconfiguration, and deployed the BRICKSTORM backdoor using DoH for command-and-control.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/" rel="noopener">Volexity</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1059.004 T1071.004 T1078 T1090.003 T1133 T1505.003 T1548.003</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=verdantbamboo-edge-appliance-backdoor" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Background</h3>
+<p>In recent research, Volexity detailed the activities of a threat actor tracked as VERDANTBAMBOO. This group focuses on compromising unmanaged edge infrastructure—including storage sync appliances and firewalls—to establish a foothold within target environments. Their primary tool, the BRICKSTORM backdoor, is notable for its use of DNS-over-HTTPS (DoH) to bypass traditional network monitoring. You can read the full technical details in the Volexity report: <a href="https://www.volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/" rel="noopener noreferrer">VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall</a>.</p>
+<h3>The Hunt Flow</h3>
+<p>The hunt starts with <strong>Scoping</strong>, identifying Linux and BSD-based systems within the environment. Because many edge appliances run specialized versions of these operating systems, we must first isolate these hosts to ensure our behavioral queries are targeted at the correct infrastructure.</p>
+<p>We then move to <strong>Authentication Anomalies</strong>, specifically looking for successful logins to service accounts like <code>egnyteservice</code> or VPN-related providers. In the VerdantBamboo campaign, attackers often used legitimate but stolen service account credentials to gain their initial foothold.</p>
+<p>Next, the hunt examines <strong>Process Activity</strong> for the misuse of <code>sudo tee</code>. This specific pattern is used by the attacker to overwrite sensitive system configuration files. While <code>sudo tee</code> is a common administrative command, its appearance on a production appliance followed by file writes to system directories is a significant indicator of compromise.</p>
+<p>For <strong>Network Telemetry</strong>, we focus on outbound connections to public DNS resolvers like 8.8.8.8 on port 443. Since BRICKSTORM leverages DoH for command-and-control, these connections appear as standard HTTPS traffic. We look for persistent, low-volume connections from appliance processes that lack corresponding standard DNS traffic.</p>
+<p>Finally, we audit <strong>Persistence</strong> by inspecting <code>/etc/cron.d/</code> and other system crontabs. We are looking for unauthorized entries that execute shell scripts or interpreters, which the actor uses to ensure their implant remains active across reboots.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>The primary blind spot for this hunt is telemetry coverage. If an appliance is a proprietary "black box" that does not support the installation of an endpoint agent, process and file activity signals will be unavailable. Furthermore, without TLS inspection at the network layer, we cannot confirm the content of DoH traffic; we must rely on destination IPs and connection frequency as behavioral proxies.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/verdantbamboo-proxied-cloud-identity/index.html">Part 2: VerdantBamboo Proxied Cloud Identity Access</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Identity / sign-in telemetry</span><span class="dim">identity</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder has compromised an edge appliance (Egnyte, Synology, or pfSense) using stolen credentials, escalated privileges via a sudo misconfiguration, and deployed the BRICKSTORM backdoor using DoH for command-and-control.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Find Linux and BSD systems that match the platform profile of targeted storage and firewall appliances to define the hunt\u0027s strict scope.", "expected": "A list of hostnames belonging to edge appliances or Linux servers. This list must be used to populate the \u0027scope_hosts\u0027 parameter for subsequent steps.", "id": "appliance-scoping", "label": "Identify Linux and BSD Appliances", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT hostname AS device_hostname, platform, os_name, ip_address, time FROM hb_devices WHERE (LOWER(platform) IN (\u0027linux\u0027, \u0027ubuntu\u0027, \u0027freebsd\u0027) OR LOWER(os_name) LIKE \u0027%linux%\u0027 OR LOWER(os_name) LIKE \u0027%bsd%\u0027) AND lifecycle_state = \u0027active\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Identify logins to the scoped appliances using service accounts or administrative credentials.", "expected": "Logins from unusual source IPs (assigned by the VPN) to service accounts like \u0027egnyteservice\u0027.", "id": "vpn-login-anomalies", "label": "VPN Authentication Anomalies", "parents": [{"branch": null, "id": "appliance-scoping", "kind": null}], "query": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, provider, time FROM hb_auth_signin WHERE instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || dst_endpoint_name || \u0027,\u0027) \u003e 0 AND (LOWER(actor_user_name) = \u0027egnyteservice\u0027 OR LOWER(metadata_product) = \u0027vpn\u0027 OR LOWER(dst_endpoint_name) LIKE \u0027%vpn%\u0027 OR LOWER(dst_endpoint_name) LIKE \u0027%firewall%\u0027) AND status_id = 1 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_auth_signin", "type": "query"}, {"description": "Detect the use of \u0027sudo tee\u0027 to overwrite system configuration files on targeted appliances.", "expected": "A process using sudo and tee to write to sensitive directories like /etc/cron.d or /usr/sbin.", "id": "sudo-tee-misuse", "label": "Sudo Tee Privilege Escalation", "parents": [{"branch": null, "id": "appliance-scoping", "kind": null}], "query": "SELECT device_hostname, user_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0 AND (LOWER(process_cmd_line) LIKE \u0027%sudo %\u0027 AND LOWER(process_cmd_line) LIKE \u0027% tee %\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify historical HTTPS connections (log) to public DNS resolvers which may be DoH C2 traffic.", "expected": "Persistent outbound TLS connections to 8.8.8.8 from an appliance server process without corresponding DNS traffic.", "id": "doh-c2-activity", "label": "DoH C2 Traffic to Public Resolvers", "parents": [{"branch": null, "id": "appliance-scoping", "kind": null}], "query": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, COUNT(*) AS connection_count, MIN(time) AS first_seen FROM hb_network_connection WHERE instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0 AND instr(\u0027,\u0027 || \u0027{{c2_doh_ips}}\u0027 || \u0027,\u0027, \u0027,\u0027 || dst_endpoint_ip || \u0027,\u0027) \u003e 0 AND dst_endpoint_port = 443 AND state_kind = \u0027log\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port HAVING connection_count \u003e 5", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Detect script executions defined in system-level cron directories on scoped appliances, a hallmark of BRICKSTORM persistence.", "expected": "A job definition in /etc/cron.d/ executing an interpreter or script, particularly on an appliance where such entries are not standard.", "id": "cron-persistence-anomalies", "label": "Anomalous Script Execution in System Cron", "parents": [{"branch": null, "id": "appliance-scoping", "kind": null}], "query": "SELECT device_hostname, job_name, job_cmd_line, job_definition_path, job_user_name FROM hb_scheduled_job WHERE instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0 AND LOWER(job_definition_path) LIKE \u0027%/etc/cron.d/%\u0027 AND (LOWER(job_cmd_line) LIKE \u0027%/bin/sh%\u0027 OR LOWER(job_cmd_line) LIKE \u0027%/bin/bash%\u0027 OR LOWER(job_cmd_line) LIKE \u0027%python%\u0027 OR LOWER(job_cmd_line) LIKE \u0027%/usr/bin/tee%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_scheduled_job", "type": "query"}, {"description": "Analyze signals from multiple surfaces to identify a multi-stage compromise on the scoped appliances.", "expected": "A detailed verdict linking the sudo abuse, DoH connectivity, and persistence per host.", "id": "triage-implants", "label": "Weigh VerdantBamboo Evidence", "parents": [{"branch": null, "id": "vpn-login-anomalies", "kind": "merge"}, {"branch": null, "id": "sudo-tee-misuse", "kind": "merge"}, {"branch": null, "id": "doh-c2-activity", "kind": "merge"}, {"branch": null, "id": "cron-persistence-anomalies", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the workflow to isolation if the evidence confirms the compromise of an edge appliance.", "expected": null, "id": "decision-route", "label": "Route on Verdict", "parents": [{"branch": null, "id": "triage-implants", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent further C2 and lateral movement by isolating the host.", "expected": null, "id": "isolate-host", "label": "Isolate Compromised Appliance", "parents": [{"branch": "on_supports", "id": "decision-route", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Conduct manual triage to confirm findings and look for lateral movement into Synology or VMware environments.", "expected": null, "id": "analyst-review", "label": "Analyst Review and Forensics", "parents": [{"branch": "default", "id": "decision-route", "kind": null}, {"branch": "on_unavailable", "id": "decision-route", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Finalize the hunt and document findings.", "expected": null, "id": "close-out", "label": "Hunt Close-out", "parents": [{"branch": "on_refutes", "id": "decision-route", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-appliance-scoping">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Linux and BSD Appliances</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Find Linux and BSD systems that match the platform profile of targeted storage and firewall appliances to define the hunt&#39;s strict scope.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT hostname AS device_hostname, platform, os_name, ip_address, time FROM hb_devices WHERE (LOWER(platform) IN (&#39;linux&#39;, &#39;ubuntu&#39;, &#39;freebsd&#39;) OR LOWER(os_name) LIKE &#39;%linux%&#39; OR LOWER(os_name) LIKE &#39;%bsd%&#39;) AND lifecycle_state = &#39;active&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames belonging to edge appliances or Linux servers. This list must be used to populate the &#39;scope_hosts&#39; parameter for subsequent steps.</p>        </li>
+        <li class="card step" id="step-vpn-login-anomalies">
+          <div class="step-head">
+            <h3 class="heading-sm">VPN Authentication Anomalies</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify logins to the scoped appliances using service accounts or administrative credentials.</p>          <div class="code"><div class="code-head"><span>reads hb_auth_signin</span><span>sql</span></div><pre><code>SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, provider, time FROM hb_auth_signin WHERE instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_name || &#39;,&#39;) &gt; 0 AND (LOWER(actor_user_name) = &#39;egnyteservice&#39; OR LOWER(metadata_product) = &#39;vpn&#39; OR LOWER(dst_endpoint_name) LIKE &#39;%vpn%&#39; OR LOWER(dst_endpoint_name) LIKE &#39;%firewall%&#39;) AND status_id = 1 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Logins from unusual source IPs (assigned by the VPN) to service accounts like &#39;egnyteservice&#39;.</p>        </li>
+        <li class="card step" id="step-sudo-tee-misuse">
+          <div class="step-head">
+            <h3 class="heading-sm">Sudo Tee Privilege Escalation</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect the use of &#39;sudo tee&#39; to overwrite system configuration files on targeted appliances.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, user_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0 AND (LOWER(process_cmd_line) LIKE &#39;%sudo %&#39; AND LOWER(process_cmd_line) LIKE &#39;% tee %&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A process using sudo and tee to write to sensitive directories like /etc/cron.d or /usr/sbin.</p>        </li>
+        <li class="card step" id="step-doh-c2-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">DoH C2 Traffic to Public Resolvers</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify historical HTTPS connections (log) to public DNS resolvers which may be DoH C2 traffic.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, COUNT(*) AS connection_count, MIN(time) AS first_seen FROM hb_network_connection WHERE instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0 AND instr(&#39;,&#39; || &#39;{{c2_doh_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_ip || &#39;,&#39;) &gt; 0 AND dst_endpoint_port = 443 AND state_kind = &#39;log&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port HAVING connection_count &gt; 5</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Persistent outbound TLS connections to 8.8.8.8 from an appliance server process without corresponding DNS traffic.</p>        </li>
+        <li class="card step" id="step-cron-persistence-anomalies">
+          <div class="step-head">
+            <h3 class="heading-sm">Anomalous Script Execution in System Cron</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Detect script executions defined in system-level cron directories on scoped appliances, a hallmark of BRICKSTORM persistence.</p>          <div class="code"><div class="code-head"><span>reads hb_scheduled_job</span><span>sql</span></div><pre><code>SELECT device_hostname, job_name, job_cmd_line, job_definition_path, job_user_name FROM hb_scheduled_job WHERE instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0 AND LOWER(job_definition_path) LIKE &#39;%/etc/cron.d/%&#39; AND (LOWER(job_cmd_line) LIKE &#39;%/bin/sh%&#39; OR LOWER(job_cmd_line) LIKE &#39;%/bin/bash%&#39; OR LOWER(job_cmd_line) LIKE &#39;%python%&#39; OR LOWER(job_cmd_line) LIKE &#39;%/usr/bin/tee%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A job definition in /etc/cron.d/ executing an interpreter or script, particularly on an appliance where such entries are not standard.</p>        </li>
+        <li class="card step" id="step-triage-implants">
+          <div class="step-head">
+            <h3 class="heading-sm">Weigh VerdantBamboo Evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Analyze signals from multiple surfaces to identify a multi-stage compromise on the scoped appliances.</p>        </li>
+        <li class="card step" id="step-decision-route">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the workflow to isolation if the evidence confirms the compromise of an edge appliance.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Compromised Appliance</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent further C2 and lateral movement by isolating the host.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review and Forensics</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Conduct manual triage to confirm findings and look for lateral movement into Synology or VMware environments.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Hunt Close-out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Finalize the hunt and document findings.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Initial Access via SSL VPN<br><span class="mono dim">T1133 · T1078</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>vpn-login-anomalies</td></tr>            <tr><td>Privilege Escalation via Sudo Tee<br><span class="mono dim">T1059.004 · T1548.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>sudo-tee-misuse</td></tr>            <tr><td>Backdoor Deployment and Cron Persistence<br><span class="mono dim">T1053.003 · T1505.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>cron-persistence-anomalies</td></tr>            <tr><td>Command and Control via DoH Proxying<br><span class="mono dim">T1071.004 · T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>doh-c2-activity</td></tr>            <tr><td>Lateral Movement to Internal NAS<br><span class="mono dim">T1021.004</span></td>
+            <td><span class="no">Not visible</span></td>
+            <td>Requires Synology-specific web logs or internal SSH session telemetry not available in the listed surfaces.</td></tr>            <tr><td>Proxied Microsoft 365 Authentication<br><span class="mono dim">T1078 · T1090.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs Endpoint agent coverage on proprietary appliances.</strong> If an appliance does not support an agent, the sudo-tee and cron-persistence signals will not be visible on the endpoint surfaces. <span class="dim">It would answer Does the appliance allow the installation of an agent to report file and job activity?.</span></li>          <li class="card"><strong>Needs TLS inspection or NetFlow with process correlation.</strong> If DoH is used, standard DNS query logs will remain silent, making the 8.8.8.8:443 network pattern the primary behavioral indicator. <span class="dim">It would answer Can the network fabric differentiate DoH traffic to 8.8.8.8 from standard HTTPS traffic?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>c2_doh_ips</code></td><td class="mono dim">list[ip]</td><td class="mono">8.8.8.8, 8.8.4.4, 1.1.1.1</td><td>Public DNS resolvers typically abused for DoH C2 channels.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>The specific appliances identified in the scoping step; paste them here to filter the rest of the hunt.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Identity / sign-in telemetry</td><td class="dim">identity</td><td class="mono">identity</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: This is a hunt because detection rules for &#39;sudo tee&#39; often have high false
+  positives on developer workstations. The hunt strictly scopes to edge appliances
+  and pivots between authentication anomalies, unusual DoH network patterns, and specific
+  cron persistence locations to identify VerdantBamboo activity.
+blind_spots:
+- id: missing-appliance-telemetry
+  question: Does the appliance allow the installation of an agent to report file and
+    job activity?
+  requires: Endpoint agent coverage on proprietary appliances
+  risk: If an appliance does not support an agent, the sudo-tee and cron-persistence
+    signals will not be visible on the endpoint surfaces.
+  stage: persistence-appliance-backdoors
+- id: doh-traffic-visibility
+  question: Can the network fabric differentiate DoH traffic to 8.8.8.8 from standard
+    HTTPS traffic?
+  requires: TLS inspection or NetFlow with process correlation
+  risk: If DoH is used, standard DNS query logs will remain silent, making the 8.8.8.8:443
+    network pattern the primary behavioral indicator.
+  stage: c2-brickstorm-doh
+coverage:
+- stage: initial-access-vpn-credentials
+  status: covered
+  steps:
+  - vpn-login-anomalies
+- stage: privilege-escalation-sudo-tee
+  status: covered
+  steps:
+  - sudo-tee-misuse
+- stage: persistence-appliance-backdoors
+  status: covered
+  steps:
+  - cron-persistence-anomalies
+- stage: c2-brickstorm-doh
+  status: covered
+  steps:
+  - doh-c2-activity
+- reason: Requires Synology-specific web logs or internal SSH session telemetry not
+    available in the listed surfaces.
+  stage: lateral-movement-nas-pivot
+  status: not_visible
+- reason: &#39;Belongs to another part of the &#39;&#39;VERDANTBAMBOO: Just Another BRICKSTORM
+    in the Firewall&#39;&#39; series.&#39;
+  stage: impact-proxied-m365-access
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: VerdantBamboo targets unmanaged edge appliances to bypass MFA and
+    EDR; a negative result confirms these critical ingress points are not currently
+    hosting BRICKSTORM backdoors.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder has compromised an edge appliance (Egnyte, Synology, or pfSense)
+  using stolen credentials, escalated privileges via a sudo misconfiguration, and
+  deployed the BRICKSTORM backdoor using DoH for command-and-control.
+labels:
+- hunt
+- attack.t1059.004
+- attack.t1071.004
+- attack.t1078
+- attack.t1090.003
+- attack.t1133
+- attack.t1505.003
+- attack.t1548.003
+name: VerdantBamboo Edge Appliance Backdoor and Pivot
+parameters:
+  c2_doh_ips:
+    default:
+    - 8.8.8.8
+    - 8.8.4.4
+    - 1.1.1.1
+    description: Public DNS resolvers typically abused for DoH C2 channels.
+    from:
+      kind: article
+      observed: &#39;2026-06-04&#39;
+      ref: VERDANTBAMBOO-volexity
+    type: list[ip]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    from:
+      kind: manual
+      observed: &#39;2024-06-04&#39;
+      ref: standard-lookback
+    type: number
+  scope_hosts:
+    default: []
+    description: The specific appliances identified in the scoping step; paste them
+      here to filter the rest of the hunt.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on Linux and FreeBSD appliances in hb_devices. The hunt assumes these
+  devices are reporting telemetry; ensure they are within the scope of the current
+  endpoint agent deployment.
+references:
+- name: &#34;Volexity \u2014 VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall&#34;
+  url: https://www.volexity.com/blog/2026/06/04/verdantbamboo-just-another-brickstorm-in-the-firewall/
+related:
+- hunt: proxied-m365-access-anomalies
+  reason: This hunt focuses on the appliance breach; session anomalies in M365 from
+    proxied traffic require a separate hunt.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: Initial Access via SSL VPN
+    observables:
+    - egnyteservice
+    - Administrative credentials for VPN
+    - Web SSL VPN login
+    - Stolen MSP credentials
+    slug: initial-access-vpn-credentials
+    tactic: initial-access
+    techniques:
+    - T1133
+    - T1078
+  - name: Privilege Escalation via Sudo Tee
+    observables:
+    - sudo /usr/bin/tee
+    - &#39;egnyteservice ALL = PASSWD: EGNYTEAPPS&#39;
+    - rsync_data_migration.sh
+    slug: privilege-escalation-sudo-tee
+    tactic: privilege-escalation
+    techniques:
+    - T1059.004
+    - T1548.003
+  - name: Backdoor Deployment and Cron Persistence
+    observables:
+    - /etc/cron.d/ssync
+    - /home/egnyteservice/ssync.sh
+    - /usr/sbin/BRICKSTORM
+    - /etc/crontab
+    - /usr/local/bin/egnyte/egnyte_host_monitor_client
+    - /etc/rc.d/cron
+    - /usr/local/libexec/ipsec/blacklist
+    - AGENTPSD
+    - PLENET
+    - pfSense web shells
+    slug: persistence-appliance-backdoors
+    tactic: persistence
+    techniques:
+    - T1053.003
+    - T1505.003
+  - name: Command and Control via DoH Proxying
+    observables:
+    - 8.8.8.8
+    - TLS connection to Google DNS
+    - Cloudflare IP addresses
+    - DNS over HTTPS
+    slug: c2-brickstorm-doh
+    tactic: command-and-control
+    techniques:
+    - T1071.004
+    - T1090.003
+  - name: Lateral Movement to Internal NAS
+    observables:
+    - SSH to Synology NAS
+    - Synology administrative interface
+    - Internal IP assigned by firewall VPN
+    slug: lateral-movement-nas-pivot
+    tactic: lateral-movement
+    techniques:
+    - T1021.004
+  - name: Proxied Microsoft 365 Authentication
+    observables:
+    - Microsoft 365 (M365) environment
+    - Login from edge appliance IP
+    - Bypassing Conditional Access policies
+    slug: impact-proxied-m365-access
+    tactic: credential-access
+    techniques:
+    - T1078
+    - T1090.003
+  summary: VerdantBamboo compromised a Managed Services Provider (MSP) to gain credentials
+    and persistent access to client edge appliances, including Egnyte Storage Sync,
+    pfSense firewalls, and Synology NAS systems. The threat actor deployed BRICKSTORM
+    and AGENTPSD backdoors, leveraging a local privilege escalation on the Storage
+    Sync system to maintain root-level access and proxy traffic to Microsoft 365,
+    successfully evading location-based Conditional Access policies.
+series:
+  index: 1
+  slug: verdantbamboo-just-another-brickstorm-in-the-firewall
+  title: &#39;VERDANTBAMBOO: Just Another BRICKSTORM in the Firewall&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  identity:
+    category: identity
+    name: Identity / sign-in telemetry
+    telemetry:
+    - identity
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# VerdantBamboo Edge Appliance Backdoor and Pivot
+
+This hunt targets the activity of the VerdantBamboo (UNC5221) group as described in the BRICKSTORM campaign. It specifically looks for indicators of compromise on Linux and BSD-based edge appliances, including the abuse of &#39;sudo tee&#39; for file writing, DNS-over-HTTPS (DoH) traffic to public resolvers (8.8.8.8) which serves as a C2 channel, and persistence through system crontabs. The hunt also examines VPN login anomalies that often precede the deployment of these implants.
+
+## appliance-scoping
+&lt;!-- Identify Linux and BSD Appliances --&gt;
+Find Linux and BSD systems that match the platform profile of targeted storage and firewall appliances to define the hunt&#39;s strict scope.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames belonging to edge appliances or Linux servers. This
+  list must be used to populate the &#39;scope_hosts&#39; parameter for subsequent steps.
+reads:
+- hostname
+- platform
+- os_name
+- ip_address
+- time
+- lifecycle_state
+silence: not_evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT hostname AS device_hostname, platform, os_name, ip_address, time FROM hb_devices WHERE (LOWER(platform) IN (&#39;linux&#39;, &#39;ubuntu&#39;, &#39;freebsd&#39;) OR LOWER(os_name) LIKE &#39;%linux%&#39; OR LOWER(os_name) LIKE &#39;%bsd%&#39;) AND lifecycle_state = &#39;active&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-signals
+&lt;!-- Gather Evidence Across Multiple Surfaces --&gt;
+parallel:
+- → vpn-login-anomalies
+- → sudo-tee-misuse
+- → doh-c2-activity
+- → cron-persistence-anomalies
+join: → triage-implants
+
+## vpn-login-anomalies
+&lt;!-- VPN Authentication Anomalies --&gt;
+Identify logins to the scoped appliances using service accounts or administrative credentials.
+
+```sqlite target=identity role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Logins from unusual source IPs (assigned by the VPN) to service accounts
+  like &#39;egnyteservice&#39;.
+reads:
+- actor_user_name
+- src_endpoint_ip
+- dst_endpoint_name
+- provider
+- time
+- status_id
+silence: not_evidence_of_absence
+source: hb_auth_signin
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, provider, time FROM hb_auth_signin WHERE instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_name || &#39;,&#39;) &gt; 0 AND (LOWER(actor_user_name) = &#39;egnyteservice&#39; OR LOWER(metadata_product) = &#39;vpn&#39; OR LOWER(dst_endpoint_name) LIKE &#39;%vpn%&#39; OR LOWER(dst_endpoint_name) LIKE &#39;%firewall%&#39;) AND status_id = 1 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## sudo-tee-misuse
+&lt;!-- Sudo Tee Privilege Escalation --&gt;
+Detect the use of &#39;sudo tee&#39; to overwrite system configuration files on targeted appliances.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: A process using sudo and tee to write to sensitive directories like /etc/cron.d
+  or /usr/sbin.
+reads:
+- device_hostname
+- user_name
+- process_cmd_line
+- parent_process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, user_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0 AND (LOWER(process_cmd_line) LIKE &#39;%sudo %&#39; AND LOWER(process_cmd_line) LIKE &#39;% tee %&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## doh-c2-activity
+&lt;!-- DoH C2 Traffic to Public Resolvers --&gt;
+Identify historical HTTPS connections (log) to public DNS resolvers which may be DoH C2 traffic.
+
+```sqlite target=network role=baseline params=(lookback_days=lookback_days, c2_doh_ips=c2_doh_ips, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Persistent outbound TLS connections to 8.8.8.8 from an appliance server
+  process without corresponding DNS traffic.
+prevalence:
+  by: device_hostname
+  key:
+  - process_name
+  - dst_endpoint_ip
+  rare_below: 3
+reads:
+- device_hostname
+- process_name
+- dst_endpoint_ip
+- dst_endpoint_port
+- time
+- state_kind
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, COUNT(*) AS connection_count, MIN(time) AS first_seen FROM hb_network_connection WHERE instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0 AND instr(&#39;,&#39; || &#39;{{c2_doh_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_ip || &#39;,&#39;) &gt; 0 AND dst_endpoint_port = 443 AND state_kind = &#39;log&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port HAVING connection_count &gt; 5
+```
+
+## cron-persistence-anomalies
+&lt;!-- Anomalous Script Execution in System Cron --&gt;
+Detect script executions defined in system-level cron directories on scoped appliances, a hallmark of BRICKSTORM persistence.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: A job definition in /etc/cron.d/ executing an interpreter or script, particularly
+  on an appliance where such entries are not standard.
+reads:
+- device_hostname
+- job_name
+- job_cmd_line
+- job_definition_path
+- job_user_name
+- time
+silence: not_evidence_of_absence
+source: hb_scheduled_job
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, job_name, job_cmd_line, job_definition_path, job_user_name FROM hb_scheduled_job WHERE instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0 AND LOWER(job_definition_path) LIKE &#39;%/etc/cron.d/%&#39; AND (LOWER(job_cmd_line) LIKE &#39;%/bin/sh%&#39; OR LOWER(job_cmd_line) LIKE &#39;%/bin/bash%&#39; OR LOWER(job_cmd_line) LIKE &#39;%python%&#39; OR LOWER(job_cmd_line) LIKE &#39;%/usr/bin/tee%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-implants
+&lt;!-- Weigh VerdantBamboo Evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- vpn-login-anomalies
+- sudo-tee-misuse
+- doh-c2-activity
+- cron-persistence-anomalies
+max_iterations: 5
+objective: Determine if any host shows overlapping indicators of the VerdantBamboo
+  attack chain, focusing on &#39;sudo tee&#39;, cron-based persistence, and 8.8.8.8:443 DoH
+  C2.
+success_criteria: A per-host verdict of malicious | suspicious | benign, citing the
+  specific rows and overlaps found.
+tools:
+- endpoint
+- identity
+- network
+```
+
+## decision-route
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host and includes evidence of persistence or C2&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: missing-appliance-telemetry)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate Compromised Appliance --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the appliance. Collect a memory capture and the identified persistence files before any reboot.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review and Forensics --&gt;
+```manual target=analyst
+Review the cited rows. Search for internal SSH connections from these appliances to Synology NAS (T1021.004) or VMware infrastructure in hb_network_connection.
+```
+→ end
+
+## close-out
+&lt;!-- Hunt Close-out --&gt;
+```manual target=analyst
+If negative, verify edge appliances are updated to Storage Sync v13.13 and &#39;egnyteservice&#39; credentials have been rotated with MFA enforced.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=verdantbamboo-edge-appliance-backdoor" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

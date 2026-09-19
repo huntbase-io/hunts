@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TerminalFix Staging and Persistence · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is using a fake CAPTCHA lure to trick users into running PowerShell commands that establish persistence and deploy a DLL-sideloaded payload from ProgramData.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/terminalfix-staging-persistence/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="TerminalFix Staging and Persistence · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is using a fake CAPTCHA lure to trick users into running PowerShell commands that establish persistence and deploy a DLL-sideloaded payload from ProgramData.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/terminalfix-staging-persistence/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">TerminalFix Staging and Persistence</h1>
+      <p class="hyp-lead">An adversary is using a fake CAPTCHA lure to trick users into running PowerShell commands that establish persistence and deploy a DLL-sideloaded payload from ProgramData.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.microsoft.com/en-us/security/blog/2026/08/28/terminalfix-campaign-deploys-reverse-tunnel-through-multistage-intrusion/" rel="noopener">Microsoft</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1027.003 T1053.005 T1059.001 T1115 T1547.001 T1566.002 T1574.001</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=terminalfix-staging-persistence" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Background</h3>
+<p>Microsoft recently detailed the <a href="https://www.microsoft.com/en-us/security/blog/2026/08/28/terminalfix-campaign-deploys-reverse-tunnel-through-multistage-intrusion/" rel="noopener noreferrer">TerminalFix campaign deploys a reverse tunnel through multistage intrusion</a>, which uses a social engineering lure to trick users into executing PowerShell. This campaign is notable for its use of steganography to hide second-stage payloads and its reliance on DLL sideloading through legitimate Windows binaries. Because these techniques use signed binaries and non-executable file types like PNGs, standard detection rules often fail to see the coordination between the steps.</p>
+<h3>Hunt Flow</h3>
+<p>The hunt begins by scoping active Windows hosts within a 14-day window. This provides the baseline for the subsequent parallel analysis of file, module, and registry surfaces.</p>
+<p>First, we look for file staging activity. The campaign uses a specific, unique folder identifier in <code>ProgramData</code> and a batch file named <code>1.bat</code>. While these names may vary across campaigns, their presence in common staging directories is a primary indicator of initial infection.</p>
+<p>Next, we pivot to module load events. The hunt specifically looks for <code>LockScreenContentServer.exe</code> loading <code>dui70.dll</code> from any path outside of the standard <code>System32</code> directory. This is a high-confidence indicator of DLL sideloading and suggests the legitimate binary has been subverted to execute attacker code.</p>
+<p>To corroborate the intent, we examine script activity for steganographic logic. The hunt searches for PowerShell script blocks that contain keywords like <code>extract-rawfilefromimage</code>, <code>pixel</code>, or <code>RGBA</code>. These strings indicate the logic required to reassemble an executable from the pixel data of an image file, a core component of the TerminalFix delivery chain.</p>
+<p>Finally, we check for redundant persistence mechanisms. The hunt examines the Registry for Run keys using a specific masquerading name, <code>LockScreenContentServer_MuODG5yBM</code>. By grouping these findings and looking for rare occurrences across the fleet, we can isolate the specific hosts undergoing active intrusion.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>This hunt has two primary blind spots. First, it relies on <code>hb_module_activity</code>, which typically requires Sysmon Event ID 7. If your environment lacks real-time module logging, the point-in-time sideloading event may be missed if the process executes and exits quickly. Second, if the PowerShell extraction logic is heavily obfuscated, simple string matching on <code>pixel</code> or <code>RGBA</code> will fail to flag the script block.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/terminalfix-recon-reverse-tunnel/index.html">Part 2: TerminalFix Reconnaissance and Reverse Tunneling</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is using a fake CAPTCHA lure to trick users into running PowerShell commands that establish persistence and deploy a DLL-sideloaded payload from ProgramData.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify all Windows-based hosts in the estate where TerminalFix might execute, filtered by time to avoid scanning historical inventory.", "expected": "A list of hostnames belonging to the active Windows estate. Silence indicates no Windows systems are reporting in the window.", "id": "scope-windows-hosts", "label": "Scope Windows Hosts", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE platform = \u0027windows\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Identify hosts where the unique TerminalFix staging folder or the initial batch file exists.", "expected": "Creation or access of the specific campaign folder or batch file. Silence may mean a different staging directory was used.", "id": "file-staging-check", "label": "Initial Staging in ProgramData", "parents": [{"branch": null, "id": "scope-windows-hosts", "kind": null}], "query": "SELECT device_hostname, file_path, file_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE \u0027%\\\\\u0027 || \u0027{{staging_folder}}\u0027 || \u0027\\\\%\u0027 OR LOWER(file_name) = \u00271.bat\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_file_activity", "type": "query"}, {"description": "Detect the illegitimate loading of dui70.dll from the staging directory instead of the Windows system path.", "expected": "LockScreenContentServer.exe loading a DLL from a non-standard path. This is a high-confidence indicator of the campaign\u0027s defense evasion.", "id": "sideloading-behavior", "label": "DLL Sideloading via LockScreenContentServer", "parents": [{"branch": null, "id": "scope-windows-hosts", "kind": null}], "query": "SELECT device_hostname, process_name, module_name, module_path, time FROM hb_module_activity WHERE LOWER(module_name) = \u0027dui70.dll\u0027 AND LOWER(process_name) LIKE \u0027%lockscreencontentserver.exe\u0027 AND LOWER(module_path) NOT LIKE \u0027%\\\\windows\\\\system32\\\\%\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_module_activity", "type": "query"}, {"description": "Identify PowerShell execution that contains keywords related to the campaign\u0027s steganography routines.", "expected": "Script blocks containing the logic to reassemble executables from image pixel data. Silence suggests the logic is either missing or heavily obfuscated.", "id": "steganography-logic", "label": "Steganographic Extraction Logic", "parents": [{"branch": null, "id": "scope-windows-hosts", "kind": null}], "query": "SELECT device_hostname, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE \u0027%extract-rawfilefromimage%\u0027 OR (LOWER(script_content) LIKE \u0027%pixel%\u0027 AND LOWER(script_content) LIKE \u0027%rgba%\u0027)) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_script_activity", "type": "query"}, {"description": "Identify instances of the campaign\u0027s persistence key across the fleet and isolate rare occurrences.", "expected": "A small number of hosts possessing the specific Run key value. Silence indicates the campaign name has changed or the key was not set.", "id": "persistence-baseline", "label": "Rare Persistence Mechanisms", "parents": [{"branch": null, "id": "scope-windows-hosts", "kind": null}], "query": "SELECT reg_value_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE \u0027%\\\\currentversion\\\\run%\u0027 AND LOWER(reg_value_name) LIKE \u0027%\u0027 || LOWER(\u0027{{persistence_key}}\u0027) || \u0027%\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY reg_value_name HAVING hosts \u003c 5", "role": "baseline", "source": "hb_registry_activity", "type": "query"}, {"description": "Correlate the findings from all previous steps to confirm the multi-stage infection.", "expected": "A per-host verdict linking staging folder presence, sideloading events, and persistence mechanisms.", "id": "agent-triage", "label": "Agent Triage TerminalFix Chain", "parents": [{"branch": null, "id": "file-staging-check", "kind": "merge"}, {"branch": null, "id": "sideloading-behavior", "kind": "merge"}, {"branch": null, "id": "steganography-logic", "kind": "merge"}, {"branch": null, "id": "persistence-baseline", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the hunt to containment or further analyst review based on the triage verdict.", "expected": null, "id": "route-on-verdict", "label": "Route on Verdict", "parents": [{"branch": null, "id": "agent-triage", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Halt the spread of the intrusion and prevent further lateral movement.", "expected": null, "id": "isolate-host", "label": "Isolate Infected Host", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Final validation of findings and identification of potential lateral movement.", "expected": null, "id": "analyst-review", "label": "Analyst Review and Tuning", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document negative results or findings that did not meet the malicious threshold.", "expected": null, "id": "close-out", "label": "Close Out", "parents": [{"branch": "on_refutes", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-windows-hosts">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope Windows Hosts</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify all Windows-based hosts in the estate where TerminalFix might execute, filtered by time to avoid scanning historical inventory.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE platform = &#39;windows&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames belonging to the active Windows estate. Silence indicates no Windows systems are reporting in the window.</p>        </li>
+        <li class="card step" id="step-file-staging-check">
+          <div class="step-head">
+            <h3 class="heading-sm">Initial Staging in ProgramData</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Identify hosts where the unique TerminalFix staging folder or the initial batch file exists.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, file_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE &#39;%\\&#39; || &#39;{{staging_folder}}&#39; || &#39;\\%&#39; OR LOWER(file_name) = &#39;1.bat&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Creation or access of the specific campaign folder or batch file. Silence may mean a different staging directory was used.</p>        </li>
+        <li class="card step" id="step-sideloading-behavior">
+          <div class="step-head">
+            <h3 class="heading-sm">DLL Sideloading via LockScreenContentServer</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect the illegitimate loading of dui70.dll from the staging directory instead of the Windows system path.</p>          <div class="code"><div class="code-head"><span>reads hb_module_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, module_name, module_path, time FROM hb_module_activity WHERE LOWER(module_name) = &#39;dui70.dll&#39; AND LOWER(process_name) LIKE &#39;%lockscreencontentserver.exe&#39; AND LOWER(module_path) NOT LIKE &#39;%\\windows\\system32\\%&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> LockScreenContentServer.exe loading a DLL from a non-standard path. This is a high-confidence indicator of the campaign&#39;s defense evasion.</p>        </li>
+        <li class="card step" id="step-steganography-logic">
+          <div class="step-head">
+            <h3 class="heading-sm">Steganographic Extraction Logic</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify PowerShell execution that contains keywords related to the campaign&#39;s steganography routines.</p>          <div class="code"><div class="code-head"><span>reads hb_script_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE &#39;%extract-rawfilefromimage%&#39; OR (LOWER(script_content) LIKE &#39;%pixel%&#39; AND LOWER(script_content) LIKE &#39;%rgba%&#39;)) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Script blocks containing the logic to reassemble executables from image pixel data. Silence suggests the logic is either missing or heavily obfuscated.</p>        </li>
+        <li class="card step" id="step-persistence-baseline">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare Persistence Mechanisms</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify instances of the campaign&#39;s persistence key across the fleet and isolate rare occurrences.</p>          <div class="code"><div class="code-head"><span>reads hb_registry_activity</span><span>sql</span></div><pre><code>SELECT reg_value_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE &#39;%\\currentversion\\run%&#39; AND LOWER(reg_value_name) LIKE &#39;%&#39; || LOWER(&#39;{{persistence_key}}&#39;) || &#39;%&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY reg_value_name HAVING hosts &lt; 5</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A small number of hosts possessing the specific Run key value. Silence indicates the campaign name has changed or the key was not set.</p>        </li>
+        <li class="card step" id="step-agent-triage">
+          <div class="step-head">
+            <h3 class="heading-sm">Agent Triage TerminalFix Chain</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate the findings from all previous steps to confirm the multi-stage infection.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the hunt to containment or further analyst review based on the triage verdict.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Infected Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Halt the spread of the intrusion and prevent further lateral movement.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review and Tuning</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final validation of findings and identification of potential lateral movement.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close Out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document negative results or findings that did not meet the malicious threshold.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Fake CAPTCHA PowerShell Execution<br><span class="mono dim">T1566.002 · T1115 · T1059.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>file-staging-check</td></tr>            <tr><td>DLL Sideloading via LockScreenContentServer<br><span class="mono dim">T1574.001 · T1574.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>sideloading-behavior</td></tr>            <tr><td>Steganographic Payload Extraction<br><span class="mono dim">T1059.001 · T1027.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>steganography-logic</td></tr>            <tr><td>Persistent Execution Loop<br><span class="mono dim">T1547.001 · T1053.005</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>persistence-baseline</td></tr>            <tr><td>Active Directory and Network Reconnaissance<br><span class="mono dim">T1018 · T1087.002 · T1482</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;TerminalFix campaign deploys a reverse tunnel through multistage intrusion&#39; series.</td></tr>            <tr><td>Reverse WebSocket Tunneling<br><span class="mono dim">T1572 · T1090.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;TerminalFix campaign deploys a reverse tunnel through multistage intrusion&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_module_activity from Sysmon Event ID 7.</strong> A point-in-time snapshot might miss the load if the process executes and exits quickly. <span class="dim">It would answer whether the sideloading occurred on hosts without real-time module load logging.</span></li>          <li class="card"><strong>Needs hb_script_activity with deobfuscated content.</strong> A simple string match on &#39;pixel&#39; or &#39;RGBA&#39; may miss variants of the script logic. <span class="dim">It would answer whether the extraction logic was hidden using standard PowerShell obfuscation techniques.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>persistence_key</code></td><td class="mono dim">string</td><td class="mono">LockScreenContentServer_MuODG5yBM</td><td>The specific masquerading name used for Run keys and scheduled tasks.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Restrict the hunt to specific hosts; leave empty for the entire estate.</td></tr>            <tr><td><code>staging_folder</code></td><td class="mono dim">string</td><td class="mono">f47f2a8c21c9df4e</td><td>Unique folder identifier used for staging in ProgramData.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A single rule on the Run key might fire, but this hunt provides the context
+  of the DLL sideloading and the script-based extraction logic that proves the intrusion&#39;s
+  intent. It uses an agent to weigh multiple independent behavioral indicators.
+blind_spots:
+- id: incomplete-module-logging
+  question: whether the sideloading occurred on hosts without real-time module load
+    logging
+  requires: hb_module_activity from Sysmon Event ID 7
+  risk: A point-in-time snapshot might miss the load if the process executes and exits
+    quickly.
+  stage: defense-evasion-dll-sideloading
+- id: obfuscated-script-logic
+  question: whether the extraction logic was hidden using standard PowerShell obfuscation
+    techniques
+  requires: hb_script_activity with deobfuscated content
+  risk: A simple string match on &#39;pixel&#39; or &#39;RGBA&#39; may miss variants of the script
+    logic.
+  stage: steganographic-payload-extraction
+coverage:
+- stage: initial-access-fake-captcha-execution
+  status: covered
+  steps:
+  - file-staging-check
+- stage: defense-evasion-dll-sideloading
+  status: covered
+  steps:
+  - sideloading-behavior
+- stage: steganographic-payload-extraction
+  status: covered
+  steps:
+  - steganography-logic
+- stage: persistence-registry-and-task
+  status: covered
+  steps:
+  - persistence-baseline
+- reason: Belongs to another part of the &#39;TerminalFix campaign deploys a reverse tunnel
+    through multistage intrusion&#39; series.
+  stage: discovery-ad-and-network-recon
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;TerminalFix campaign deploys a reverse tunnel
+    through multistage intrusion&#39; series.
+  stage: c2-reverse-websocket-tunnel
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: The TerminalFix campaign bypasses traditional security controls by
+    using signed binaries and steganography. A hunt is necessary to pivot across file,
+    module, and script surfaces to identify the coordinated behavior before it reaches
+    the network-tunneling stage.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is using a fake CAPTCHA lure to trick users into running
+  PowerShell commands that establish persistence and deploy a DLL-sideloaded payload
+  from ProgramData.
+labels:
+- hunt
+- attack.t1566.002
+- attack.t1574.001
+- attack.t1027.003
+- attack.t1547.001
+- attack.t1053.005
+- attack.t1115
+- attack.t1059.001
+name: TerminalFix Staging and Persistence
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    from:
+      kind: manual
+      observed: &#39;2024-05-20&#39;
+      ref: hunt-config
+    type: number
+  persistence_key:
+    default: LockScreenContentServer_MuODG5yBM
+    description: The specific masquerading name used for Run keys and scheduled tasks.
+    from:
+      kind: article
+      observed: &#39;2026-08-28&#39;
+      ref: msrc-blog
+    type: string
+  scope_hosts:
+    default: []
+    description: Restrict the hunt to specific hosts; leave empty for the entire estate.
+    from:
+      kind: manual
+      observed: &#39;2024-05-20&#39;
+      ref: analyst-entry
+    type: list[host]
+  staging_folder:
+    default: f47f2a8c21c9df4e
+    description: Unique folder identifier used for staging in ProgramData.
+    from:
+      kind: article
+      observed: &#39;2026-08-28&#39;
+      ref: msrc-blog
+    type: string
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.microsoft.com/en-us/security/blog/2026/08/28/terminalfix-campaign-deploys-reverse-tunnel-through-multistage-intrusion/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with general Windows workstations. If results are found, pivot to
+  all hosts using the same staging path identifier.
+references:
+- name: TerminalFix campaign deploys a reverse tunnel through multistage intrusion
+  url: https://www.microsoft.com/en-us/security/blog/2026/08/28/terminalfix-campaign-deploys-reverse-tunnel-through-multistage-intrusion/
+related:
+- hunt: terminalfix-discovery-and-tunneling
+  reason: This hunt covers the beachhead; the subsequent reconnaissance and reverse-tunnel
+    deployment are handled by the next hunt in this series.
+  relation: follows
+scenario:
+  stages:
+  - name: Fake CAPTCHA PowerShell Execution
+    observables:
+    - Fake Cloudflare Turnstile overlay &#39;Verify you are human&#39;
+    - Clipboard manipulation to stage PowerShell command
+    - powershell.exe downloading ZIP archive from gitnow.dev
+    - Extraction to C:\ProgramData\f47f2a8c21c9df4e
+    - Execution of 1.bat
+    slug: initial-access-fake-captcha-execution
+    tactic: initial-access
+    techniques:
+    - T1566.002
+    - T1115
+    - T1059.001
+  - name: DLL Sideloading via LockScreenContentServer
+    observables:
+    - LockScreenContentServer.exe loading malicious dui70.dll
+    - dui70.dll with forged future timestamp 2104
+    - Masquerading DLL name &#39;Windows DirectUI Engine&#39;
+    slug: defense-evasion-dll-sideloading
+    tactic: defense-evasion
+    techniques:
+    - T1574.001
+    - T1574.002
+  - name: Steganographic Payload Extraction
+    observables:
+    - PowerShell function Extract-RawFileFromImage
+    - POST requests to content domains for PNG images
+    - DLL fragments extracted from pixel RGBA channels
+    - Reassembly of executables from PNG data
+    slug: steganographic-payload-extraction
+    tactic: execution
+    techniques:
+    - T1059.001
+    - T1027.003
+  - name: Persistent Execution Loop
+    observables:
+    - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\LockScreenContentServer_MuODG5yBM
+    - Scheduled task re-executing LockScreenContentServer.exe every 60 minutes
+    - Folder hidden via attrib +s +h C:\ProgramData\f47f2a8c21c9df4e
+    slug: persistence-registry-and-task
+    tactic: persistence
+    techniques:
+    - T1547.001
+    - T1053.005
+  - name: Active Directory and Network Reconnaissance
+    observables:
+    - nltest /domain_trusts
+    - net group &#39;domain admins&#39; /domain
+    - Ping sweeps of &#39;dc&#39;, &#39;backup&#39;, &#39;mail&#39;, &#39;gateway&#39; servers
+    - Active Directory user description harvesting
+    - System information collection (English, Spanish, German)
+    slug: discovery-ad-and-network-recon
+    tactic: discovery
+    techniques:
+    - T1018
+    - T1087.002
+    - T1482
+  - name: Reverse WebSocket Tunneling
+    observables:
+    - pythonw.exe executing client.py
+    - Encrypted WebSocket tunnel to gitnow.dev:443
+    - FileSystemWatcher asynchronous command loop
+    - SOCKS-style TCP proxy access
+    slug: c2-reverse-websocket-tunnel
+    tactic: command-and-control
+    techniques:
+    - T1572
+    - T1090.003
+  summary: The TerminalFix campaign uses social engineering with fake CAPTCHA overlays
+    to trick users into executing PowerShell scripts that deploy a multi-stage infection.
+    The attack leverages DLL sideloading of a signed binary and steganographic payload
+    extraction to establish persistent access and deploy a Python-based reverse tunnel
+    for encrypted WebSocket C2.
+series:
+  index: 1
+  slug: terminalfix-campaign-deploys-a-reverse-tunnel-through-multistage-intrusion
+  title: TerminalFix campaign deploys a reverse tunnel through multistage intrusion
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# TerminalFix Staging and Persistence
+
+This hunt targets the initial infection and persistence phases of the TerminalFix campaign. It identifies the unique staging directory in ProgramData, the abuse of a legitimate Windows binary (LockScreenContentServer.exe) to sideload a malicious DLL (dui70.dll), and the extraction of steganographic payloads from PNG images. Finally, it corroborates these activities against redundant persistence mechanisms in the registry and task scheduler.
+
+## scope-windows-hosts
+&lt;!-- Scope Windows Hosts --&gt;
+Identify all Windows-based hosts in the estate where TerminalFix might execute, filtered by time to avoid scanning historical inventory.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames belonging to the active Windows estate. Silence indicates
+  no Windows systems are reporting in the window.
+reads:
+- hostname
+- platform
+- time
+silence: not_evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE platform = &#39;windows&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-corroboration
+&lt;!-- Parallel Activity Corroboration --&gt;
+parallel:
+- → file-staging-check
+- → sideloading-behavior
+- → steganography-logic
+- → persistence-baseline
+join: → agent-triage
+
+## file-staging-check
+&lt;!-- Initial Staging in ProgramData --&gt;
+Identify hosts where the unique TerminalFix staging folder or the initial batch file exists.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days, staging_folder=staging_folder, scope_hosts=scope_hosts)
+~~~yaml
+expected: Creation or access of the specific campaign folder or batch file. Silence
+  may mean a different staging directory was used.
+reads:
+- device_hostname
+- file_path
+- file_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_path, file_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE &#39;%\\&#39; || &#39;{{staging_folder}}&#39; || &#39;\\%&#39; OR LOWER(file_name) = &#39;1.bat&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## sideloading-behavior
+&lt;!-- DLL Sideloading via LockScreenContentServer --&gt;
+Detect the illegitimate loading of dui70.dll from the staging directory instead of the Windows system path.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: LockScreenContentServer.exe loading a DLL from a non-standard path. This
+  is a high-confidence indicator of the campaign&#39;s defense evasion.
+reads:
+- device_hostname
+- process_name
+- module_name
+- module_path
+- time
+silence: evidence_of_absence
+source: hb_module_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, module_name, module_path, time FROM hb_module_activity WHERE LOWER(module_name) = &#39;dui70.dll&#39; AND LOWER(process_name) LIKE &#39;%lockscreencontentserver.exe&#39; AND LOWER(module_path) NOT LIKE &#39;%\\windows\\system32\\%&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## steganography-logic
+&lt;!-- Steganographic Extraction Logic --&gt;
+Identify PowerShell execution that contains keywords related to the campaign&#39;s steganography routines.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Script blocks containing the logic to reassemble executables from image
+  pixel data. Silence suggests the logic is either missing or heavily obfuscated.
+reads:
+- device_hostname
+- script_content
+- time
+silence: not_evidence_of_absence
+source: hb_script_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE &#39;%extract-rawfilefromimage%&#39; OR (LOWER(script_content) LIKE &#39;%pixel%&#39; AND LOWER(script_content) LIKE &#39;%rgba%&#39;)) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## persistence-baseline
+&lt;!-- Rare Persistence Mechanisms --&gt;
+Identify instances of the campaign&#39;s persistence key across the fleet and isolate rare occurrences.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days, persistence_key=persistence_key)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A small number of hosts possessing the specific Run key value. Silence indicates
+  the campaign name has changed or the key was not set.
+prevalence:
+  by: device_hostname
+  key:
+  - reg_value_name
+  rare_below: 5
+reads:
+- reg_value_name
+- device_hostname
+- reg_target
+- time
+silence: not_evidence_of_absence
+source: hb_registry_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT reg_value_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE &#39;%\\currentversion\\run%&#39; AND LOWER(reg_value_name) LIKE &#39;%&#39; || LOWER(&#39;{{persistence_key}}&#39;) || &#39;%&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY reg_value_name HAVING hosts &lt; 5
+```
+
+## agent-triage
+&lt;!-- Agent Triage TerminalFix Chain --&gt;
+```agent target=hunter
+cite: required
+context:
+- file-staging-check
+- sideloading-behavior
+- steganography-logic
+- persistence-baseline
+max_iterations: 5
+objective: Determine if the events on any single host constitute the TerminalFix campaign.
+  Weigh the overlap between the staging path, the sideloaded DLL, the script logic,
+  and the registry persistence.
+success_criteria: A verdict of malicious | suspicious | benign per host citing the
+  specific rows.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: incomplete-module-logging)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate Infected Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately. Preserve the contents of C:\ProgramData\{{staging_folder}} for forensic analysis.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review and Tuning --&gt;
+```manual target=analyst
+Review the cited rows from the triage agent. Check for subsequent discovery commands or network connections to gitnow.dev or other suspicious domains. Record tuning notes for the sideloading detection-candidate.
+```
+→ end
+
+## close-out
+&lt;!-- Close Out --&gt;
+```manual target=analyst
+No coordinated TerminalFix activity was found. Record the estate coverage and lookback window.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=terminalfix-staging-persistence" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

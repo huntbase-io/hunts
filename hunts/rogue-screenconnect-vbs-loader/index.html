@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rogue ScreenConnect and VBScript Loader Chain · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder is using rogue ScreenConnect instances, often deployed via Quick Assist scams, to execute a sequential VBScript loader chain that profiles EDR presence and establishes a worm-like propagation.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/rogue-screenconnect-vbs-loader/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Rogue ScreenConnect and VBScript Loader Chain · Huntbase Hunts">
+  <meta property="og:description" content="An intruder is using rogue ScreenConnect instances, often deployed via Quick Assist scams, to execute a sequential VBScript loader chain that profiles EDR presence and establishes a worm-like propagation.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/rogue-screenconnect-vbs-loader/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">Rogue ScreenConnect and VBScript Loader Chain</h1>
+      <p class="hyp-lead">An intruder is using rogue ScreenConnect instances, often deployed via Quick Assist scams, to execute a sequential VBScript loader chain that profiles EDR presence and establishes a worm-like propagation.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.huntress.com/blog/rogue-screenconnect-installations" rel="noopener">Huntress</a></span>
+<span>2026-09-17</span>        <span>10 steps · 5 queries</span>
+<span class="mono">T1021.001 T1059.001 T1547.001 T1566</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=rogue-screenconnect-vbs-loader" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why This Hunt</h3>
+<p>Recent reporting by Huntress in their article <a href="https://www.huntress.com/blog/rogue-screenconnect-installations" rel="noopener noreferrer">Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like Activity</a> highlights a campaign where attackers use rogue ScreenConnect instances to execute a sequential VBScript loader. These installations often originate from social engineering or Quick Assist scams and lead to the deployment of persistent loaders. We are publishing this hunt to help practitioners identify the specific parent-child relationships and file artifacts associated with this activity.</p>
+<h3>How the Hunt Flows</h3>
+<p>The first phase focuses on scoping. We use the <code>hb_software_inventory</code> surface to identify hosts where ScreenConnect or UltraViewer are installed. While many organizations use these tools legitimately, the hunt looks for installations in unusual paths or instances that deviate from the known-good fleet baseline.</p>
+<p>Next, we pivot to process behavior using <code>hb_process_activity</code>. The core indicator is the RMM binary (e.g., ScreenConnect.WindowsClient.exe) spawning <code>wscript.exe</code> or <code>cscript.exe</code>. This relationship is highly anomalous for standard administrative tasks and serves as our primary lead for further investigation.</p>
+<p>Once suspicious executions are identified, we perform stack-counting on the script command-line arguments. By baselining <code>wscript</code> arguments across the estate, we can isolate rare scripts—such as those named 1.vbs or WindowsServiceHost.vbs—that have only appeared on a small number of hosts within the last 14 days.</p>
+<p>The final phase involves corroborating file artifacts via <code>hb_file_activity</code>. We look for specific files like <code>value.txt</code>, <code>map.txt</code>, and <code>out.enc</code> written to <code>%TEMP%</code> or <code>%APPDATA%</code> directories. We also inventory the security products on those hosts to understand the context of the attacker's profiling logic, which specifically looks for processes like SentinelService.exe or Huntress.exe.</p>
+<h3>Blind Spots</h3>
+<p>There are two primary limitations to consider. First, if your environment has short process log retention, rogue installations that occurred more than 14 days ago may no longer show the behavioral link between the RMM tool and the script host. Second, if an attacker uses a different scripting engine or advanced obfuscation that hides the script file name from the command line, the prevalence-based detection may require deeper inspection of script block logs.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/registry-persistence-malicious-c2-rmm/index.html">Part 2: ScreenConnect Registry Persistence and Malicious C2</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder is using rogue ScreenConnect instances, often deployed via Quick Assist scams, to execute a sequential VBScript loader chain that profiles EDR presence and establishes a worm-like propagation.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify hosts that have ScreenConnect or UltraViewer installed to define the primary scope.", "expected": "A list of hosts running these RMM tools. Legitimate software will be fleet-wide; rogue instances will be isolated or in unusual paths.", "id": "scoping-rmm-software", "label": "Inventory hosts with RMM software", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, package_name, package_version, vendor_name, install_path FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%screenconnect%\u0027 OR LOWER(package_name) LIKE \u0027%ultraviewer%\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Identify the primary behavioral lead: ScreenConnect or UltraViewer spawning wscript.exe to execute external scripts.", "expected": "RMM binaries launching wscript.exe. This relationship is highly anomalous for legitimate administrative use of these tools.", "id": "suspicious-wscript-execution", "label": "RMM processes spawning Windows Script Host", "parents": [{"branch": null, "id": "scoping-rmm-software", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, parent_process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) = \u0027wscript.exe\u0027 OR LOWER(process_name) = \u0027cscript.exe\u0027) AND (instr(\u0027,\u0027 || \u0027{{rmm_processes}}\u0027 || \u0027,\u0027, \u0027,\u0027 || parent_process_name || \u0027,\u0027) \u003e 0) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify rare script execution arguments that differ from standard fleet-wide administrative noise.", "expected": "A script command line (e.g., executing 1.vbs) seen on only a few hosts.", "id": "prevalence-wscript-args", "label": "Stack-count wscript command lines", "parents": [{"branch": null, "id": "suspicious-wscript-execution", "kind": null}], "query": "SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) = \u0027wscript.exe\u0027 OR LOWER(process_name) = \u0027cscript.exe\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY process_cmd_line HAVING host_count \u003c= 3 ORDER BY host_count ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Identify which security products are active on target hosts to help explain the \u0027state\u0027 variable results in the attacker\u0027s script.", "expected": "A list of running EDR processes on the scoped hosts. This allows the agent to confirm if the script\u0027s profiling logic would have found any tools.", "id": "check-edr-inventory", "label": "Inventory EDR presence for profiling context", "parents": [{"branch": null, "id": "prevalence-wscript-args", "kind": null}], "query": "SELECT device_hostname, process_name, process_file_description, time FROM hb_process_activity WHERE (instr(\u0027,\u0027 || \u0027{{edr_profiling_keywords}}\u0027 || \u0027,\u0027, \u0027,\u0027 || process_name || \u0027,\u0027) \u003e 0) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_process_activity", "type": "query"}, {"description": "Locate the specific .vbs, .txt, and .enc files created in Temp/AppData directories during the loader chain execution.", "expected": "Evidence of value.txt, map.txt, or out.enc being written to disk by wscript.exe or ScreenConnect.", "id": "staged-file-artifacts", "label": "Detect staged file indicators", "parents": [{"branch": null, "id": "prevalence-wscript-args", "kind": null}], "query": "SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE (instr(\u0027,\u0027 || \u0027{{staged_indicators}}\u0027 || \u0027,\u0027, \u0027,\u0027 || file_name || \u0027,\u0027) \u003e 0) AND (LOWER(file_path) LIKE \u0027%\\temp\\%\u0027 OR LOWER(file_path) LIKE \u0027%\\appdata\\%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_file_activity", "type": "query"}, {"description": "Synthesize the RMM software inventory, the anomalous wscript parent-child relationship, the command-line prevalence, and the file artifacts into a host verdict.", "expected": "A per-host verdict of malicious | suspicious | benign with citations of wscript command lines and confirmed file drops.", "id": "triage-loader-chain", "label": "Triage rogue RMM execution", "parents": [{"branch": null, "id": "check-edr-inventory", "kind": "merge"}, {"branch": null, "id": "staged-file-artifacts", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Determine if the evidence warrants immediate isolation or manual analyst review.", "expected": null, "id": "decision-on-verdict", "label": "Route on malicious finding", "parents": [{"branch": null, "id": "triage-loader-chain", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Halt the attack and prevent lateral propagation (worm-like spread) from a confirmed compromised host.", "expected": null, "id": "isolate-host", "label": "Isolate malicious host", "parents": [{"branch": "on_supports", "id": "decision-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review the triage, verify if the ScreenConnect install was legitimate, and remove persistence.", "expected": null, "id": "analyst-task", "label": "Manual investigation and cleanup", "parents": [{"branch": "default", "id": "decision-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "decision-on-verdict", "kind": null}, {"branch": "on_refutes", "id": "decision-on-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scoping-rmm-software">
+          <div class="step-head">
+            <h3 class="heading-sm">Inventory hosts with RMM software</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify hosts that have ScreenConnect or UltraViewer installed to define the primary scope.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT device_hostname, package_name, package_version, vendor_name, install_path FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%screenconnect%&#39; OR LOWER(package_name) LIKE &#39;%ultraviewer%&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts running these RMM tools. Legitimate software will be fleet-wide; rogue instances will be isolated or in unusual paths.</p>        </li>
+        <li class="card step" id="step-suspicious-wscript-execution">
+          <div class="step-head">
+            <h3 class="heading-sm">RMM processes spawning Windows Script Host</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify the primary behavioral lead: ScreenConnect or UltraViewer spawning wscript.exe to execute external scripts.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, parent_process_name, parent_process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) = &#39;wscript.exe&#39; OR LOWER(process_name) = &#39;cscript.exe&#39;) AND (instr(&#39;,&#39; || &#39;{{rmm_processes}}&#39; || &#39;,&#39;, &#39;,&#39; || parent_process_name || &#39;,&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> RMM binaries launching wscript.exe. This relationship is highly anomalous for legitimate administrative use of these tools.</p>        </li>
+        <li class="card step" id="step-prevalence-wscript-args">
+          <div class="step-head">
+            <h3 class="heading-sm">Stack-count wscript command lines</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify rare script execution arguments that differ from standard fleet-wide administrative noise.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) = &#39;wscript.exe&#39; OR LOWER(process_name) = &#39;cscript.exe&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_cmd_line HAVING host_count &lt;= 3 ORDER BY host_count ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A script command line (e.g., executing 1.vbs) seen on only a few hosts.</p>        </li>
+        <li class="card step" id="step-check-edr-inventory">
+          <div class="step-head">
+            <h3 class="heading-sm">Inventory EDR presence for profiling context</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify which security products are active on target hosts to help explain the &#39;state&#39; variable results in the attacker&#39;s script.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_file_description, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{edr_profiling_keywords}}&#39; || &#39;,&#39;, &#39;,&#39; || process_name || &#39;,&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of running EDR processes on the scoped hosts. This allows the agent to confirm if the script&#39;s profiling logic would have found any tools.</p>        </li>
+        <li class="card step" id="step-staged-file-artifacts">
+          <div class="step-head">
+            <h3 class="heading-sm">Detect staged file indicators</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Locate the specific .vbs, .txt, and .enc files created in Temp/AppData directories during the loader chain execution.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE (instr(&#39;,&#39; || &#39;{{staged_indicators}}&#39; || &#39;,&#39;, &#39;,&#39; || file_name || &#39;,&#39;) &gt; 0) AND (LOWER(file_path) LIKE &#39;%\temp\%&#39; OR LOWER(file_path) LIKE &#39;%\appdata\%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Evidence of value.txt, map.txt, or out.enc being written to disk by wscript.exe or ScreenConnect.</p>        </li>
+        <li class="card step" id="step-triage-loader-chain">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage rogue RMM execution</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Synthesize the RMM software inventory, the anomalous wscript parent-child relationship, the command-line prevalence, and the file artifacts into a host verdict.</p>        </li>
+        <li class="card step" id="step-decision-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on malicious finding</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Determine if the evidence warrants immediate isolation or manual analyst review.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate malicious host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Halt the attack and prevent lateral propagation (worm-like spread) from a confirmed compromised host.</p>        </li>
+        <li class="card step" id="step-analyst-task">
+          <div class="step-head">
+            <h3 class="heading-sm">Manual investigation and cleanup</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review the triage, verify if the ScreenConnect install was legitimate, and remove persistence.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Social Engineering and Phishing<br><span class="mono dim">T1566</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>scoping-rmm-software</td></tr>            <tr><td>Rogue RMM Deployment<br><span class="mono dim">T1059.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>suspicious-wscript-execution</td></tr>            <tr><td>Staged VBScript Chain<br><span class="mono dim">T1059.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>prevalence-wscript-args, staged-file-artifacts</td></tr>            <tr><td>ScreenConnect Internal Propagation<br><span class="mono dim">T1021.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>suspicious-wscript-execution, prevalence-wscript-args</td></tr>            <tr><td>Registry Run Key Persistence<br><span class="mono dim">T1547.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like Activity&#39; series.</td></tr>            <tr><td>Malicious Infrastructure C2<br><span class="mono dim">T1090.003 · T1572</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like Activity&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_process_activity with command-line retention.</strong> A host that was compromised 30 days ago would show the software in inventory but no behavioral trace of the loader execution. <span class="dim">It would answer Did ScreenConnect launch wscript on hosts whose process logs have already rotated?.</span></li>          <li class="card"><strong>Needs hb_script_activity with full VBScript block logging.</strong> If an attacker uses a different scripting engine or obfuscates the VBScript beyond what the collector captures, the &#39;profiling&#39; logic may be missed. <span class="dim">It would answer Can we see the content of 2.vbs and 3.vbs if they are encoded or in-memory only?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>edr_profiling_keywords</code></td><td class="mono dim">list[string]</td><td class="mono">Huntress.exe, CAMP.exe, SentinelService.exe, MsMpEng.exe, CylanceSvc.exe, SavService.exe</td><td>Common EDR process names checked by the profiling script (1.vbs).</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of process and file history to examine.</td></tr>            <tr><td><code>rmm_processes</code></td><td class="mono dim">list[string]</td><td class="mono">ScreenConnect.WindowsClient.exe, UltraViewer_Desktop.exe, ScreenConnect.Client.exe, ScreenConnect.Service.exe</td><td>Known RMM process names to monitor for suspicious child execution.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Specific hosts to narrow the hunt; leave empty for the full estate.</td></tr>            <tr><td><code>staged_indicators</code></td><td class="mono dim">list[path]</td><td class="mono">1.vbs, 2.vbs, 3.vbs, 4.vbs, value.txt, map.txt, out.enc, runner.ps1, pytorchfix.ps1, WindowsServiceHost.vbs, WindowsServiceHost.bat</td><td>Specific filenames observed in the loader and persistence chain.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A standard rule might fire on &#39;wscript spawning from ScreenConnect&#39;, but
+  this hunt goes further by baselining the arguments across the fleet and corroborating
+  the presence of staged files and EDR-profiling logic, which reduces false positives
+  from legitimate administrative scripts.
+blind_spots:
+- id: no-process-logs
+  question: Did ScreenConnect launch wscript on hosts whose process logs have already
+    rotated?
+  requires: hb_process_activity with command-line retention
+  risk: A host that was compromised 30 days ago would show the software in inventory
+    but no behavioral trace of the loader execution.
+  stage: rogue-rmm-deployment
+- id: script-block-visibility
+  question: Can we see the content of 2.vbs and 3.vbs if they are encoded or in-memory
+    only?
+  requires: hb_script_activity with full VBScript block logging
+  risk: If an attacker uses a different scripting engine or obfuscates the VBScript
+    beyond what the collector captures, the &#39;profiling&#39; logic may be missed.
+  stage: vbs-loader-chain
+coverage:
+- stage: initial-access-social-engineering
+  status: covered
+  steps:
+  - scoping-rmm-software
+- stage: rogue-rmm-deployment
+  status: covered
+  steps:
+  - suspicious-wscript-execution
+- stage: vbs-loader-chain
+  status: covered
+  steps:
+  - prevalence-wscript-args
+  - staged-file-artifacts
+- reason: Propagation is identified when the rare RMM -&gt; wscript pattern is observed
+    on multiple hosts within a short window.
+  stage: worm-like-propagation
+  status: covered
+  steps:
+  - suspicious-wscript-execution
+  - prevalence-wscript-args
+- reason: Belongs to another part of the &#39;Rogue ScreenConnect Installations Across
+    Unrelated Hosts Suggest Worm-Like Activity&#39; series.
+  stage: persistence-registry-run-key
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Rogue ScreenConnect Installations Across
+    Unrelated Hosts Suggest Worm-Like Activity&#39; series.
+  stage: command-and-control-network
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: RMM tools like ScreenConnect provide full interactive control and
+    often bypass perimeter defenses. Rogue installations used to deploy multi-stage
+    loaders suggest targeted activity or worm-like spread. A negative result confirms
+    the estate is free of this specific persistent threat.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder is using rogue ScreenConnect instances, often deployed via
+  Quick Assist scams, to execute a sequential VBScript loader chain that profiles
+  EDR presence and establishes a worm-like propagation.
+labels:
+- hunt
+- attack.t1021.001
+- attack.t1059.001
+- attack.t1566
+- attack.t1547.001
+name: Rogue ScreenConnect and VBScript Loader Chain
+parameters:
+  edr_profiling_keywords:
+    default:
+    - Huntress.exe
+    - CAMP.exe
+    - SentinelService.exe
+    - MsMpEng.exe
+    - CylanceSvc.exe
+    - SavService.exe
+    description: Common EDR process names checked by the profiling script (1.vbs).
+    from:
+      kind: article
+      observed: &#39;2026-09-03&#39;
+      ref: huntress-rogue-screenconnect
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of process and file history to examine.
+    from:
+      kind: manual
+      observed: &#39;2024-05-15&#39;
+      ref: hunt-standard
+    type: number
+  rmm_processes:
+    default:
+    - ScreenConnect.WindowsClient.exe
+    - UltraViewer_Desktop.exe
+    - ScreenConnect.Client.exe
+    - ScreenConnect.Service.exe
+    description: Known RMM process names to monitor for suspicious child execution.
+    from:
+      kind: article
+      observed: &#39;2026-09-03&#39;
+      ref: huntress-rogue-screenconnect
+    type: list[string]
+  scope_hosts:
+    default: []
+    description: Specific hosts to narrow the hunt; leave empty for the full estate.
+    from:
+      kind: manual
+      observed: &#39;2024-05-15&#39;
+      ref: scoping
+    type: list[host]
+  staged_indicators:
+    default:
+    - 1.vbs
+    - 2.vbs
+    - 3.vbs
+    - 4.vbs
+    - value.txt
+    - map.txt
+    - out.enc
+    - runner.ps1
+    - pytorchfix.ps1
+    - WindowsServiceHost.vbs
+    - WindowsServiceHost.bat
+    description: Specific filenames observed in the loader and persistence chain.
+    from:
+      kind: article
+      observed: &#39;2026-09-03&#39;
+      ref: huntress-rogue-screenconnect
+    type: list[path]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.huntress.com/blog/rogue-screenconnect-installations
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: The hunt should initially target hosts with ScreenConnect in their software
+  inventory but remain open-estate for the behavioral wscript launch to catch &#39;fileless&#39;
+  or stand-alone instances like ScreenConnect.Client.exe.
+references:
+- name: &#34;Huntress \u2014 Rogue ScreenConnect Installations Across Unrelated Hosts&#34;
+  url: https://www.huntress.com/blog/rogue-screenconnect-installations
+related:
+- hunt: persistence-registry-run-key
+  reason: The &#39;WindowsServiceHost&#39; registry key used for persistence is a common indicator
+    that belongs in a broader persistence-focused hunt.
+  relation: sibling
+scenario:
+  stages:
+  - name: Social Engineering and Phishing
+    observables:
+    - Execution of Quick Assist (remote support tool)
+    - Downloading ScreenConnect.ClientSetup.msi via Microsoft Edge
+    - Execution of ScreenConnect.Client.exe following &#39;Geek Squad refund&#39; searches
+    slug: initial-access-social-engineering
+    tactic: initial-access
+    techniques:
+    - T1566
+  - name: Rogue RMM Deployment
+    observables:
+    - ScreenConnect.WindowsClient.exe spawning wscript.exe
+    - Installation of UltraViewer remote desktop software
+    - Execution of ScreenConnect.ClientSetup.msi from download directories
+    slug: rogue-rmm-deployment
+    tactic: execution
+    techniques:
+    - T1059.001
+  - name: Staged VBScript Chain
+    observables:
+    - wscript.exe executing 1.vbs, 2.vbs, 3.vbs, and 4.vbs
+    - Creation of %TEMP%\value.txt (system profiling results)
+    - Creation of %TEMP%\map.txt (XOR-encoded payload map)
+    - Creation of %TEMP%\out.enc (encrypted AES payload)
+    - Creation of %TEMP%\runner.ps1 (payload decryptor)
+    slug: vbs-loader-chain
+    tactic: execution
+    techniques:
+    - T1059.001
+  - name: Registry Run Key Persistence
+    observables:
+    - Registry value &#39;WindowsServiceHost&#39; in User Run Key
+    - WindowsServiceHost.vbs located in AppData directory
+    - WindowsServiceHost.bat execution
+    slug: persistence-registry-run-key
+    tactic: persistence
+    techniques:
+    - T1547.001
+  - name: Malicious Infrastructure C2
+    observables:
+    - Connections to 45.13.237.190, 131.123.40.98, 15.204.185.204
+    - Connections to 146.59.55.107, 45.32.192.150 (UltraViewer)
+    - Domain tele-sync.opik.net
+    - Domain borertors92.anondns.net
+    - Requests to Dropbox for map.txt downloads
+    slug: command-and-control-network
+    tactic: command-and-control
+    techniques:
+    - T1090.003
+    - T1572
+  - name: ScreenConnect Internal Propagation
+    observables:
+    - ScreenConnect client pushing VBScript chain to connected endpoints
+    - Execution of 1.vbs through 4.vbs on newly connected hosts
+    slug: worm-like-propagation
+    tactic: lateral-movement
+    techniques:
+    - T1021.001
+  summary: &#34;Threat actors are using social engineering and phishing to deploy rogue\
+    \ ScreenConnect instances, which \u0633\u067E\u0633 execute a multi-stage VBScript\
+    \ chain to profile hosts and deliver encrypted payloads. The campaign exhibits\
+    \ worm-like propagation by utilizing the ScreenConnect client to push these malicious\
+    \ scripts to newly connected systems, establishing persistence through registry\
+    \ run keys.&#34;
+series:
+  index: 1
+  slug: rogue-screenconnect-installations-across-unrelated-hosts-suggest-worm-like-activity
+  title: Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like
+    Activity
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# Rogue ScreenConnect and VBScript Loader Chain
+
+This hunt identifies rogue ScreenConnect installations and the subsequent execution of Windows Script Host (wscript.exe) used to run a multi-stage VBScript chain. We focus on identifying the anomalous parent-child relationship (ScreenConnect -&gt; wscript), the profiling behavior used to evade EDR, and the creation of staged files in temporary directories. The hunt concludes by triaging the combined signal of RMM usage, rare script executions, and system profiling indicators.
+
+## scoping-rmm-software
+&lt;!-- Inventory hosts with RMM software --&gt;
+Identify hosts that have ScreenConnect or UltraViewer installed to define the primary scope.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts running these RMM tools. Legitimate software will be fleet-wide;
+  rogue instances will be isolated or in unusual paths.
+reads:
+- device_hostname
+- install_path
+- package_name
+- package_version
+- vendor_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, package_name, package_version, vendor_name, install_path FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%screenconnect%&#39; OR LOWER(package_name) LIKE &#39;%ultraviewer%&#39;)
+```
+
+## suspicious-wscript-execution
+&lt;!-- RMM processes spawning Windows Script Host --&gt;
+Identify the primary behavioral lead: ScreenConnect or UltraViewer spawning wscript.exe to execute external scripts.
+
+```sqlite target=endpoint role=detection-candidate params=(rmm_processes=rmm_processes, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: RMM binaries launching wscript.exe. This relationship is highly anomalous
+  for legitimate administrative use of these tools.
+reads:
+- device_hostname
+- parent_process_cmd_line
+- parent_process_name
+- process_cmd_line
+- process_name
+- time
+- user_name
+silence: evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, parent_process_name, parent_process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) = &#39;wscript.exe&#39; OR LOWER(process_name) = &#39;cscript.exe&#39;) AND (instr(&#39;,&#39; || &#39;{{rmm_processes}}&#39; || &#39;,&#39;, &#39;,&#39; || parent_process_name || &#39;,&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## prevalence-wscript-args
+&lt;!-- Stack-count wscript command lines --&gt;
+Identify rare script execution arguments that differ from standard fleet-wide administrative noise.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A script command line (e.g., executing 1.vbs) seen on only a few hosts.
+prevalence:
+  by: device_hostname
+  key:
+  - process_cmd_line
+  rare_below: 3
+reads:
+- device_hostname
+- process_cmd_line
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) = &#39;wscript.exe&#39; OR LOWER(process_name) = &#39;cscript.exe&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_cmd_line HAVING host_count &lt;= 3 ORDER BY host_count ASC
+```
+
+## corroborate-activity
+&lt;!-- Corroborate artifacts and EDR presence --&gt;
+parallel:
+- → check-edr-inventory
+- → staged-file-artifacts
+join: → triage-loader-chain
+
+## check-edr-inventory
+&lt;!-- Inventory EDR presence for profiling context --&gt;
+Identify which security products are active on target hosts to help explain the &#39;state&#39; variable results in the attacker&#39;s script.
+
+```sqlite target=endpoint role=enrichment params=(edr_profiling_keywords=edr_profiling_keywords, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A list of running EDR processes on the scoped hosts. This allows the agent
+  to confirm if the script&#39;s profiling logic would have found any tools.
+reads:
+- device_hostname
+- process_file_description
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_file_description, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{edr_profiling_keywords}}&#39; || &#39;,&#39;, &#39;,&#39; || process_name || &#39;,&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## staged-file-artifacts
+&lt;!-- Detect staged file indicators --&gt;
+Locate the specific .vbs, .txt, and .enc files created in Temp/AppData directories during the loader chain execution.
+
+```sqlite target=endpoint role=triage params=(staged_indicators=staged_indicators, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Evidence of value.txt, map.txt, or out.enc being written to disk by wscript.exe
+  or ScreenConnect.
+reads:
+- device_hostname
+- file_name
+- file_path
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE (instr(&#39;,&#39; || &#39;{{staged_indicators}}&#39; || &#39;,&#39;, &#39;,&#39; || file_name || &#39;,&#39;) &gt; 0) AND (LOWER(file_path) LIKE &#39;%\temp\%&#39; OR LOWER(file_path) LIKE &#39;%\appdata\%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-loader-chain
+&lt;!-- Triage rogue RMM execution --&gt;
+```agent target=hunter
+cite: required
+context:
+- suspicious-wscript-execution
+- prevalence-wscript-args
+- check-edr-inventory
+- staged-file-artifacts
+max_iterations: 5
+objective: Identify if any host shows the pattern of a rogue ScreenConnect/UltraViewer
+  installation that triggered a multi-stage script loader, citing the command lines
+  and staged files as proof.
+success_criteria: A list of compromised hosts with specific evidence of the 1.vbs-4.vbs
+  sequence.
+tools:
+- endpoint
+```
+
+## decision-on-verdict
+&lt;!-- Route on malicious finding --&gt;
+if~: &#34;the triage verdict is malicious for at least one host involving ScreenConnect or UltraViewer spawning wscript&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-task
+unavailable: → analyst-task (blind_spot: no-process-logs)
+else: → analyst-task
+
+## isolate-host
+&lt;!-- Isolate malicious host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host from the network. Do not reboot, as this may trigger the persistence mechanism (WindowsServiceHost run key). Collect memory and the %TEMP% folder contents.
+```
+→ analyst-task
+
+## analyst-task
+&lt;!-- Manual investigation and cleanup --&gt;
+```manual target=analyst
+1. Review cited command lines for 1.vbs, 2.vbs, etc.
+2. Verify if the host has a legitimate ScreenConnect license; check the install path.
+3. Check registry for &#39;WindowsServiceHost&#39; in Run/RunOnce keys.
+4. If out.enc was found, attempt to recover the runner.ps1 script for decryption context.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=rogue-screenconnect-vbs-loader" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

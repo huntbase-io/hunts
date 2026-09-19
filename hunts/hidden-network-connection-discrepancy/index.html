@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hidden Network Connection Discrepancy · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is using an eBPF rootkit to hide C2 connections from user-space reporting (Netlink), creating a detectable discrepancy between historical network flow logs and point-in-time socket snapshots.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/hidden-network-connection-discrepancy/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Hidden Network Connection Discrepancy · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is using an eBPF rootkit to hide C2 connections from user-space reporting (Netlink), creating a detectable discrepancy between historical network flow logs and point-in-time socket snapshots.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/hidden-network-connection-discrepancy/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">Hidden Network Connection Discrepancy</h1>
+      <p class="hyp-lead">An adversary is using an eBPF rootkit to hide C2 connections from user-space reporting (Netlink), creating a detectable discrepancy between historical network flow logs and point-in-time socket snapshots.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/" rel="noopener">Datadog Security Labs</a></span>
+<span>2026-09-18</span>        <span>10 steps · 4 queries</span>
+<span class="mono">T1090.003 T1204.002</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=hidden-network-connection-discrepancy" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>The recent research by Datadog Security Labs in <a href="https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/" rel="noopener noreferrer">Detection primitives for eBPF rootkits</a> highlights a significant shift in Linux post-exploitation. Sophisticated rootkits like VoidLink now use eBPF to hook kernel functions, allowing them to manipulate the reporting of system state to user-space tools. When an admin runs <code>ss</code> or <code>netstat</code>, the kernel simply lies, omitting the attacker's C2 connections from the output.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins by scoping the environment to active Linux assets. We establish a baseline of managed devices where eBPF programs are supported and where we have the required telemetry surfaces enabled. This is a critical first step to ensure we are not hunting in the dark.</p>
+<p>Next, we perform a parallel collection of data from two distinct surfaces. We pull historical outbound network flow logs that represent actual traffic observed over a 14-day window. Simultaneously, we gather periodic 'live' snapshots of the socket inventory as reported by the operating system. We specifically prioritize traffic on common C2 and proxy ports, such as 443, 9001, and 8080.</p>
+<p>To add context, we also pull DNS activity looking for lookups related to proxy infrastructure like Tor or Ngrok. These signals are not indicators of a rootkit on their own, but they provide critical pivot points when we find a network discrepancy on a specific host.</p>
+<p>Finally, we triage the data by identifying destinations that appear frequently in the flow logs but never appear in the socket snapshots. A persistent outbound connection to an external IP that refuses to show up in the socket table is a primary indicator of kernel-level deception.</p>
+<h3>Limitations and Blind Spots</h3>
+<p>This hunt relies on the availability of historical flow logs. If an environment only provides 'live' socket state, there is no baseline for comparison, and the rootkit’s evasion will be successful. Additionally, short-lived ephemeral connections can create false positives; a connection might start and end between two socket snapshots, appearing in the logs but missing from the snapshots. We address this by looking for persistent or repeated flows rather than isolated events.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is using an eBPF rootkit to hide C2 connections from user-space reporting (Netlink), creating a detectable discrepancy between historical network flow logs and point-in-time socket snapshots.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify active Linux systems where eBPF rootkits are applicable to define the baseline population.", "expected": "A list of Linux hosts. Silence proves the absence of managed Linux systems in the reporting window.", "id": "linux-host-scope", "label": "Identify Linux Assets", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT hostname AS device_hostname, os_name, os_version, device_uid FROM hb_devices WHERE LOWER(platform) = \u0027linux\u0027 AND activity_id = 2 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Identify external network traffic observed by the host or network fabric that might be hidden from user-space tools.", "expected": "External flows and their owning processes. Silence means no external outbound traffic was logged.", "id": "outbound-traffic-logs", "label": "Outbound External Network Traffic", "parents": [{"branch": null, "id": "linux-host-scope", "kind": null}], "query": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, (instr(\u0027,\u0027 || \u0027{{c2_proxy_ports}}\u0027 || \u0027,\u0027, \u0027,\u0027 || CAST(dst_endpoint_port AS TEXT) || \u0027,\u0027) \u003e 0) AS is_c2_port, COUNT(*) as flow_count FROM hb_network_connection WHERE state_kind = \u0027log\u0027 AND direction = \u0027outbound\u0027 AND dst_endpoint_ip NOT LIKE \u002710.%\u0027 AND dst_endpoint_ip NOT LIKE \u0027192.168.%\u0027 AND dst_endpoint_ip NOT LIKE \u0027127.%\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY 1, 2, 3, 4, 5 HAVING flow_count \u003e 2", "role": "detection-candidate", "source": "hb_network_connection", "type": "query"}, {"description": "Obtain the \u0027ground truth\u0027 according to the operating system\u0027s user-space management tools.", "expected": "A snapshot of currently open sockets. Silence means no sockets were reported during collection.", "id": "socket-snapshot-inventory", "label": "Reported Socket Inventory", "parents": [{"branch": null, "id": "linux-host-scope", "kind": null}], "query": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, MIN(time) as first_seen FROM hb_network_connection WHERE state_kind = \u0027live\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY 1, 2, 3, 4", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Corroborate discrepancy findings with lookups for multi-hop proxy infrastructure (Tor, Ngrok) or side-channel tunneling.", "expected": "Lookups for known proxy infrastructure. Silence suggests C2 may be using hardcoded IPs or a different proxy method.", "id": "proxy-dns-activity", "label": "Proxy and C2 DNS Lookups", "parents": [{"branch": null, "id": "linux-host-scope", "kind": null}], "query": "SELECT device_hostname, query_hostname, process_name, COUNT(*) as query_count FROM hb_dns_activity WHERE (LOWER(query_hostname) LIKE \u0027%.onion%\u0027 OR LOWER(query_hostname) LIKE \u0027%ngrok%\u0027 OR LOWER(query_hostname) LIKE \u0027%tunnel%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY 1, 2, 3", "role": "enrichment", "source": "hb_dns_activity", "type": "query"}, {"description": "Evaluate whether outbound traffic exists for which there is no corresponding open socket, suggesting kernel-level hiding.", "expected": "A per-host verdict identifying confirmed or suspicious telemetry gaps.", "id": "triage-discrepancies", "label": "Analyze Traffic-Socket Discrepancy", "parents": [{"branch": null, "id": "outbound-traffic-logs", "kind": "merge"}, {"branch": null, "id": "socket-snapshot-inventory", "kind": "merge"}, {"branch": null, "id": "proxy-dns-activity", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Isolate likely compromised hosts or route for deeper analyst investigation.", "expected": null, "id": "route-verdict", "label": "Route Based on Discrepancy", "parents": [{"branch": null, "id": "triage-discrepancies", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Halt C2 and potential data exfiltration from a likely rootkit-infected host.", "expected": null, "id": "isolate-host", "label": "Isolate Affected Host", "parents": [{"branch": "on_supports", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Verify if the discrepancy is due to a rootkit or benign telemetry lag/skew.", "expected": null, "id": "analyst-manual-review", "label": "Manual Discrepancy Review", "parents": [{"branch": "default", "id": "route-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document the conclusion and update tuning notes.", "expected": null, "id": "close-out", "label": "Hunt Close-out", "parents": [{"branch": "on_refutes", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-linux-host-scope">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Linux Assets</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify active Linux systems where eBPF rootkits are applicable to define the baseline population.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT hostname AS device_hostname, os_name, os_version, device_uid FROM hb_devices WHERE LOWER(platform) = &#39;linux&#39; AND activity_id = 2 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of Linux hosts. Silence proves the absence of managed Linux systems in the reporting window.</p>        </li>
+        <li class="card step" id="step-outbound-traffic-logs">
+          <div class="step-head">
+            <h3 class="heading-sm">Outbound External Network Traffic</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify external network traffic observed by the host or network fabric that might be hidden from user-space tools.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, (instr(&#39;,&#39; || &#39;{{c2_proxy_ports}}&#39; || &#39;,&#39;, &#39;,&#39; || CAST(dst_endpoint_port AS TEXT) || &#39;,&#39;) &gt; 0) AS is_c2_port, COUNT(*) as flow_count FROM hb_network_connection WHERE state_kind = &#39;log&#39; AND direction = &#39;outbound&#39; AND dst_endpoint_ip NOT LIKE &#39;10.%&#39; AND dst_endpoint_ip NOT LIKE &#39;192.168.%&#39; AND dst_endpoint_ip NOT LIKE &#39;127.%&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3, 4, 5 HAVING flow_count &gt; 2</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> External flows and their owning processes. Silence means no external outbound traffic was logged.</p>        </li>
+        <li class="card step" id="step-socket-snapshot-inventory">
+          <div class="step-head">
+            <h3 class="heading-sm">Reported Socket Inventory</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Obtain the &#39;ground truth&#39; according to the operating system&#39;s user-space management tools.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, MIN(time) as first_seen FROM hb_network_connection WHERE state_kind = &#39;live&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3, 4</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A snapshot of currently open sockets. Silence means no sockets were reported during collection.</p>        </li>
+        <li class="card step" id="step-proxy-dns-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Proxy and C2 DNS Lookups</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Corroborate discrepancy findings with lookups for multi-hop proxy infrastructure (Tor, Ngrok) or side-channel tunneling.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, query_hostname, process_name, COUNT(*) as query_count FROM hb_dns_activity WHERE (LOWER(query_hostname) LIKE &#39;%.onion%&#39; OR LOWER(query_hostname) LIKE &#39;%ngrok%&#39; OR LOWER(query_hostname) LIKE &#39;%tunnel%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Lookups for known proxy infrastructure. Silence suggests C2 may be using hardcoded IPs or a different proxy method.</p>        </li>
+        <li class="card step" id="step-triage-discrepancies">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyze Traffic-Socket Discrepancy</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Evaluate whether outbound traffic exists for which there is no corresponding open socket, suggesting kernel-level hiding.</p>        </li>
+        <li class="card step" id="step-route-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route Based on Discrepancy</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Isolate likely compromised hosts or route for deeper analyst investigation.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Affected Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Halt C2 and potential data exfiltration from a likely rootkit-infected host.</p>        </li>
+        <li class="card step" id="step-analyst-manual-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Manual Discrepancy Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Verify if the discrepancy is due to a rootkit or benign telemetry lag/skew.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Hunt Close-out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document the conclusion and update tuning notes.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Network Socket Hiding via Netlink Tampering<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>outbound-traffic-logs, socket-snapshot-inventory, triage-discrepancies</td></tr>            <tr><td>Multi-hop Proxy Communication<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>proxy-dns-activity, outbound-traffic-logs</td></tr>            <tr><td>Malicious eBPF Rootkit Execution<br><span class="mono dim">T1204.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Detection primitives for eBPF rootkits&#39; series.</td></tr>            <tr><td>eBPF Program and Map Hiding<br><span class="mono dim">T1204.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Detection primitives for eBPF rootkits&#39; series.</td></tr>            <tr><td>Ptrace Attachment Suppression<br><span class="mono dim">T1204.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Detection primitives for eBPF rootkits&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_network_connection with state_kind = &#39;log&#39;.</strong> If only &#39;live&#39; socket snapshots are available, a rootkit that manipulates Netlink will effectively hide its presence, and there will be no baseline log to compare against. <span class="dim">It would answer Are there network flows occurring that we cannot see because flow logging is disabled?.</span> <span class="dim">Remediation: Ensure VPC flow logs or host-based network event logging (e.g., Sysmon/Auditd) is active for the estate.</span></li>          <li class="card"><strong>Needs Aligned collection intervals for logs and snapshots.</strong> An ephemeral connection may appear in flow logs but finish before the next socket snapshot is taken, creating a false positive for hiding. <span class="dim">It would answer Can we differentiate between a hidden socket and a short-lived ephemeral connection?.</span> <span class="dim">Remediation: Increase the frequency of socket snapshots or use kernel-level socket life-cycle events if available.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>c2_proxy_ports</code></td><td class="mono dim">list[string]</td><td class="mono">443, 9001, 9050, 8080, 4444</td><td>Common proxy and C2 ports to highlight in the discrepancy analysis.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of historical network traffic and socket snapshots to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of Linux hostnames to narrow the search.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple detection rule might look for specific eBPF helper calls, but a
+  rootkit can hide the eBPF program itself. This hunt is superior because it uses
+  multi-surface correlation (Flow Logs vs Socket Snapshots) to detect the *outcome*
+  of the deception, which requires an adversary to manipulate two independent telemetry
+  paths simultaneously.
+blind_spots:
+- id: no-flow-telemetry
+  question: Are there network flows occurring that we cannot see because flow logging
+    is disabled?
+  remediation: Ensure VPC flow logs or host-based network event logging (e.g., Sysmon/Auditd)
+    is active for the estate.
+  requires: hb_network_connection with state_kind = &#39;log&#39;
+  risk: If only &#39;live&#39; socket snapshots are available, a rootkit that manipulates
+    Netlink will effectively hide its presence, and there will be no baseline log
+    to compare against.
+  stage: defense-evasion-network-hiding
+- id: telemetry-timing-skew
+  question: Can we differentiate between a hidden socket and a short-lived ephemeral
+    connection?
+  remediation: Increase the frequency of socket snapshots or use kernel-level socket
+    life-cycle events if available.
+  requires: Aligned collection intervals for logs and snapshots
+  risk: An ephemeral connection may appear in flow logs but finish before the next
+    socket snapshot is taken, creating a false positive for hiding.
+coverage:
+- stage: defense-evasion-network-hiding
+  status: covered
+  steps:
+  - outbound-traffic-logs
+  - socket-snapshot-inventory
+  - triage-discrepancies
+- stage: c2-multi-hop-proxy
+  status: covered
+  steps:
+  - proxy-dns-activity
+  - outbound-traffic-logs
+- reason: Belongs to another part of the &#39;Detection primitives for eBPF rootkits&#39;
+    series.
+  stage: initial-execution-ebpf-loader
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Detection primitives for eBPF rootkits&#39;
+    series.
+  stage: defense-evasion-ebpf-hiding
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Detection primitives for eBPF rootkits&#39;
+    series.
+  stage: defense-evasion-anti-debugging
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: EBPF rootkits bypass standard EDR and OS management tools by lying
+    at the kernel level. Detecting the discrepancy between what is observed (traffic)
+    and what is reported (sockets) is a durable method to expose kernel-level deception.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is using an eBPF rootkit to hide C2 connections from user-space
+  reporting (Netlink), creating a detectable discrepancy between historical network
+  flow logs and point-in-time socket snapshots.
+labels:
+- hunt
+- attack.t1090.003
+- attack.t1204.002
+name: Hidden Network Connection Discrepancy
+parameters:
+  c2_proxy_ports:
+    default:
+    - &#39;443&#39;
+    - &#39;9001&#39;
+    - &#39;9050&#39;
+    - &#39;8080&#39;
+    - &#39;4444&#39;
+    description: Common proxy and C2 ports to highlight in the discrepancy analysis.
+    from:
+      kind: article
+      observed: &#39;2024-05-15&#39;
+      ref: manual
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of historical network traffic and socket snapshots to examine.
+    from:
+      kind: manual
+      observed: &#39;2024-05-15&#39;
+      ref: admin
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of Linux hostnames to narrow the search.
+    from:
+      kind: manual
+      observed: &#39;2024-05-15&#39;
+      ref: admin
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Scope primarily to Linux servers in public-facing or sensitive zones. Use
+  the lookback period to capture historical traffic (logs) that can be compared against
+  the &#39;live&#39; socket state captured periodically.
+references:
+- name: Detection primitives for eBPF rootkits
+  url: https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/
+related:
+- hunt: ebpf-loader-file-activity
+  reason: Detection of the initial payload being dropped and the loader binary executing
+    belongs in an execution/file-activity hunt.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: Malicious eBPF Rootkit Execution
+    observables:
+    - LinkPro
+    - VoidLink
+    - Atomic Arch
+    - bpftool
+    - sys_enter_bpf
+    slug: initial-execution-ebpf-loader
+    tactic: execution
+    techniques:
+    - T1204.002
+  - name: eBPF Program and Map Hiding
+    observables:
+    - bpf_override_return
+    - BPF_PROG_GET_NEXT_ID
+    - BPF_MAP_GET_NEXT_ID
+    - BPF_LINK_GET_NEXT_ID
+    - -ENOENT
+    - /sys/kernel/debug/tracing/trace_pipe
+    - HIDING NEXT_ID
+    - BPF cmd
+    slug: defense-evasion-ebpf-hiding
+    tactic: defense-evasion
+    techniques:
+    - T1204.002
+  - name: Ptrace Attachment Suppression
+    observables:
+    - PTRACE_ATTACH
+    - PTRACE_SEIZE
+    - SIGKILL
+    - sys_enter_ptrace
+    slug: defense-evasion-anti-debugging
+    tactic: defense-evasion
+    techniques:
+    - T1204.002
+  - name: Network Socket Hiding via Netlink Tampering
+    observables:
+    - bpf_probe_write_user
+    - ss -tn
+    - AF_NETLINK
+    - SOCK_DIAG_BY_FAMILY
+    - NLM_F_DUMP
+    - inet_diag_msg
+    - __sys_recvmsg
+    slug: defense-evasion-network-hiding
+    tactic: defense-evasion
+    techniques:
+    - T1090.003
+  - name: Multi-hop Proxy Communication
+    observables:
+    - TCP traffic on hidden ports
+    slug: c2-multi-hop-proxy
+    tactic: command-and-control
+    techniques:
+    - T1090.003
+  summary: Linux malware like VoidLink and LinkPro utilize eBPF rootkits to evade
+    detection by tampering with kernel-level introspection and system call responses.
+    These campaigns hide network connections from tools like &#39;ss&#39; and mask malicious
+    eBPF programs from &#39;bpftool&#39; using kernel helpers like bpf_probe_write_user and
+    bpf_override_return.
+series:
+  index: 2
+  slug: detection-primitives-for-ebpf-rootkits
+  title: Detection primitives for eBPF rootkits
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Hidden Network Connection Discrepancy
+
+This hunt identifies eBPF-based rootkits like VoidLink and LinkPro by cross-referencing two distinct telemetry surfaces: historical network flow logs (log) and point-in-time socket snapshots (live). While a rootkit can hide a socket from the &#39;live&#39; snapshot by manipulating kernel-to-user-space reporting (like the Netlink subsystem used by &#39;ss&#39;), it is significantly harder to hide the actual traffic from the network fabric or kernel event stream (flow logs). We aggregate outbound traffic to external destinations and compare those destination ports and processes against the reported socket inventory. A persistent flow that never appears as an open socket is a primary indicator of kernel-level evasion. We prioritize ports commonly used by C2 and multi-hop proxies like Tor and Ngrok.
+
+## linux-host-scope
+&lt;!-- Identify Linux Assets --&gt;
+Identify active Linux systems where eBPF rootkits are applicable to define the baseline population.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of Linux hosts. Silence proves the absence of managed Linux systems
+  in the reporting window.
+reads:
+- hostname
+- platform
+- os_name
+- os_version
+- device_uid
+- activity_id
+- time
+silence: evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-18&#39;
+~~~
+SELECT hostname AS device_hostname, os_name, os_version, device_uid FROM hb_devices WHERE LOWER(platform) = &#39;linux&#39; AND activity_id = 2 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-data-collection
+&lt;!-- Simultaneous Network and Socket Collection --&gt;
+parallel:
+- → outbound-traffic-logs
+- → socket-snapshot-inventory
+- → proxy-dns-activity
+join: → triage-discrepancies
+
+## outbound-traffic-logs
+&lt;!-- Outbound External Network Traffic --&gt;
+Identify external network traffic observed by the host or network fabric that might be hidden from user-space tools.
+
+```sqlite target=network role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts, c2_proxy_ports=c2_proxy_ports)
+~~~yaml
+expected: External flows and their owning processes. Silence means no external outbound
+  traffic was logged.
+prevalence:
+  by: device_hostname
+  key:
+  - dst_endpoint_port
+  rare_below: 5
+reads:
+- device_hostname
+- dst_endpoint_ip
+- dst_endpoint_port
+- process_name
+- state_kind
+- direction
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-18&#39;
+~~~
+SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, (instr(&#39;,&#39; || &#39;{{c2_proxy_ports}}&#39; || &#39;,&#39;, &#39;,&#39; || CAST(dst_endpoint_port AS TEXT) || &#39;,&#39;) &gt; 0) AS is_c2_port, COUNT(*) as flow_count FROM hb_network_connection WHERE state_kind = &#39;log&#39; AND direction = &#39;outbound&#39; AND dst_endpoint_ip NOT LIKE &#39;10.%&#39; AND dst_endpoint_ip NOT LIKE &#39;192.168.%&#39; AND dst_endpoint_ip NOT LIKE &#39;127.%&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3, 4, 5 HAVING flow_count &gt; 2
+```
+
+## socket-snapshot-inventory
+&lt;!-- Reported Socket Inventory --&gt;
+Obtain the &#39;ground truth&#39; according to the operating system&#39;s user-space management tools.
+
+```sqlite target=network role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A snapshot of currently open sockets. Silence means no sockets were reported
+  during collection.
+prevalence:
+  by: device_hostname
+  key:
+  - dst_endpoint_port
+  rare_below: 5
+reads:
+- device_hostname
+- dst_endpoint_ip
+- dst_endpoint_port
+- process_name
+- state_kind
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-18&#39;
+~~~
+SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, MIN(time) as first_seen FROM hb_network_connection WHERE state_kind = &#39;live&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3, 4
+```
+
+## proxy-dns-activity
+&lt;!-- Proxy and C2 DNS Lookups --&gt;
+Corroborate discrepancy findings with lookups for multi-hop proxy infrastructure (Tor, Ngrok) or side-channel tunneling.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Lookups for known proxy infrastructure. Silence suggests C2 may be using
+  hardcoded IPs or a different proxy method.
+prevalence:
+  by: device_hostname
+  key:
+  - query_hostname
+  rare_below: 3
+reads:
+- device_hostname
+- query_hostname
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-18&#39;
+~~~
+SELECT device_hostname, query_hostname, process_name, COUNT(*) as query_count FROM hb_dns_activity WHERE (LOWER(query_hostname) LIKE &#39;%.onion%&#39; OR LOWER(query_hostname) LIKE &#39;%ngrok%&#39; OR LOWER(query_hostname) LIKE &#39;%tunnel%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3
+```
+
+## triage-discrepancies
+&lt;!-- Analyze Traffic-Socket Discrepancy --&gt;
+```agent target=hunter
+cite: required
+context:
+- outbound-traffic-logs
+- socket-snapshot-inventory
+- proxy-dns-activity
+max_iterations: 5
+objective: Compare &#39;outbound-traffic-logs&#39; against &#39;socket-snapshot-inventory&#39; for
+  each host. Identify persistent traffic (multiple flows) to an IP/port that never
+  appears in the socket list. Prioritize discrepancies on ports in {{c2_proxy_ports}}
+  or hosts showing DNS lookups in &#39;proxy-dns-activity&#39;.
+success_criteria: A verdict citing specific IP/ports that appear in logs but not snapshots.
+tools:
+- endpoint
+- network
+```
+
+## route-verdict
+&lt;!-- Route Based on Discrepancy --&gt;
+if~: &#34;The triage identifies a persistent discrepancy between network logs and socket snapshots for an external destination on at least one host.&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-manual-review
+unavailable: → analyst-manual-review (blind_spot: no-flow-telemetry)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate Affected Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host from the network. Capture an eBPF memory dump and forensic image before rebooting, as the rootkit and its loaded programs may reside entirely in kernel memory.
+```
+→ analyst-manual-review
+
+## analyst-manual-review
+&lt;!-- Manual Discrepancy Review --&gt;
+```manual target=analyst
+1. Inspect destination IPs from &#39;outbound-traffic-logs&#39; against threat intelligence. 2. Verify if the &#39;process_name&#39; associated with the log flows is legitimate but suspicious (e.g., systemd talking to Tor). 3. Look for &#39;/sys/kernel/debug/tracing/trace_pipe&#39; content on the host for &#39;HIDING&#39; messages. 4. Check for ephemeral connection timing skew where short-lived flows might naturally miss a periodic snapshot.
+```
+→ end
+
+## close-out
+&lt;!-- Hunt Close-out --&gt;
+```manual target=analyst
+Record the hosts validated as &#39;all sockets accounted for&#39;. Update any identified false positives for ephemeral traffic into a tuning list for next month&#39;s run.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=hidden-network-connection-discrepancy" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

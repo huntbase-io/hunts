@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KREMLIN JS Loader and Task Persistence · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder is using a multi-stage JavaScript loader to establish persistence via a spoofed Node.js scheduled task and resolves C2 infrastructure using Ethereum smart contracts.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/kremlin-js-loader-persistence/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="KREMLIN JS Loader and Task Persistence · Huntbase Hunts">
+  <meta property="og:description" content="An intruder is using a multi-stage JavaScript loader to establish persistence via a spoofed Node.js scheduled task and resolves C2 infrastructure using Ethereum smart contracts.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/kremlin-js-loader-persistence/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">KREMLIN JS Loader and Task Persistence</h1>
+      <p class="hyp-lead">An intruder is using a multi-stage JavaScript loader to establish persistence via a spoofed Node.js scheduled task and resolves C2 infrastructure using Ethereum smart contracts.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.elastic.co/security-labs/threat-command/malicious-browser-extension-kremlin-banking-malware" rel="noopener">Elastic Security Labs</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1047 T1053.005 T1059.001</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=kremlin-js-loader-persistence" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why Now</h3>
+<p>Recent research from Elastic Security Labs, titled <a href="https://www.elastic.co/security-labs/threat-command/malicious-browser-extension-kremlin-banking-malware" rel="noopener noreferrer">The extension you never installed: KREMLIN forges Chrome's own integrity checks to steal banking sessions</a>, details a sophisticated campaign targeting banking users. KREMLIN is notable for its use of a multi-stage infection chain that ultimately drops a malicious browser extension. Because the malware relies on legitimate tools like Node.js and common administrative interfaces like WMI for evasion, relying on static signatures is insufficient. This hunt focuses on the persistence and loader mechanisms that precede the extension's installation.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins with broad scoping. We identify hosts where targeted browsers (Chrome or Edge) are currently inventoried. Since KREMLIN is designed to steal browser sessions, focusing our search on these environments reduces noise from servers or specialized workstations where the infection is less likely to yield the attacker's desired results.</p>
+<p>Next, we pivot to the primary persistence mechanism. We query scheduled job metadata for tasks that specifically reference the 'MicrosoftNodeRuntimeUpdater' name or utilize the <code>--headless</code> flag with the Node.js runtime. This is a high-confidence signal, but attackers can easily rename tasks, so this step serves as a starting point rather than a definitive conclusion.</p>
+<p>To corroborate these findings, we look for secondary file artifacts. The KREMLIN loader often generates temporary JavaScript files following a <code>popup_*.js</code> naming convention to facilitate user lures. We use a prevalence-based query to find these scripts, filtering for files seen on very few hosts across the environment. Finding these rare scripts on the same hosts as the suspicious scheduled tasks significantly increases the likelihood of a true positive.</p>
+<p>Finally, we examine behavioral and network telemetry. We search script execution logs for WMI queries that count running processes or desktop objects—a known evasion technique used by KREMLIN to detect sandboxes. This is combined with a search for DNS lookups to Ethereum dead-drop resolvers and Archive.org, which the malware uses to fetch its final stage payloads. This multi-surface approach allows us to see the activity even if individual indicators have been modified.</p>
+<h3>Blind Spots</h3>
+<p>Visibility into the initial JavaScript execution is heavily dependent on the depth of script block logging. If the <code>hb_script_activity</code> surface does not capture expanded or deobfuscated strings, the WMI-based evasion logic may remain hidden. Additionally, without full HTTP path visibility, DNS queries to common domains like Archive.org can be noisy and difficult to distinguish from legitimate user traffic without the context of the calling process.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder is using a multi-stage JavaScript loader to establish persistence via a spoofed Node.js scheduled task and resolves C2 infrastructure using Ethereum smart contracts.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify hosts where the targeted browsers (Chrome/Edge) are installed to focus the hunt for browser-specific malware.", "expected": "A list of hosts containing the target browsers. Silence means the browsers are not inventoried or not present.", "id": "scope-to-browsers", "label": "Scope to hosts with Chrome or Edge", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%chrome%\u0027 OR LOWER(package_name) LIKE \u0027%edge%\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Detect the specific scheduled task used by KREMLIN to maintain persistence for its Node.js components.", "expected": "Any scheduled task matching the reported name or utilizing a headless Node.js runtime. This is the primary detection candidate.", "id": "detect-malicious-task", "label": "Identify KREMLIN persistence task", "parents": [{"branch": null, "id": "scope-to-browsers", "kind": null}], "query": "SELECT device_hostname, job_name, job_cmd_line, job_user_name, time FROM hb_scheduled_job WHERE (LOWER(job_name) = \u0027microsoftnoderuntimeupdater\u0027 OR (LOWER(job_cmd_line) LIKE \u0027%node.exe%\u0027 AND LOWER(job_cmd_line) LIKE \u0027%--headless%\u0027)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "detection-candidate", "source": "hb_scheduled_job", "type": "query"}, {"description": "Identify the creation of temporary JS files used to show the fake error lure.", "expected": "Rarely seen JS files with names following the reported pattern. High prevalence would indicate legitimate enterprise software.", "id": "rare-popup-files", "label": "Rare \u0027popup_*.js\u0027 helper scripts", "parents": [{"branch": null, "id": "detect-malicious-task", "kind": null}], "query": "SELECT device_hostname, file_name, file_path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_file_activity WHERE LOWER(file_name) LIKE \u0027popup_%.js\u0027 AND activity_id = 1 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) GROUP BY LOWER(file_name) HAVING hosts \u003c= 3", "role": "baseline", "source": "hb_file_activity", "type": "query"}, {"description": "Find communication with domains resolving Ethereum-based dead-drop configurations or payload hosting.", "expected": "DNS requests to the reported domains. Correlate with the process performing the lookup (often node.exe or shell interpreters).", "id": "dns-to-c2", "label": "DNS lookups for Ethereum resolvers", "parents": [{"branch": null, "id": "detect-malicious-task", "kind": null}], "query": "SELECT device_hostname, query_hostname, process_name, COUNT(*) AS lookups FROM hb_dns_activity WHERE (instr(\u0027,\u0027 || \u0027{{c2_domains}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(query_hostname) || \u0027,\u0027) \u003e 0 OR LOWER(query_hostname) LIKE \u0027%archive.org%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) GROUP BY device_hostname, query_hostname, process_name", "role": "enrichment", "source": "hb_dns_activity", "type": "query"}, {"description": "Search script execution blocks for the specific WMI counting logic used to detect sandbox environments.", "expected": "Script contents checking for process or file counts. This behavior is highly characteristic of the KREMLIN loader\u0027s evasion logic.", "id": "sandbox-script-behavior", "label": "WMI sandbox-counting logic", "parents": [{"branch": null, "id": "detect-malicious-task", "kind": null}], "query": "SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE \u0027%winmgmts%\u0027 AND (LOWER(script_content) LIKE \u0027%win32_process%\u0027 OR LOWER(script_content) LIKE \u0027%desktop%\u0027)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "enrichment", "source": "hb_script_activity", "type": "query"}, {"description": "Analyze signals from multiple surfaces to determine if a host is infected with the KREMLIN loader.", "expected": "A detailed verdict for each host citing the specific scheduled task, popup files, and network behavior.", "id": "triage-agent", "label": "Triage KREMLIN loader evidence", "parents": [{"branch": null, "id": "rare-popup-files", "kind": "merge"}, {"branch": null, "id": "dns-to-c2", "kind": "merge"}, {"branch": null, "id": "sandbox-script-behavior", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Decide on containment or manual review based on the triage agent\u0027s output.", "expected": null, "id": "route-on-verdict", "label": "Route on triage verdict", "parents": [{"branch": null, "id": "triage-agent", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent the malware from stealing banking sessions or further installing malicious browser extensions.", "expected": null, "id": "isolate-host", "label": "Isolate infected host", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review suspicious script behaviors and DNS traffic to determine if remediation is required for ambiguous cases.", "expected": null, "id": "analyst-review", "label": "Manual analyst verification", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Finalize findings and document any blind spots encountered during the hunt.", "expected": null, "id": "close-out", "label": "Hunt close out", "parents": [{"branch": null, "id": "analyst-review", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-to-browsers">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope to hosts with Chrome or Edge</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify hosts where the targeted browsers (Chrome/Edge) are installed to focus the hunt for browser-specific malware.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%chrome%&#39; OR LOWER(package_name) LIKE &#39;%edge%&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts containing the target browsers. Silence means the browsers are not inventoried or not present.</p>        </li>
+        <li class="card step" id="step-detect-malicious-task">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify KREMLIN persistence task</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect the specific scheduled task used by KREMLIN to maintain persistence for its Node.js components.</p>          <div class="code"><div class="code-head"><span>reads hb_scheduled_job</span><span>sql</span></div><pre><code>SELECT device_hostname, job_name, job_cmd_line, job_user_name, time FROM hb_scheduled_job WHERE (LOWER(job_name) = &#39;microsoftnoderuntimeupdater&#39; OR (LOWER(job_cmd_line) LIKE &#39;%node.exe%&#39; AND LOWER(job_cmd_line) LIKE &#39;%--headless%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Any scheduled task matching the reported name or utilizing a headless Node.js runtime. This is the primary detection candidate.</p>        </li>
+        <li class="card step" id="step-rare-popup-files">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare &#39;popup_*.js&#39; helper scripts</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify the creation of temporary JS files used to show the fake error lure.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_name, file_path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_file_activity WHERE LOWER(file_name) LIKE &#39;popup_%.js&#39; AND activity_id = 1 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) GROUP BY LOWER(file_name) HAVING hosts &lt;= 3</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Rarely seen JS files with names following the reported pattern. High prevalence would indicate legitimate enterprise software.</p>        </li>
+        <li class="card step" id="step-dns-to-c2">
+          <div class="step-head">
+            <h3 class="heading-sm">DNS lookups for Ethereum resolvers</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Find communication with domains resolving Ethereum-based dead-drop configurations or payload hosting.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, query_hostname, process_name, COUNT(*) AS lookups FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{c2_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 OR LOWER(query_hostname) LIKE &#39;%archive.org%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) GROUP BY device_hostname, query_hostname, process_name</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> DNS requests to the reported domains. Correlate with the process performing the lookup (often node.exe or shell interpreters).</p>        </li>
+        <li class="card step" id="step-sandbox-script-behavior">
+          <div class="step-head">
+            <h3 class="heading-sm">WMI sandbox-counting logic</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Search script execution blocks for the specific WMI counting logic used to detect sandbox environments.</p>          <div class="code"><div class="code-head"><span>reads hb_script_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE &#39;%winmgmts%&#39; AND (LOWER(script_content) LIKE &#39;%win32_process%&#39; OR LOWER(script_content) LIKE &#39;%desktop%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Script contents checking for process or file counts. This behavior is highly characteristic of the KREMLIN loader&#39;s evasion logic.</p>        </li>
+        <li class="card step" id="step-triage-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage KREMLIN loader evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Analyze signals from multiple surfaces to determine if a host is infected with the KREMLIN loader.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on triage verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Decide on containment or manual review based on the triage agent&#39;s output.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate infected host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent the malware from stealing banking sessions or further installing malicious browser extensions.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Manual analyst verification</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review suspicious script behaviors and DNS traffic to determine if remediation is required for ambiguous cases.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Hunt close out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Finalize findings and document any blind spots encountered during the hunt.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Initial JavaScript Loader and Sandbox Evasion<br><span class="mono dim">T1059.001 · T1047</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-popup-files, sandbox-script-behavior</td></tr>            <tr><td>Persistence via Scheduled Task<br><span class="mono dim">T1053.005</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>detect-malicious-task</td></tr>            <tr><td>Ethereum Dead-Drop C2 Configuration<br><span class="mono dim">T1059.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>dns-to-c2</td></tr>            <tr><td>Side-loaded C++ Malware Installer<br><span class="mono dim">T1047</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#34;The extension you never installed: KREMLIN forges Chrome&#39;s own integrity checks to steal banking sessions&#34; series.</td></tr>            <tr><td>Browser Extension Installation and Forgery<br><span class="mono dim">T1176</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#34;The extension you never installed: KREMLIN forges Chrome&#39;s own integrity checks to steal banking sessions&#34; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_script_activity support for deobfuscated or expanded script blocks.</strong> If the script activity surface does not capture the final stage execution or expanded strings, the sandbox checks (WMI queries) will remain invisible. <span class="dim">It would answer whether the loader&#39;s obfuscated stages were visible to the script interpreter.</span></li>          <li class="card"><strong>Needs hb_http_activity or proxy logging.</strong> Without HTTP path data, DNS resolutions to Archive.org or attacker domains are less actionable and may be lost in background noise. <span class="dim">It would answer whether the specific /api/log_loader path was accessed.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>c2_domains</code></td><td class="mono dim">list[domain]</td><td class="mono">connection.upgradeonline.site, granderevolucao.store, archive.org, ia601808.us.archive.org</td><td>C2 domains and dead-drop resolvers from the report.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Specific hosts to narrow the hunt; leave empty for whole estate.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple detection rule for the task name &#39;MicrosoftNodeRuntimeUpdater&#39;
+  is easily bypassed by renaming. This hunt uses a multi-surface approach (prevalence
+  of random popup JS files, script-based evasion patterns, and DNS to resolvers) that
+  a single rule cannot correlate.
+blind_spots:
+- id: no-script-visibility
+  question: whether the loader&#39;s obfuscated stages were visible to the script interpreter
+  requires: hb_script_activity support for deobfuscated or expanded script blocks
+  risk: If the script activity surface does not capture the final stage execution
+    or expanded strings, the sandbox checks (WMI queries) will remain invisible.
+  stage: initial-javascript-loader
+- id: no-http-path-visibility
+  question: whether the specific /api/log_loader path was accessed
+  requires: hb_http_activity or proxy logging
+  risk: Without HTTP path data, DNS resolutions to Archive.org or attacker domains
+    are less actionable and may be lost in background noise.
+  stage: ethereum-dead-drop-c2
+coverage:
+- stage: initial-javascript-loader
+  status: covered
+  steps:
+  - rare-popup-files
+  - sandbox-script-behavior
+- stage: persistence-via-scheduled-task
+  status: covered
+  steps:
+  - detect-malicious-task
+- stage: ethereum-dead-drop-c2
+  status: covered
+  steps:
+  - dns-to-c2
+- reason: &#39;Belongs to another part of the &#34;The extension you never installed: KREMLIN
+    forges Chrome&#39;&#39;s own integrity checks to steal banking sessions&#34; series.&#39;
+  stage: sideloaded-malware-installer
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#34;The extension you never installed: KREMLIN
+    forges Chrome&#39;&#39;s own integrity checks to steal banking sessions&#34; series.&#39;
+  stage: browser-extension-manipulation
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: The KREMLIN operation targets Brazilian banking users with 1,500+
+    documented infections. Its use of legitimate-looking Node.js tasks and multi-stage
+    JS loaders makes it a significant risk for financial session theft.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder is using a multi-stage JavaScript loader to establish persistence
+  via a spoofed Node.js scheduled task and resolves C2 infrastructure using Ethereum
+  smart contracts.
+labels:
+- hunt
+- attack.t1047
+- attack.t1053.005
+- attack.t1059.001
+name: KREMLIN JS Loader and Task Persistence
+parameters:
+  c2_domains:
+    default:
+    - connection.upgradeonline.site
+    - granderevolucao.store
+    - archive.org
+    - ia601808.us.archive.org
+    description: C2 domains and dead-drop resolvers from the report.
+    from:
+      kind: article
+      observed: &#39;2026-09-14&#39;
+      ref: &#34;Elastic Security Labs \u2014 KREMLIN&#34;
+    type: list[domain]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Specific hosts to narrow the hunt; leave empty for whole estate.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.elastic.co/security-labs/threat-command/malicious-browser-extension-kremlin-banking-malware
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on Windows endpoints where Chrome or Edge are present. The infection
+  starts with manual execution of a JS file, often from Downloads or Temp folders.
+references:
+- name: &#34;Elastic Security Labs \u2014 Malicious browser extension KREMLIN&#34;
+  url: https://www.elastic.co/security-labs/threat-command/malicious-browser-extension-kremlin-banking-malware
+related:
+- hunt: kremlin-installer-sideloading
+  reason: This hunt focuses on the loader and persistence; the next hunt covers the
+    installer binary and the SentinelOne sideloading technique.
+  relation: follows
+scenario:
+  stages:
+  - name: Initial JavaScript Loader and Sandbox Evasion
+    observables:
+    - popup_{date}_{random}.js
+    - shell.Popup
+    - certutil.exe decoding
+    - WMI query for process counts
+    - Desktop file count &lt; 5
+    - Process count &lt; 50
+    slug: initial-javascript-loader
+    tactic: execution
+    techniques:
+    - T1059.001
+    - T1047
+  - name: Persistence via Scheduled Task
+    observables:
+    - MicrosoftNodeRuntimeUpdater
+    - conhost.exe --headless node.exe
+    - Node.js V8 Runtime description
+    - Embedded CAB archive extraction
+    slug: persistence-via-scheduled-task
+    tactic: persistence
+    techniques:
+    - T1053.005
+  - name: Ethereum Dead-Drop C2 Configuration
+    observables:
+    - &#39;0xCD7360A83E5cdbBbbbcEB0e78748babA6740d07b&#39;
+    - connection.upgradeonline.site
+    - granderevolucao.store
+    - archive.org/download/hotelmoskva/hotelmoskva.jpg
+    - ia601808.us.archive.org
+    - /api/log_loader?hash=
+    slug: ethereum-dead-drop-c2
+    tactic: command-and-control
+    techniques:
+    - T1059.001
+  - name: Side-loaded C++ Malware Installer
+    observables:
+    - SentinelMemoryScanner.exe
+    - SentinelAgentCore.dll
+    - PigSyscall
+    - LdrLockLiberator technique
+    - 0x1337 access violation on VM detection
+    - Indirect syscalls via ntdll.dll
+    slug: sideloaded-malware-installer
+    tactic: defense-evasion
+    techniques:
+    - T1047
+  - name: Browser Extension Installation and Forgery
+    observables:
+    - Secure Preferences modification
+    - Chrome integrity HMAC regeneration
+    - App-Bound encrypted hashes modification
+    - Malicious extension in Chrome/Edge
+    - Kr3mlin4rt1st author name
+    slug: browser-extension-manipulation
+    tactic: persistence
+    techniques:
+    - T1176
+  summary: KREMLIN (REF9334) is a multi-stage Brazilian banking threat that uses obfuscated
+    JavaScript loaders to establish persistence via scheduled tasks and download payloads
+    via Ethereum-based dead-drop resolvers. The campaign ultimately installs a malicious
+    browser extension by side-loading an installer via a legitimate security binary
+    and forging Chrome integrity checks to steal session tokens.
+series:
+  index: 1
+  slug: the-extension-you-never-installed-kremlin-forges-chrome-s-own-integrity-checks-to-steal-banking-
+  title: &#39;The extension you never installed: KREMLIN forges Chrome&#39;&#39;s own integrity
+    checks to steal banking sessions&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# KREMLIN JS Loader and Task Persistence
+
+This hunt identifies the early stages of the KREMLIN banking malware infection chain. It focuses on identifying the discovery of temporary &#39;popup&#39; helper scripts used for user-luring, the identification of sandbox evasion techniques (such as WMI-based process counting) within script blocks, and the detection of persistence established through a suspiciously named scheduled task (&#39;MicrosoftNodeRuntimeUpdater&#39;) that executes Node.js in a headless environment. The hunt corroborates these endpoint signals with DNS traffic to reported Ethereum dead-drop resolvers and payload hosting infrastructure on Archive.org.
+
+## scope-to-browsers
+&lt;!-- Scope to hosts with Chrome or Edge --&gt;
+Identify hosts where the targeted browsers (Chrome/Edge) are installed to focus the hunt for browser-specific malware.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts containing the target browsers. Silence means the browsers
+  are not inventoried or not present.
+reads:
+- device_hostname
+- package_name
+- package_version
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%chrome%&#39; OR LOWER(package_name) LIKE &#39;%edge%&#39;)
+```
+
+## detect-malicious-task
+&lt;!-- Identify KREMLIN persistence task --&gt;
+Detect the specific scheduled task used by KREMLIN to maintain persistence for its Node.js components.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Any scheduled task matching the reported name or utilizing a headless Node.js
+  runtime. This is the primary detection candidate.
+reads:
+- device_hostname
+- job_name
+- job_cmd_line
+- job_user_name
+- time
+silence: not_evidence_of_absence
+source: hb_scheduled_job
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, job_name, job_cmd_line, job_user_name, time FROM hb_scheduled_job WHERE (LOWER(job_name) = &#39;microsoftnoderuntimeupdater&#39; OR (LOWER(job_cmd_line) LIKE &#39;%node.exe%&#39; AND LOWER(job_cmd_line) LIKE &#39;%--headless%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## parallel-corroboration
+&lt;!-- Corroborate independent signals --&gt;
+parallel:
+- → rare-popup-files
+- → dns-to-c2
+- → sandbox-script-behavior
+join: → triage-agent
+
+## rare-popup-files
+&lt;!-- Rare &#39;popup_*.js&#39; helper scripts --&gt;
+Identify the creation of temporary JS files used to show the fake error lure.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Rarely seen JS files with names following the reported pattern. High prevalence
+  would indicate legitimate enterprise software.
+prevalence:
+  by: device_hostname
+  key:
+  - file_name
+  rare_below: 3
+reads:
+- device_hostname
+- file_name
+- file_path
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_name, file_path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_file_activity WHERE LOWER(file_name) LIKE &#39;popup_%.js&#39; AND activity_id = 1 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) GROUP BY LOWER(file_name) HAVING hosts &lt;= 3
+```
+
+## dns-to-c2
+&lt;!-- DNS lookups for Ethereum resolvers --&gt;
+Find communication with domains resolving Ethereum-based dead-drop configurations or payload hosting.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts, c2_domains=c2_domains)
+~~~yaml
+expected: DNS requests to the reported domains. Correlate with the process performing
+  the lookup (often node.exe or shell interpreters).
+reads:
+- device_hostname
+- query_hostname
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, query_hostname, process_name, COUNT(*) AS lookups FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{c2_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 OR LOWER(query_hostname) LIKE &#39;%archive.org%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) GROUP BY device_hostname, query_hostname, process_name
+```
+
+## sandbox-script-behavior
+&lt;!-- WMI sandbox-counting logic --&gt;
+Search script execution blocks for the specific WMI counting logic used to detect sandbox environments.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Script contents checking for process or file counts. This behavior is highly
+  characteristic of the KREMLIN loader&#39;s evasion logic.
+reads:
+- device_hostname
+- script_content
+- actor_user_name
+- time
+silence: not_evidence_of_absence
+source: hb_script_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE &#39;%winmgmts%&#39; AND (LOWER(script_content) LIKE &#39;%win32_process%&#39; OR LOWER(script_content) LIKE &#39;%desktop%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## triage-agent
+&lt;!-- Triage KREMLIN loader evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- detect-malicious-task
+- rare-popup-files
+- dns-to-c2
+- sandbox-script-behavior
+max_iterations: 5
+objective: Evaluate whether the combination of the &#39;MicrosoftNodeRuntimeUpdater&#39; task,
+  rare &#39;popup&#39; JS files, and DNS resolutions to Ethereum-linked domains indicates
+  an active KREMLIN infection.
+success_criteria: A per-host verdict of malicious, suspicious, or benign with cited
+  evidence.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on triage verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host involving the Node runtime scheduled task or the popup helper scripts&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: no-script-visibility)
+else: → analyst-review
+
+## isolate-host
+&lt;!-- Isolate infected host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately. Remove the &#39;MicrosoftNodeRuntimeUpdater&#39; scheduled task. Collect the parent JavaScript lure and any &#39;popup_*.js&#39; files for forensic analysis.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Manual analyst verification --&gt;
+```manual target=analyst
+Inspect the host&#39;s Chrome and Edge extension directories for uninstalled or unauthorized folders. Verify the integrity of &#39;node.exe&#39; in the suspected installation paths.
+```
+→ close-out
+
+## close-out
+&lt;!-- Hunt close out --&gt;
+```manual target=analyst
+Record the results of the hunt. If no indicators were found, document the scope and lookback window for future reference.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=kremlin-js-loader-persistence" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

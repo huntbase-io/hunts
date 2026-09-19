@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shai-Hulud: Developer Hook Poisoning and Memory Harvesting · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is using poisoned IDE hooks (VSCode/Claude Code) to execute a modular Bun-based framework that establishes deadman-switch persistence and extracts secrets from GitHub runner memory.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/shai-hulud-dev-hook-poisoning/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Shai-Hulud: Developer Hook Poisoning and Memory Harvesting · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is using poisoned IDE hooks (VSCode/Claude Code) to execute a modular Bun-based framework that establishes deadman-switch persistence and extracts secrets from GitHub runner memory.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/shai-hulud-dev-hook-poisoning/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">Shai-Hulud: Developer Hook Poisoning and Memory Harvesting</h1>
+      <p class="hyp-lead">An adversary is using poisoned IDE hooks (VSCode/Claude Code) to execute a modular Bun-based framework that establishes deadman-switch persistence and extracts secrets from GitHub runner memory.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://securitylabs.datadoghq.com/articles/shai-hulud-open-source-framework-static-analysis/" rel="noopener">Datadog Security Labs</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1003 T1059 T1195 T1543.001 T1543.002 T1552</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=shai-hulud-dev-hook-poisoning" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Recent analysis by Datadog Security Labs on the <a href="https://securitylabs.datadoghq.com/articles/shai-hulud-open-source-framework-static-analysis/" rel="noopener noreferrer">Shai-Hulud Framework</a> highlights a sophisticated shift in supply chain attacks: targeting the developer workstation's local lifecycle. Shai-Hulud doesn't rely on classic malware delivery; instead, it poisons the configuration files of IDEs and AI assistants to bootstrap a modular Bun runtime. </p>
+<p>Our hypothesis is that an adversary is using these poisoned hooks (specifically within VSCode or Claude Code) to establish deadman-switch persistence and extract sensitive secrets directly from the memory of GitHub runners. Because these actions often blend into legitimate development workflows, they are difficult to catch with static detection rules.</p>
+<p>The hunt begins by scoping the environment to identify developer workstations and build servers. We use software inventory data to look for the presence of tools like Bun, VSCode, or Cursor, ensuring the subsequent steps are focused on high-risk surfaces where this framework is designed to operate.</p>
+<p>The first phase of behavioral analysis targets the initial poisoning. We monitor file activity for modifications to IDE task definitions and AI assistant settings, such as <code>tasks.json</code> or <code>setup.mjs</code>. While some of these changes are routine, they serve as the entry point for the framework’s execution on folder-open events.</p>
+<p>Next, the hunt pivots to gather evidence of the framework's post-exploitation activity in parallel. We stack-count scheduled jobs to find rare persistence monitors and analyze process activity for high-signal indicators of memory scraping. Specifically, we look for processes attempting to read from <code>/proc/pid/mem</code> belonging to GitHub runner workers—a technique used to harvest transient secrets.</p>
+<p>Finally, we look for mass-reading patterns across cloud and identity credential files. By correlating these harvesting attempts with previous hook modifications, we can distinguish legitimate development activity from a coordinated Shai-Hulud infection.</p>
+<p>There are known blind spots. If a poisoned repository is cloned into a directory excluded from EDR monitoring, the initial hook modification will be missed. Furthermore, Shai-Hulud’s persistence monitors are designed to self-terminate after 24 hours, meaning point-in-time snapshots of scheduled jobs may fail to capture the infection if the hunt is not run frequently.</p>
+<p>This hunt is provided as a <code>hunt.md</code> playbook. It can be imported into Huntbase or any environment-aware runtime that supports the open hunt format to automate the correlation of these developer-centric signals.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/shai-hulud-cloud-discovery-exfiltration/index.html">Part 2: Shai-Hulud: Cloud Discovery and Encrypted Exfiltration</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is using poisoned IDE hooks (VSCode/Claude Code) to execute a modular Bun-based framework that establishes deadman-switch persistence and extracts secrets from GitHub runner memory.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Scope the hunt to hosts running developer tools or identified as runners to focus on high-risk surfaces.", "expected": "A list of hostnames belonging to developers or build servers. Silence means no such software is present.", "id": "scope-dev-environment", "label": "Identify Developer and Runner Assets", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%vscode%\u0027 OR LOWER(package_name) LIKE \u0027%bun%\u0027 OR LOWER(package_name) LIKE \u0027%claude%\u0027 OR LOWER(package_name) LIKE \u0027%cursor%\u0027) AND collected_at \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Find modifications to IDE task and assistant settings that trigger payload execution on folder open.", "expected": "File writes to sensitive IDE hooks. Silence here does not mean the framework is absent, as a poisoned repo could have been cloned with the hooks already in place.", "id": "detect-hook-poisoning", "label": "Poisoned IDE Hook Activity", "parents": [{"branch": null, "id": "scope-dev-environment", "kind": null}], "query": "SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE (instr(\u0027,\u0027 || \u0027{{poisoned_hook_paths}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(file_path) || \u0027,\u0027) \u003e 0 OR LOWER(file_path) LIKE \u0027%/.vscode/tasks.json\u0027 OR LOWER(file_path) LIKE \u0027%/.claude/settings.json\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND activity_id IN (1, 3, 5) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_file_activity", "type": "query"}, {"description": "Stack-count the persistent monitors installed by the deadman switch to find one-off instances.", "expected": "A LaunchAgent or systemd service seen on only a few hosts. Silence suggests no active deadman switch persistence.", "id": "rare-persistence-monitors", "label": "Rare Token Monitoring Services", "parents": [{"branch": null, "id": "detect-hook-poisoning", "kind": null}], "query": "SELECT job_name, job_definition_path, job_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE \u0027%monitor%\u0027 OR LOWER(job_definition_path) LIKE \u0027%gh-token-monitor%\u0027 OR LOWER(job_cmd_line) LIKE \u0027%api.github.com/user%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY job_name, job_definition_path, job_cmd_line HAVING host_count \u003c= 3", "role": "baseline", "source": "hb_scheduled_job", "type": "query"}, {"description": "Detect the extraction of Runner.Worker secrets via process memory reading.", "expected": "Python or Bun processes reading from /proc/pid/mem of a GitHub Runner. Silence means this specific technique was not observed.", "id": "suspicious-memory-scraping", "label": "Runner Memory Extraction via Proc", "parents": [{"branch": null, "id": "detect-hook-poisoning", "kind": null}], "query": "SELECT device_hostname, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE \u0027%/proc/%/mem%\u0027 AND LOWER(process_cmd_line) LIKE \u0027%runner.worker%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_process_activity", "type": "query"}, {"description": "Check for mass reading of cloud and identity secrets by unusual processes.", "expected": "A single process (Bun, Python, or shell) reading multiple distinct credential files in a short window.", "id": "credential-harvesting-reads", "label": "Sensitive File Harvesting Pattern", "parents": [{"branch": null, "id": "detect-hook-poisoning", "kind": null}], "query": "SELECT device_hostname, file_path, process_name, actor_user_name, COUNT(*) AS file_count FROM hb_file_activity WHERE instr(\u0027,\u0027 || \u0027{{sensitive_files}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(file_path) || \u0027,\u0027) \u003e 0 AND activity_id = 2 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY device_hostname, process_name, actor_user_name HAVING file_count \u003e= 2", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Evaluate whether the IDE poisoning, persistence, and harvesting findings form a complete infection chain.", "expected": "Host-by-host verdict.", "id": "triage-shai-hulud", "label": "Triage Developer Compromise", "parents": [{"branch": null, "id": "rare-persistence-monitors", "kind": "merge"}, {"branch": null, "id": "suspicious-memory-scraping", "kind": "merge"}, {"branch": null, "id": "credential-harvesting-reads", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the response based on the triage agent\u0027s findings.", "expected": null, "id": "route-on-verdict", "label": "Route on Verdict", "parents": [{"branch": null, "id": "triage-shai-hulud", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the host to prevent credential exfiltration or lateral propagation.", "expected": null, "id": "isolate-host", "label": "Isolate Endpoint", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Verify the agent\u0027s findings and tune out legitimate development overhead.", "expected": null, "id": "analyst-review", "label": "Manual Review and Tuning", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document the negative result for the reporting window.", "expected": null, "id": "close-out", "label": "Close and Record", "parents": [{"branch": "on_refutes", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-dev-environment">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Developer and Runner Assets</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Scope the hunt to hosts running developer tools or identified as runners to focus on high-risk surfaces.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%vscode%&#39; OR LOWER(package_name) LIKE &#39;%bun%&#39; OR LOWER(package_name) LIKE &#39;%claude%&#39; OR LOWER(package_name) LIKE &#39;%cursor%&#39;) AND collected_at &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames belonging to developers or build servers. Silence means no such software is present.</p>        </li>
+        <li class="card step" id="step-detect-hook-poisoning">
+          <div class="step-head">
+            <h3 class="heading-sm">Poisoned IDE Hook Activity</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Find modifications to IDE task and assistant settings that trigger payload execution on folder open.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE (instr(&#39;,&#39; || &#39;{{poisoned_hook_paths}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 OR LOWER(file_path) LIKE &#39;%/.vscode/tasks.json&#39; OR LOWER(file_path) LIKE &#39;%/.claude/settings.json&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND activity_id IN (1, 3, 5) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> File writes to sensitive IDE hooks. Silence here does not mean the framework is absent, as a poisoned repo could have been cloned with the hooks already in place.</p>        </li>
+        <li class="card step" id="step-rare-persistence-monitors">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare Token Monitoring Services</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count the persistent monitors installed by the deadman switch to find one-off instances.</p>          <div class="code"><div class="code-head"><span>reads hb_scheduled_job</span><span>sql</span></div><pre><code>SELECT job_name, job_definition_path, job_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE &#39;%monitor%&#39; OR LOWER(job_definition_path) LIKE &#39;%gh-token-monitor%&#39; OR LOWER(job_cmd_line) LIKE &#39;%api.github.com/user%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY job_name, job_definition_path, job_cmd_line HAVING host_count &lt;= 3</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A LaunchAgent or systemd service seen on only a few hosts. Silence suggests no active deadman switch persistence.</p>        </li>
+        <li class="card step" id="step-suspicious-memory-scraping">
+          <div class="step-head">
+            <h3 class="heading-sm">Runner Memory Extraction via Proc</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Detect the extraction of Runner.Worker secrets via process memory reading.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%/proc/%/mem%&#39; AND LOWER(process_cmd_line) LIKE &#39;%runner.worker%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Python or Bun processes reading from /proc/pid/mem of a GitHub Runner. Silence means this specific technique was not observed.</p>        </li>
+        <li class="card step" id="step-credential-harvesting-reads">
+          <div class="step-head">
+            <h3 class="heading-sm">Sensitive File Harvesting Pattern</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Check for mass reading of cloud and identity secrets by unusual processes.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, process_name, actor_user_name, COUNT(*) AS file_count FROM hb_file_activity WHERE instr(&#39;,&#39; || &#39;{{sensitive_files}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 AND activity_id = 2 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, process_name, actor_user_name HAVING file_count &gt;= 2</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A single process (Bun, Python, or shell) reading multiple distinct credential files in a short window.</p>        </li>
+        <li class="card step" id="step-triage-shai-hulud">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage Developer Compromise</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Evaluate whether the IDE poisoning, persistence, and harvesting findings form a complete infection chain.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the response based on the triage agent&#39;s findings.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Endpoint</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the host to prevent credential exfiltration or lateral propagation.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Manual Review and Tuning</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Verify the agent&#39;s findings and tune out legitimate development overhead.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close and Record</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document the negative result for the reporting window.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>IDE and AI Assistant Hook Poisoning<br><span class="mono dim">T1195</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>detect-hook-poisoning</td></tr>            <tr><td>Bun Runtime Loader Execution<br><span class="mono dim">T1059</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>suspicious-memory-scraping, credential-harvesting-reads</td></tr>            <tr><td>Daemonization and Token Monitoring<br><span class="mono dim">T1543.001 · T1543.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-persistence-monitors</td></tr>            <tr><td>Secret Harvesting and Memory Extraction<br><span class="mono dim">T1552 · T1003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>suspicious-memory-scraping, credential-harvesting-reads</td></tr>            <tr><td>Cloud and Vault Secret Enumeration<br><span class="mono dim">T1528</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Shai-Hulud open source framework static analysis&#39; series.</td></tr>            <tr><td>Encrypted C2 and GitHub Dead-drops<br><span class="mono dim">T1041 · T1090.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Shai-Hulud open source framework static analysis&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_file_activity for hidden directories.</strong> A poisoned repo cloned into a directory excluded from EDR monitoring would be invisible during the poisoning stage. <span class="dim">It would answer Were hook files modified in excluded or unindexed developer project folders?.</span></li>          <li class="card"><strong>Needs hb_scheduled_job with high frequency collection.</strong> The framework&#39;s deadman switch monitors self-terminate after 24 hours, making point-in-time snapshots potentially miss the indicator. <span class="dim">It would answer Was the token-monitor daemon deleted before the hunt ran?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>poisoned_hook_paths</code></td><td class="mono dim">list[path]</td><td class="mono">.vscode/tasks.json, .claude/settings.json, .claude/setup.mjs, .vscode/setup.mjs</td><td>IDE and AI assistant hook paths targeted for poisoning.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Hosts identified in the scoping step; leave empty to hunt across the entire estate.</td></tr>            <tr><td><code>sensitive_files</code></td><td class="mono dim">list[path]</td><td class="mono">.aws/credentials, .azure/accessTokens.json, .config/gcloud/credentials.db, .ssh/id_rsa, .kube/config</td><td>Target paths for the FileSystemService collector.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple detection rule for the &#39;gh-token-monitor&#39; string can be bypassed
+  by renaming the service; this hunt instead pivots between hook poisoning, rare Bun-based
+  execution, and the functional outcome of secret harvesting, requiring an agent to
+  weigh the intersection of multiple weak signals.
+blind_spots:
+- id: missing-file-telemetry
+  question: Were hook files modified in excluded or unindexed developer project folders?
+  requires: hb_file_activity for hidden directories
+  risk: A poisoned repo cloned into a directory excluded from EDR monitoring would
+    be invisible during the poisoning stage.
+  stage: ide-and-assistant-poisoning
+- id: transient-persistence
+  question: Was the token-monitor daemon deleted before the hunt ran?
+  requires: hb_scheduled_job with high frequency collection
+  risk: The framework&#39;s deadman switch monitors self-terminate after 24 hours, making
+    point-in-time snapshots potentially miss the indicator.
+  stage: endpoint-persistence
+coverage:
+- stage: ide-and-assistant-poisoning
+  status: covered
+  steps:
+  - detect-hook-poisoning
+- stage: loader-execution
+  status: covered
+  steps:
+  - suspicious-memory-scraping
+  - credential-harvesting-reads
+- stage: endpoint-persistence
+  status: covered
+  steps:
+  - rare-persistence-monitors
+- stage: credential-and-memory-harvesting
+  status: covered
+  steps:
+  - suspicious-memory-scraping
+  - credential-harvesting-reads
+- reason: Belongs to another part of the &#39;Shai-Hulud open source framework static
+    analysis&#39; series.
+  stage: cloud-infrastructure-discovery
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Shai-Hulud open source framework static
+    analysis&#39; series.
+  stage: c2-and-exfiltration
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: Shai-Hulud&#39;s targeting of IDE hooks and AI assistant configurations
+    bypasses traditional &#39;identity&#39; perimeters by weaponizing the developer&#39;s local
+    environment; a negative result over the developer estate is critical for supply
+    chain integrity.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is using poisoned IDE hooks (VSCode/Claude Code) to execute
+  a modular Bun-based framework that establishes deadman-switch persistence and extracts
+  secrets from GitHub runner memory.
+labels:
+- hunt
+- attack.t1195
+- attack.t1059
+- attack.t1543.001
+- attack.t1543.002
+- attack.t1552
+- attack.t1003
+name: &#39;Shai-Hulud: Developer Hook Poisoning and Memory Harvesting&#39;
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  poisoned_hook_paths:
+    default:
+    - .vscode/tasks.json
+    - .claude/settings.json
+    - .claude/setup.mjs
+    - .vscode/setup.mjs
+    description: IDE and AI assistant hook paths targeted for poisoning.
+    from:
+      kind: article
+      observed: &#39;2026-05-12&#39;
+      ref: https://securitylabs.datadoghq.com/articles/shai-hulud-open-source-framework-static-analysis/
+    type: list[path]
+  scope_hosts:
+    default: []
+    description: Hosts identified in the scoping step; leave empty to hunt across
+      the entire estate.
+    type: list[host]
+  sensitive_files:
+    default:
+    - .aws/credentials
+    - .azure/accessTokens.json
+    - .config/gcloud/credentials.db
+    - .ssh/id_rsa
+    - .kube/config
+    description: Target paths for the FileSystemService collector.
+    from:
+      kind: article
+      observed: &#39;2026-05-12&#39;
+      ref: https://securitylabs.datadoghq.com/articles/shai-hulud-open-source-framework-static-analysis/
+    type: list[path]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://securitylabs.datadoghq.com/articles/shai-hulud-open-source-framework-static-analysis/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with developer workstations and CI/CD runner hosts. If no software
+  inventory is available, hunt across all macOS and Linux assets using the behavioral
+  queries directly.
+references:
+- name: Security Labs - Shai-Hulud Framework Static Analysis
+  url: https://securitylabs.datadoghq.com/articles/shai-hulud-open-source-framework-static-analysis/
+related:
+- hunt: shai-hulud-cloud-infrastructure-discovery
+  reason: This hunt focuses on the developer workstation and initial harvesting; cloud-side
+    enumeration (SSM, Secrets Manager) is a follow-on stage.
+  relation: out-of-scope-alternative
+- hunt: shai-hulud-c2-and-exfiltration
+  reason: Encrypted exfiltration to mimics and GitHub repositories involves network/SaaS
+    telemetry handled in a sibling hunt.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: IDE and AI Assistant Hook Poisoning
+    observables:
+    - &#39;.vscode/tasks.json with runOn: folderOpen&#39;
+    - .claude/settings.json with SessionStart hook
+    - .claude/setup.mjs
+    - .vscode/setup.mjs
+    - claude@users.noreply.github.com
+    slug: ide-and-assistant-poisoning
+    tactic: initial-access
+    techniques:
+    - T1195
+  - name: Bun Runtime Loader Execution
+    observables:
+    - BASH_LOADER.sh
+    - PYTHON_LOADER.py
+    - config.mjs
+    - router_init.js
+    - opensearch_init.js
+    slug: loader-execution
+    tactic: execution
+    techniques:
+    - T1059
+  - name: Daemonization and Token Monitoring
+    observables:
+    - ~/Library/LaunchAgents/com.user.gh-token-monitor.plist
+    - ~/.config/systemd/user/gh-token-monitor.service
+    - /tmp/tmp.ts018051808.lock
+    - __DAEMONIZED=1 environment variable
+    slug: endpoint-persistence
+    tactic: persistence
+    techniques:
+    - T1543.001
+    - T1543.002
+  - name: Secret Harvesting and Memory Extraction
+    observables:
+    - ~/.aws/credentials
+    - ~/.azure/accessTokens.json
+    - ~/.config/gcloud/credentials.db
+    - /var/run/secrets/kubernetes.io/serviceaccount/token
+    - Runner.Worker process memory access via /proc/*/mem
+    - gh auth token command execution
+    slug: credential-and-memory-harvesting
+    tactic: credential-access
+    techniques:
+    - T1552
+    - T1003
+  - name: Cloud and Vault Secret Enumeration
+    observables:
+    - AWS Secrets Manager enumeration
+    - Kubernetes namespace and secret listing
+    - HashiCorp Vault KV mount enumeration
+    - Stripe keys and database connection string regex patterns
+    slug: cloud-infrastructure-discovery
+    tactic: discovery
+    techniques:
+    - T1528
+  - name: Encrypted C2 and GitHub Dead-drops
+    observables:
+    - git-tanstack[.]com
+    - GitHub search for thebeautifulmarchoftime
+    - &#39;GitHub repo description Shai-Hulud: Here We Go Again&#39;
+    - Dune-themed repository names (e.g., sardaukar, mentat, stillsuit)
+    - RSA-4096-OAEP encrypted payloads
+    slug: c2-and-exfiltration
+    tactic: exfiltration
+    techniques:
+    - T1041
+    - T1090.003
+  summary: Shai-Hulud is a modular offensive framework used by TeamPCP to target developers
+    and CI/CD pipelines via supply chain poisoning and malicious IDE hooks. It automates
+    extensive credential harvesting from filesystems and process memory, enumerates
+    cloud secrets in AWS and Kubernetes, and exfiltrates encrypted data through C2
+    domains or GitHub dead-drop repositories.
+series:
+  index: 1
+  slug: shai-hulud-open-source-framework-static-analysis
+  title: Shai-Hulud open source framework static analysis
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# Shai-Hulud: Developer Hook Poisoning and Memory Harvesting
+
+This hunt targets the local lifecycle of the Shai-Hulud framework. It identifies the initial poisoning of developer configuration files (hooks), the execution of modular loaders that bootstrap the Bun runtime, and the establishment of rare persistence monitors. It specifically looks for the &#39;self-propagating&#39; loop where harvested credentials are used to push backdoored tasks back into repositories, and corroborates this with high-signal evidence of /proc/mem extraction on GitHub runners.
+
+## scope-dev-environment
+&lt;!-- Identify Developer and Runner Assets --&gt;
+Scope the hunt to hosts running developer tools or identified as runners to focus on high-risk surfaces.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames belonging to developers or build servers. Silence means
+  no such software is present.
+reads:
+- collected_at
+- device_hostname
+- package_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%vscode%&#39; OR LOWER(package_name) LIKE &#39;%bun%&#39; OR LOWER(package_name) LIKE &#39;%claude%&#39; OR LOWER(package_name) LIKE &#39;%cursor%&#39;) AND collected_at &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## detect-hook-poisoning
+&lt;!-- Poisoned IDE Hook Activity --&gt;
+Find modifications to IDE task and assistant settings that trigger payload execution on folder open.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts, poisoned_hook_paths=poisoned_hook_paths)
+~~~yaml
+expected: File writes to sensitive IDE hooks. Silence here does not mean the framework
+  is absent, as a poisoned repo could have been cloned with the hooks already in place.
+reads:
+- activity_id
+- actor_user_name
+- device_hostname
+- file_path
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE (instr(&#39;,&#39; || &#39;{{poisoned_hook_paths}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 OR LOWER(file_path) LIKE &#39;%/.vscode/tasks.json&#39; OR LOWER(file_path) LIKE &#39;%/.claude/settings.json&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND activity_id IN (1, 3, 5) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-deep-hunt
+&lt;!-- Parallel Evidence Gathering --&gt;
+parallel:
+- → rare-persistence-monitors
+- → suspicious-memory-scraping
+- → credential-harvesting-reads
+join: → triage-shai-hulud
+
+## rare-persistence-monitors
+&lt;!-- Rare Token Monitoring Services --&gt;
+Stack-count the persistent monitors installed by the deadman switch to find one-off instances.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A LaunchAgent or systemd service seen on only a few hosts. Silence suggests
+  no active deadman switch persistence.
+prevalence:
+  by: device_hostname
+  key:
+  - job_name
+  - job_definition_path
+  - job_cmd_line
+  rare_below: 3
+reads:
+- device_hostname
+- job_cmd_line
+- job_definition_path
+- job_name
+- time
+silence: not_evidence_of_absence
+source: hb_scheduled_job
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT job_name, job_definition_path, job_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE &#39;%monitor%&#39; OR LOWER(job_definition_path) LIKE &#39;%gh-token-monitor%&#39; OR LOWER(job_cmd_line) LIKE &#39;%api.github.com/user%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY job_name, job_definition_path, job_cmd_line HAVING host_count &lt;= 3
+```
+
+## suspicious-memory-scraping
+&lt;!-- Runner Memory Extraction via Proc --&gt;
+Detect the extraction of Runner.Worker secrets via process memory reading.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Python or Bun processes reading from /proc/pid/mem of a GitHub Runner. Silence
+  means this specific technique was not observed.
+reads:
+- device_hostname
+- parent_process_name
+- process_cmd_line
+- time
+- user_name
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%/proc/%/mem%&#39; AND LOWER(process_cmd_line) LIKE &#39;%runner.worker%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## credential-harvesting-reads
+&lt;!-- Sensitive File Harvesting Pattern --&gt;
+Check for mass reading of cloud and identity secrets by unusual processes.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts, sensitive_files=sensitive_files)
+~~~yaml
+expected: A single process (Bun, Python, or shell) reading multiple distinct credential
+  files in a short window.
+reads:
+- activity_id
+- actor_user_name
+- device_hostname
+- file_path
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_path, process_name, actor_user_name, COUNT(*) AS file_count FROM hb_file_activity WHERE instr(&#39;,&#39; || &#39;{{sensitive_files}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 AND activity_id = 2 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, process_name, actor_user_name HAVING file_count &gt;= 2
+```
+
+## triage-shai-hulud
+&lt;!-- Triage Developer Compromise --&gt;
+```agent target=hunter
+cite: required
+context:
+- detect-hook-poisoning
+- rare-persistence-monitors
+- suspicious-memory-scraping
+- credential-harvesting-reads
+max_iterations: 4
+objective: Identify hosts where IDE hook modifications occurred followed by suspicious
+  memory access or mass secret harvesting. Distinguish legitimate developer tool activity
+  from the Bun-based framework behavior.
+success_criteria: A verdict of malicious | suspicious | benign per host citing the
+  intersection of hook poisoning and harvesting activity.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: missing-file-telemetry)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate Endpoint --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host from the network. Revoke all GitHub tokens and rotate cloud credentials (AWS/Azure/GCP) associated with the compromised user account immediately.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Manual Review and Tuning --&gt;
+```manual target=analyst
+Examine the processes that read from /proc/mem and the context of any IDE hook modifications. Confirm whether the activity matches known TeamPCP tradecraft (e.g., using Bun or custom Python runners).
+```
+→ end
+
+## close-out
+&lt;!-- Close and Record --&gt;
+```manual target=analyst
+Record the window of time and the hosts that provided telemetry. No findings in this window suggests no active Shai-Hulud infection of developer tools.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=shai-hulud-dev-hook-poisoning" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

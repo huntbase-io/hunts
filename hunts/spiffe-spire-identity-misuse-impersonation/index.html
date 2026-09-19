@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPIFFE/SPIRE Identity Misuse and Workload Impersonation · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An attacker with root on a Kubernetes node is using harvested SPIFFE SVIDs to authenticate as co-located workloads, moving laterally across the service mesh.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/spiffe-spire-identity-misuse-impersonation/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="SPIFFE/SPIRE Identity Misuse and Workload Impersonation · Huntbase Hunts">
+  <meta property="og:description" content="An attacker with root on a Kubernetes node is using harvested SPIFFE SVIDs to authenticate as co-located workloads, moving laterally across the service mesh.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/spiffe-spire-identity-misuse-impersonation/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">SPIFFE/SPIRE Identity Misuse and Workload Impersonation</h1>
+      <p class="hyp-lead">An attacker with root on a Kubernetes node is using harvested SPIFFE SVIDs to authenticate as co-located workloads, moving laterally across the service mesh.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/" rel="noopener">Unit 42</a></span>
+<span>2026-09-17</span>        <span>9 steps · 3 queries</span>
+<span class="mono">T1090.003 T1190</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=spiffe-spire-identity-misuse-impersonation" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why Now</h3>
+<p>This hunt was developed in response to research by Unit 42 titled <a href="https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/" rel="noopener noreferrer">The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE</a>. The research demonstrates how an attacker with root access on a Kubernetes node can spoof cgroup and mount information to deceive a local SPIRE agent. By doing so, the attacker can obtain valid SVIDs (SPIFFE Verifiable Identity Documents) for any workload scheduled on that node, effectively bypassing identity-based security controls within the service mesh.</p>
+<h3>How the Hunt Flows</h3>
+<p>The first phase focuses on scoping. We identify nodes within the fleet that are running the <code>spire-agent</code>. These are the specific points of interest where SVID harvesting via selector spoofing is technically possible. This reduces the noise by excluding hosts that do not participate in the SPIFFE identity mesh.</p>
+<p>Once the scope is defined, the hunt moves into parallel evidence gathering. We analyze authentication telemetry from <code>hb_auth_signin</code> to find SPIFFE identities appearing from unexpected or rare source IPs. This looks for identities that have 'travelled' away from their assigned pods. Simultaneously, we inspect <code>hb_process_activity</code> for root-level processes that are enumerating <code>/proc/</code> metadata, specifically targeting <code>cgroup</code> and <code>mountinfo</code> files. While some administrative tools do this, it is a high-signal behavior when correlated with workload nodes.</p>
+<p>In the final phase, an automated triage agent correlates these signals. We look for the overlap: nodes where root processes were poking at container metadata and the corresponding SPIFFE IDs that showed up in anomalous sign-in events. This correlation helps distinguish between legitimate system maintenance and active identity misuse.</p>
+<h3>What the Hunt Cannot See</h3>
+<p>There are two primary blind spots in this design. First, if an attacker uses a short-lived tool to harvest credentials that executes and terminates between EDR snapshots, the activity may not appear in <code>hb_process_activity</code>. Second, this hunt relies on normalized authentication events. If the stolen SVID is used for an mTLS connection at the transport layer that is not logged as a discrete sign-in event, we will miss the usage of the identity.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/spiffe-spire-identity-spoofing-harvesting/index.html">Part 1: SPIFFE/SPIRE Identity Spoofing and Harvesting</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 1 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Identity / sign-in telemetry</span><span class="dim">identity</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">3</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An attacker with root on a Kubernetes node is using harvested SPIFFE SVIDs to authenticate as co-located workloads, moving laterally across the service mesh.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify the subset of the fleet that is participating in the SPIFFE/SPIRE identity mesh.", "expected": "A list of Kubernetes nodes or VMs. These are the locations where SVID harvesting via selector spoofing is possible.", "id": "scoping-spire-nodes", "label": "Identify nodes running SPIRE agents", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE \u0027%spire-agent%\u0027", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Find SPIFFE identities being used from rare source IPs, suggesting that an SVID has been moved from its original node.", "expected": "SPIFFE IDs that appear on multiple source IPs or on an IP not traditionally associated with that specific workload namespace.", "id": "spiffe-auth-anomalies", "label": "Anomalous SPIFFE ID authentication", "parents": [{"branch": null, "id": "scoping-spire-nodes", "kind": null}], "query": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, COUNT(*) as auth_count, MIN(time) as first_seen FROM hb_auth_signin WHERE actor_user_name LIKE \u0027spiffe://%\u0027 AND (instr(\u0027,\u0027 || \u0027{{spiffe_trust_domains}}\u0027 || \u0027,\u0027, \u0027,\u0027 || SUBSTR(actor_user_name, 10, INSTR(SUBSTR(actor_user_name, 10) || \u0027/\u0027, \u0027/\u0027) - 1) || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY actor_user_name, src_endpoint_ip, dst_endpoint_name", "role": "detection-candidate", "source": "hb_auth_signin", "type": "query"}, {"description": "Detect the technical mechanics of cgroup spoofing where a root process inspects other containers\u0027 metadata to impersonate them.", "expected": "Unusual processes (not Kubelet or known monitoring agents) running as root and reading procfs metadata for other PIDs.", "id": "root-cgroup-enumeration", "label": "Suspicious root-level metadata inspection", "parents": [{"branch": null, "id": "scoping-spire-nodes", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE ((\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)) AND user_name = \u0027root\u0027 AND (process_cmd_line LIKE \u0027%/proc/%/cgroup%\u0027 OR process_cmd_line LIKE \u0027%/proc/%/mountinfo%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_process_activity", "type": "query"}, {"description": "Correlate rare SPIFFE authentication events with hosts identified as running SPIRE agents and exhibiting suspicious root activity.", "expected": "A host-by-host assessment of whether an identity compromise has occurred.", "id": "triage-misuse", "label": "Triage workload identity misuse", "parents": [{"branch": null, "id": "spiffe-auth-anomalies", "kind": "merge"}, {"branch": null, "id": "root-cgroup-enumeration", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the workflow based on the presence of malicious activity.", "expected": null, "id": "route-on-verdict", "label": "Route on triage verdict", "parents": [{"branch": null, "id": "triage-misuse", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Immediately sever the attacker\u0027s access to the node where identity harvesting is occurring.", "expected": null, "id": "isolate-node", "label": "Isolate compromised node", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Final validation and closure of the hunt results.", "expected": null, "id": "analyst-review", "label": "Analyst final review", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-node", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document findings and archive the hunt.", "expected": null, "id": "close-out", "label": "Close out", "parents": [{"branch": "on_refutes", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scoping-spire-nodes">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify nodes running SPIRE agents</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify the subset of the fleet that is participating in the SPIFFE/SPIRE identity mesh.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE &#39;%spire-agent%&#39;</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of Kubernetes nodes or VMs. These are the locations where SVID harvesting via selector spoofing is possible.</p>        </li>
+        <li class="card step" id="step-spiffe-auth-anomalies">
+          <div class="step-head">
+            <h3 class="heading-sm">Anomalous SPIFFE ID authentication</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Find SPIFFE identities being used from rare source IPs, suggesting that an SVID has been moved from its original node.</p>          <div class="code"><div class="code-head"><span>reads hb_auth_signin</span><span>sql</span></div><pre><code>SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, COUNT(*) as auth_count, MIN(time) as first_seen FROM hb_auth_signin WHERE actor_user_name LIKE &#39;spiffe://%&#39; AND (instr(&#39;,&#39; || &#39;{{spiffe_trust_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || SUBSTR(actor_user_name, 10, INSTR(SUBSTR(actor_user_name, 10) || &#39;/&#39;, &#39;/&#39;) - 1) || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY actor_user_name, src_endpoint_ip, dst_endpoint_name</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> SPIFFE IDs that appear on multiple source IPs or on an IP not traditionally associated with that specific workload namespace.</p>        </li>
+        <li class="card step" id="step-root-cgroup-enumeration">
+          <div class="step-head">
+            <h3 class="heading-sm">Suspicious root-level metadata inspection</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect the technical mechanics of cgroup spoofing where a root process inspects other containers&#39; metadata to impersonate them.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE ((&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND user_name = &#39;root&#39; AND (process_cmd_line LIKE &#39;%/proc/%/cgroup%&#39; OR process_cmd_line LIKE &#39;%/proc/%/mountinfo%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Unusual processes (not Kubelet or known monitoring agents) running as root and reading procfs metadata for other PIDs.</p>        </li>
+        <li class="card step" id="step-triage-misuse">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage workload identity misuse</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate rare SPIFFE authentication events with hosts identified as running SPIRE agents and exhibiting suspicious root activity.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on triage verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the workflow based on the presence of malicious activity.</p>        </li>
+        <li class="card step" id="step-isolate-node">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate compromised node</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Immediately sever the attacker&#39;s access to the node where identity harvesting is occurring.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst final review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final validation and closure of the hunt results.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document findings and archive the hunt.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Workload Identity Misuse<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>spiffe-auth-anomalies, root-cgroup-enumeration, triage-misuse</td></tr>            <tr><td>Kubernetes Node Initial Access<br><span class="mono dim">T1190</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE&#39; series.</td></tr>            <tr><td>Workload Metadata Discovery</td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE&#39; series.</td></tr>            <tr><td>SPIRE Attestation Spoofing</td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE&#39; series.</td></tr>            <tr><td>SVID Identity Extraction</td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs EDR process command line capture for short-lived processes.</strong> Short-lived harvesting tools may not appear in hb_process_activity snapshots. <span class="dim">It would answer Did the attacker use a tool that read procfs but finished before a snapshot was taken?.</span> <span class="dim">Remediation: Enable high-frequency process event logging or auditd for procfs access.</span></li>          <li class="card"><strong>Needs mTLS handshake telemetry in hb_auth_signin.</strong> Identity misuse may occur at the transport layer without triggering a normalized auth event. <span class="dim">It would answer Was the stolen SVID used for an mTLS connection that is not logged as a discrete sign-in event?.</span> <span class="dim">Remediation: Correlate hb_network_connection with workload identity metadata.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames (from scoping step) to focus subsequent queries.</td></tr>            <tr><td><code>spiffe_trust_domains</code></td><td class="mono dim">list[domain]</td><td class="mono">example.com, example.org</td><td>The SPIFFE trust domains configured in the environment.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Identity / sign-in telemetry</td><td class="dim">identity</td><td class="mono">identity</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A standard rule cannot distinguish between a legitimate SPIFFE authentication
+  and one performed by an attacker with a harvested SVID. This hunt uses fleet-wide
+  prevalence (rare IP for a workload) and host-level forensics (root procfs enumeration)
+  to weigh the intent behind the authentication.
+blind_spots:
+- id: incomplete-proc-logging
+  question: Did the attacker use a tool that read procfs but finished before a snapshot
+    was taken?
+  remediation: Enable high-frequency process event logging or auditd for procfs access.
+  requires: EDR process command line capture for short-lived processes
+  risk: Short-lived harvesting tools may not appear in hb_process_activity snapshots.
+  stage: lateral-workload-impersonation
+- id: short-lived-svid-reuse
+  question: Was the stolen SVID used for an mTLS connection that is not logged as
+    a discrete sign-in event?
+  remediation: Correlate hb_network_connection with workload identity metadata.
+  requires: mTLS handshake telemetry in hb_auth_signin
+  risk: Identity misuse may occur at the transport layer without triggering a normalized
+    auth event.
+  stage: lateral-workload-impersonation
+coverage:
+- stage: lateral-workload-impersonation
+  status: covered
+  steps:
+  - spiffe-auth-anomalies
+  - root-cgroup-enumeration
+  - triage-misuse
+- reason: &#39;Belongs to another part of the &#39;&#39;The Machine With Many Faces: Post-Exploitation
+    Identity Misuse in SPIFFE/SPIRE&#39;&#39; series.&#39;
+  stage: initial-k8s-node-compromise
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;The Machine With Many Faces: Post-Exploitation
+    Identity Misuse in SPIFFE/SPIRE&#39;&#39; series.&#39;
+  stage: workload-metadata-enumeration
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;The Machine With Many Faces: Post-Exploitation
+    Identity Misuse in SPIFFE/SPIRE&#39;&#39; series.&#39;
+  stage: spire-attestation-spoofing
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;The Machine With Many Faces: Post-Exploitation
+    Identity Misuse in SPIFFE/SPIRE&#39;&#39; series.&#39;
+  stage: svid-credential-harvesting
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: A root-level compromise of a SPIRE node invalidates the security
+    of all co-located workloads. A negative result confirms that identity-based boundaries
+    within the service mesh remain intact following node-level exposure.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An attacker with root on a Kubernetes node is using harvested SPIFFE SVIDs
+  to authenticate as co-located workloads, moving laterally across the service mesh.
+labels:
+- hunt
+- attack.t1090.003
+- attack.t1190
+name: SPIFFE/SPIRE Identity Misuse and Workload Impersonation
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames (from scoping step) to focus subsequent
+      queries.
+    type: list[host]
+  spiffe_trust_domains:
+    default:
+    - example.com
+    - example.org
+    description: The SPIFFE trust domains configured in the environment.
+    from:
+      kind: article
+      observed: &#39;2026-09-10&#39;
+      ref: unit42-machine-faces
+    type: list[domain]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Target all Kubernetes worker nodes and virtual machines participating in
+  the SPIFFE/SPIRE mesh. The scoping step specifically filters for the presence of
+  &#39;spire-agent&#39; to focus on where the identity mechanism is active.
+references:
+- name: &#39;Unit 42: The Machine With Many Faces: Post-Exploitation Identity Misuse in
+    SPIFFE/SPIRE&#39;
+  url: https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/
+related:
+- hunt: kubernetes-privileged-container-audit
+  reason: Finding privileged containers is a prerequisite for the root-level node
+    access required for this technique.
+  relation: precedes
+- hunt: spiffe-spire-identity-spoofing-harvesting
+  relation: follows
+scenario:
+  stages:
+  - name: Kubernetes Node Initial Access
+    observables:
+    - exploit of public-facing application
+    - root access on Kubernetes node
+    slug: initial-k8s-node-compromise
+    tactic: initial-access
+    techniques:
+    - T1190
+  - name: Workload Metadata Discovery
+    observables:
+    - /proc/[pid]/cgroups
+    - /proc/[pid]/mountinfo
+    - kubepods.slice
+    - kubepods-besteffort.slice
+    - pod UID identification
+    - container ID identification
+    slug: workload-metadata-enumeration
+    tactic: discovery
+  - name: SPIRE Attestation Spoofing
+    observables:
+    - Spooffe tool
+    - cgroup metadata manipulation
+    - spoofing GetPodUIDAndContainerID calls
+    - impersonating workload selectors
+    slug: spire-attestation-spoofing
+    tactic: defense-evasion
+  - name: SVID Identity Extraction
+    observables:
+    - /run/spire/sockets/agent.sock
+    - FetchJWTSVID
+    - FetchX509SVID
+    - X.509 SVID extraction
+    - JWT SVID harvesting
+    - SPIRE Workload API interaction
+    slug: svid-credential-harvesting
+    tactic: credential-access
+  - name: Workload Identity Misuse
+    observables:
+    - mTLS handshake with stolen SVID
+    - spiffe://example.com/
+    - spiffe://example.org/
+    - unauthorized service-to-service authentication
+    slug: lateral-workload-impersonation
+    tactic: lateral-movement
+    techniques:
+    - T1090.003
+  summary: An attacker with root access on a Kubernetes node exploits the trust assumptions
+    of the SPIFFE/SPIRE identity framework by spoofing Linux cgroup and mountinfo
+    metadata. By manipulating how the SPIRE agent attests processes, the attacker
+    can harvest short-lived SVID credentials (X.509 or JWT) belonging to co-located
+    workloads, enabling unauthorized cross-workload impersonation and lateral movement.
+series:
+  index: 2
+  slug: the-machine-with-many-faces-post-exploitation-identity-misuse-in-spiffe-spire
+  title: &#39;The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  identity:
+    category: identity
+    name: Identity / sign-in telemetry
+    telemetry:
+    - identity
+tlp: clear
+type: investigation
+---
+
+
+# SPIFFE/SPIRE Identity Misuse and Workload Impersonation
+
+This hunt identifies the misuse of SPIFFE identities for lateral movement following a node compromise. By exploiting root access to manipulate cgroup metadata, an attacker can trick a SPIRE agent into issuing certificates (SVIDs) for any workload on that node. We analyze authentication logs for rare SPIFFE ID-to-source-IP mappings and investigate suspicious root-level process activity that indicates metadata spoofing or credential harvesting.
+
+## scoping-spire-nodes
+&lt;!-- Identify nodes running SPIRE agents --&gt;
+Identify the subset of the fleet that is participating in the SPIFFE/SPIRE identity mesh.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of Kubernetes nodes or VMs. These are the locations where SVID harvesting
+  via selector spoofing is possible.
+reads:
+- device_hostname
+- package_version
+- vendor_name
+- package_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE &#39;%spire-agent%&#39;
+```
+
+## parallel-gathering
+&lt;!-- Gather identity and process evidence --&gt;
+parallel:
+- → spiffe-auth-anomalies
+- → root-cgroup-enumeration
+join: → triage-misuse
+
+## spiffe-auth-anomalies
+&lt;!-- Anomalous SPIFFE ID authentication --&gt;
+Find SPIFFE identities being used from rare source IPs, suggesting that an SVID has been moved from its original node.
+
+```sqlite target=identity role=detection-candidate params=(lookback_days=lookback_days, spiffe_trust_domains=spiffe_trust_domains)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: SPIFFE IDs that appear on multiple source IPs or on an IP not traditionally
+  associated with that specific workload namespace.
+prevalence:
+  by: src_endpoint_ip
+  key:
+  - actor_user_name
+  rare_below: 3
+reads:
+- actor_user_name
+- src_endpoint_ip
+- dst_endpoint_name
+- time
+silence: not_evidence_of_absence
+source: hb_auth_signin
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, COUNT(*) as auth_count, MIN(time) as first_seen FROM hb_auth_signin WHERE actor_user_name LIKE &#39;spiffe://%&#39; AND (instr(&#39;,&#39; || &#39;{{spiffe_trust_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || SUBSTR(actor_user_name, 10, INSTR(SUBSTR(actor_user_name, 10) || &#39;/&#39;, &#39;/&#39;) - 1) || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY actor_user_name, src_endpoint_ip, dst_endpoint_name
+```
+
+## root-cgroup-enumeration
+&lt;!-- Suspicious root-level metadata inspection --&gt;
+Detect the technical mechanics of cgroup spoofing where a root process inspects other containers&#39; metadata to impersonate them.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Unusual processes (not Kubelet or known monitoring agents) running as root
+  and reading procfs metadata for other PIDs.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE ((&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND user_name = &#39;root&#39; AND (process_cmd_line LIKE &#39;%/proc/%/cgroup%&#39; OR process_cmd_line LIKE &#39;%/proc/%/mountinfo%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-misuse
+&lt;!-- Triage workload identity misuse --&gt;
+```agent target=hunter
+cite: required
+context:
+- scoping-spire-nodes
+- spiffe-auth-anomalies
+- root-cgroup-enumeration
+max_iterations: 6
+objective: Evaluate whether anomalous SPIFFE authentication (identities used from
+  multiple source IPs) correlates with nodes where root-level procfs metadata was
+  enumerated.
+success_criteria: A per-host verdict of malicious, suspicious, or benign with citations
+  for specific SPIFFE IDs and process command lines.
+tools:
+- endpoint
+- identity
+```
+
+## route-on-verdict
+&lt;!-- Route on triage verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host&#34; (confidence: high, judge=hunter)
+then: → isolate-node
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: incomplete-proc-logging)
+else: → close-out
+
+## isolate-node
+&lt;!-- Isolate compromised node --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host and initiate an incident response plan for Kubernetes node compromise. Revoke all SVIDs that were present on this node.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst final review --&gt;
+```manual target=analyst
+Verify the cited auth sign-ins against the expected source IPs for those SPIFFE identities. Confirm if the root process activity was legitimate administrative maintenance.
+```
+→ end
+
+## close-out
+&lt;!-- Close out --&gt;
+```manual target=analyst
+Record what was examined and if any new nodes need SPIRE agent coverage.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=spiffe-spire-identity-misuse-impersonation" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

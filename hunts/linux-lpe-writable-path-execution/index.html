@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linux LPE via Writable Path Execution · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An attacker has achieved root privileges on a Linux host by executing an exploit from a world-writable directory, followed by a transition of the process lineage to UID 0.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/linux-lpe-writable-path-execution/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Linux LPE via Writable Path Execution · Huntbase Hunts">
+  <meta property="og:description" content="An attacker has achieved root privileges on a Linux host by executing an exploit from a world-writable directory, followed by a transition of the process lineage to UID 0.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/linux-lpe-writable-path-execution/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+      </div>
+      <h1 class="heading-xl">Linux LPE via Writable Path Execution</h1>
+      <p class="hyp-lead">An attacker has achieved root privileges on a Linux host by executing an exploit from a world-writable directory, followed by a transition of the process lineage to UID 0.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.elastic.co/security-labs/threat-command/linux-privilege-escalation-detection-framework" rel="noopener">Elastic Security Labs</a></span>
+<span>2026-09-17</span>        <span>9 steps · 4 queries</span>
+<span class="mono">T1033 T1068 T1190 T1548.001</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=linux-lpe-writable-path-execution" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Local privilege escalation (LPE) on Linux follows a reliable pattern: an attacker drops an exploit binary into a world-writable directory, executes it, and leverages a kernel vulnerability or misconfiguration to gain root access. This hunt, inspired by the research in <a href="https://www.elastic.co/security-labs/threat-command/linux-privilege-escalation-detection-framework" rel="noopener noreferrer">Elastic Security Labs: Linux Detection Engineering - Local Privilege Escalation</a>, seeks to identify this specific lifecycle through behavioral analysis.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins by scoping the estate. We use <code>hb_vulnerability_finding</code> to identify Linux hosts with known kernel vulnerabilities or LPE-related CVEs. This focuses our resources on the systems most likely to be targeted for escalation, though it does not ignore the wider fleet.</p>
+<p>Next, we move into parallel behavioral gathering using <code>hb_process_activity</code>. We specifically look for processes running as <code>root</code> whose execution path is within <code>/tmp</code>, <code>/var/tmp</code>, <code>/dev/shm</code>, or <code>/run/user/</code>. This is the core indicator of a successful LPE where the payload was staged in a temporary directory.</p>
+<p>To separate legitimate administrative scripts from potential exploits, we perform a prevalence baseline. We count the distinct hostnames associated with each rare binary path. Malicious payloads are typically unique to one or two hosts, whereas standard maintenance scripts appear more broadly across the environment.</p>
+<p>Finally, we look for post-escalation verification. We monitor for root-owned discovery tools such as <code>whoami</code>, <code>id</code>, or <code>uname</code> executed immediately following the root transition. These commands are the common "finishing moves" used by attackers to confirm their new privileges before moving to the next stage of an operation.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>This hunt relies heavily on process execution telemetry. If a host lacks an endpoint agent, we will not see the activity. Furthermore, purely in-memory exploits or fileless mechanisms that do not drop a binary to a writable directory will bypass the primary behavioral query. For those, deeper syscall monitoring or memory forensics would be required.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 4 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An attacker has achieved root privileges on a Linux host by executing an exploit from a world-writable directory, followed by a transition of the process lineage to UID 0.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Scope the hunt to Linux hosts that have reported privilege escalation vulnerabilities or general Linux devices by joining vulnerability findings with device inventory.", "expected": "A list of hostnames with known LPE vulnerabilities. This narrows the scope for more intensive telemetry analysis.", "id": "identify-vulnerable-linux-hosts", "label": "Identify potentially vulnerable Linux hosts", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT d.hostname AS device_hostname, f.cve_uid, f.title FROM hb_vulnerability_finding f JOIN hb_devices d ON f.device_uid = d.device_uid WHERE (LOWER(f.title) LIKE \u0027%privilege escalation%\u0027 OR LOWER(f.title) LIKE \u0027%kernel%\u0027) AND f.status != \u0027suppressed\u0027 AND f.provider IN (\u0027wiz\u0027, \u0027aws\u0027, \u0027vanta\u0027)", "role": "scoping", "source": "hb_vulnerability_finding", "type": "query"}, {"description": "Identify processes running as root whose image resides in world-writable directories, a core indicator of LPE.", "expected": "A row indicates a process that achieved root privileges while running from a directory normally restricted for system binaries.", "id": "root-processes-in-writable-paths", "label": "Root processes launched from writable paths", "parents": [{"branch": null, "id": "identify-vulnerable-linux-hosts", "kind": null}], "query": "SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, parent_process_name, time FROM hb_process_activity WHERE user_name = \u0027root\u0027 AND (process_path LIKE \u0027/tmp/%\u0027 OR process_path LIKE \u0027/var/tmp/%\u0027 OR process_path LIKE \u0027/dev/shm/%\u0027 OR process_path LIKE \u0027/run/user/%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify one-off exploit payloads by baselining the prevalence of all binaries executing from world-writable paths.", "expected": "Unique or rare paths/binaries in /tmp or /dev/shm. Routine scripts appear on many hosts; exploits are typically rare.", "id": "rare-writable-binaries", "label": "Rare binaries in writable paths", "parents": [{"branch": null, "id": "identify-vulnerable-linux-hosts", "kind": null}], "query": "SELECT LOWER(process_path) AS full_path, LOWER(process_name) AS proc_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (process_path LIKE \u0027/tmp/%\u0027 OR process_path LIKE \u0027/dev/shm/%\u0027 OR process_path LIKE \u0027/var/tmp/%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY full_path, proc_name HAVING hosts \u003c= 3 ORDER BY hosts ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Find root-owned discovery processes to corroborate that a privilege transition was successful and followed by verification.", "expected": "A \u0027whoami\u0027 or \u0027id\u0027 command running as root. This is the \u0027finishing move\u0027 that confirms the exploit worked.", "id": "post-escalation-discovery", "label": "Post-escalation discovery by root", "parents": [{"branch": null, "id": "identify-vulnerable-linux-hosts", "kind": null}], "query": "SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE user_name = \u0027root\u0027 AND instr(\u0027,\u0027 || \u0027{{discovery_tools}}\u0027 || \u0027,\u0027, \u0027,\u0027 || REPLACE(REPLACE(LOWER(process_name), \u0027/usr/bin/\u0027, \u0027\u0027), \u0027/bin/\u0027, \u0027\u0027) || \u0027,\u0027) \u003e 0 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_process_activity", "type": "query"}, {"description": "Correlate rare binary execution from writable paths with root transitions and discovery command activity.", "expected": "A per-host verdict linking a specific process in a writable path to root-level activity.", "id": "triage-escalation", "label": "Triage escalation evidence", "parents": [{"branch": null, "id": "root-processes-in-writable-paths", "kind": "merge"}, {"branch": null, "id": "rare-writable-binaries", "kind": "merge"}, {"branch": null, "id": "post-escalation-discovery", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Determine whether to contain the host based on the triage verdict.", "expected": null, "id": "decision-route", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-escalation", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the host to prevent lateral movement after confirmed LPE.", "expected": null, "id": "contain-host", "label": "Isolate Host", "parents": [{"branch": "on_supports", "id": "decision-route", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review the hunt results and finalize the incident report.", "expected": null, "id": "analyst-review", "label": "Analyst Review", "parents": [{"branch": "default", "id": "decision-route", "kind": null}, {"branch": "on_unavailable", "id": "decision-route", "kind": null}, {"branch": "on_refutes", "id": "decision-route", "kind": null}, {"branch": null, "id": "contain-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-identify-vulnerable-linux-hosts">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify potentially vulnerable Linux hosts</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Scope the hunt to Linux hosts that have reported privilege escalation vulnerabilities or general Linux devices by joining vulnerability findings with device inventory.</p>          <div class="code"><div class="code-head"><span>reads hb_vulnerability_finding</span><span>sql</span></div><pre><code>SELECT DISTINCT d.hostname AS device_hostname, f.cve_uid, f.title FROM hb_vulnerability_finding f JOIN hb_devices d ON f.device_uid = d.device_uid WHERE (LOWER(f.title) LIKE &#39;%privilege escalation%&#39; OR LOWER(f.title) LIKE &#39;%kernel%&#39;) AND f.status != &#39;suppressed&#39; AND f.provider IN (&#39;wiz&#39;, &#39;aws&#39;, &#39;vanta&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames with known LPE vulnerabilities. This narrows the scope for more intensive telemetry analysis.</p>        </li>
+        <li class="card step" id="step-root-processes-in-writable-paths">
+          <div class="step-head">
+            <h3 class="heading-sm">Root processes launched from writable paths</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify processes running as root whose image resides in world-writable directories, a core indicator of LPE.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, parent_process_name, time FROM hb_process_activity WHERE user_name = &#39;root&#39; AND (process_path LIKE &#39;/tmp/%&#39; OR process_path LIKE &#39;/var/tmp/%&#39; OR process_path LIKE &#39;/dev/shm/%&#39; OR process_path LIKE &#39;/run/user/%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A row indicates a process that achieved root privileges while running from a directory normally restricted for system binaries.</p>        </li>
+        <li class="card step" id="step-rare-writable-binaries">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare binaries in writable paths</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify one-off exploit payloads by baselining the prevalence of all binaries executing from world-writable paths.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT LOWER(process_path) AS full_path, LOWER(process_name) AS proc_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (process_path LIKE &#39;/tmp/%&#39; OR process_path LIKE &#39;/dev/shm/%&#39; OR process_path LIKE &#39;/var/tmp/%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY full_path, proc_name HAVING hosts &lt;= 3 ORDER BY hosts ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Unique or rare paths/binaries in /tmp or /dev/shm. Routine scripts appear on many hosts; exploits are typically rare.</p>        </li>
+        <li class="card step" id="step-post-escalation-discovery">
+          <div class="step-head">
+            <h3 class="heading-sm">Post-escalation discovery by root</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Find root-owned discovery processes to corroborate that a privilege transition was successful and followed by verification.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE user_name = &#39;root&#39; AND instr(&#39;,&#39; || &#39;{{discovery_tools}}&#39; || &#39;,&#39;, &#39;,&#39; || REPLACE(REPLACE(LOWER(process_name), &#39;/usr/bin/&#39;, &#39;&#39;), &#39;/bin/&#39;, &#39;&#39;) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A &#39;whoami&#39; or &#39;id&#39; command running as root. This is the &#39;finishing move&#39; that confirms the exploit worked.</p>        </li>
+        <li class="card step" id="step-triage-escalation">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage escalation evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate rare binary execution from writable paths with root transitions and discovery command activity.</p>        </li>
+        <li class="card step" id="step-decision-route">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Determine whether to contain the host based on the triage verdict.</p>        </li>
+        <li class="card step" id="step-contain-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the host to prevent lateral movement after confirmed LPE.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review the hunt results and finalize the incident report.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Execution from Writable Path<br><span class="mono dim">T1190 · T1059.004</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>root-processes-in-writable-paths, rare-writable-binaries</td></tr>            <tr><td>Exploitation of SUID Helpers or Kernel Interfaces<br><span class="mono dim">T1548.001 · T1068</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>root-processes-in-writable-paths, identify-vulnerable-linux-hosts</td></tr>            <tr><td>Privilege Transition to Root<br><span class="mono dim">T1548.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>root-processes-in-writable-paths</td></tr>            <tr><td>Root Status Verification<br><span class="mono dim">T1033</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>post-escalation-discovery</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_process_activity from every host.</strong> A host missing an agent will appear silent, potentially hiding a successful exploit. <span class="dim">It would answer whether a host without an endpoint agent is running payloads in /tmp.</span></li>          <li class="card"><strong>Needs hb_module_activity and Auditd syscall logs.</strong> A purely in-memory exploit that does not drop a binary to a writable path will bypass the primary behavior query. <span class="dim">It would answer whether an exploit was loaded as a kernel module or used a fileless mechanism.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>discovery_tools</code></td><td class="mono dim">list[string]</td><td class="mono">whoami, id, logname, hostname, uname</td><td>Common commands used to verify root status after escalation.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of process and vulnerability history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>List of hostnames to focus on; leave empty to hunt across the entire estate.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple rule might alert on any root process in /tmp, but this hunt uses
+  fleet-wide prevalence to filter noise, scopes via known vulnerabilities, and uses
+  an agent to weigh the entire lifecycle (path + root + discovery).
+blind_spots:
+- id: no-endpoint-telemetry
+  question: whether a host without an endpoint agent is running payloads in /tmp
+  requires: hb_process_activity from every host
+  risk: A host missing an agent will appear silent, potentially hiding a successful
+    exploit.
+  stage: initial-foothold-execution
+- id: in-memory-only-exploit
+  question: whether an exploit was loaded as a kernel module or used a fileless mechanism
+  requires: hb_module_activity and Auditd syscall logs
+  risk: A purely in-memory exploit that does not drop a binary to a writable path
+    will bypass the primary behavior query.
+  stage: privilege-escalation-trigger
+coverage:
+- stage: initial-foothold-execution
+  status: covered
+  steps:
+  - root-processes-in-writable-paths
+  - rare-writable-binaries
+- stage: privilege-escalation-trigger
+  status: covered
+  steps:
+  - root-processes-in-writable-paths
+  - identify-vulnerable-linux-hosts
+- stage: privilege-transition-to-root
+  status: covered
+  steps:
+  - root-processes-in-writable-paths
+- stage: post-escalation-verification
+  status: covered
+  steps:
+  - post-escalation-discovery
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Local privilege escalation is the critical pivot in Linux intrusions.
+    Identifying the outcome (root transition) and precursors (writable paths) provides
+    a durable defense against novel exploit implementations that bypass name-based
+    rules.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An attacker has achieved root privileges on a Linux host by executing
+  an exploit from a world-writable directory, followed by a transition of the process
+  lineage to UID 0.
+labels:
+- hunt
+- attack.t1548.001
+- attack.t1068
+- attack.t1190
+- attack.t1033
+name: Linux LPE via Writable Path Execution
+parameters:
+  discovery_tools:
+    default:
+    - whoami
+    - id
+    - logname
+    - hostname
+    - uname
+    description: Common commands used to verify root status after escalation.
+    from:
+      kind: article
+      observed: &#39;2026-09-11&#39;
+      ref: Elastic LPE Research
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of process and vulnerability history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: List of hostnames to focus on; leave empty to hunt across the entire
+      estate.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.elastic.co/security-labs/threat-command/linux-privilege-escalation-detection-framework
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with Linux servers hosting public-facing applications or those with
+  known kernel vulnerabilities (CVEs) as identified in the scoping step.
+references:
+- name: &#39;Elastic Security Labs: Linux Detection Engineering - Local Privilege Escalation&#39;
+  url: https://www.elastic.co/security-labs/threat-command/linux-privilege-escalation-detection-framework
+related:
+- hunt: suid-helper-abuse
+  reason: Focuses on the SUID helpers themselves rather than the path of execution.
+  relation: sibling
+scenario:
+  stages:
+  - name: Execution from Writable Path
+    observables:
+    - /tmp/*
+    - /var/tmp/*
+    - /dev/shm/*
+    - /run/user/*
+    - /var/run/user/*
+    - /home/*/*
+    - &#39;interpreter: python&#39;
+    - &#39;interpreter: perl&#39;
+    - &#39;interpreter: ruby&#39;
+    - &#39;interpreter: lua&#39;
+    - &#39;interpreter: php&#39;
+    - &#39;interpreter: node&#39;
+    slug: initial-foothold-execution
+    tactic: execution
+    techniques:
+    - T1190
+    - T1059.004
+  - name: Exploitation of SUID Helpers or Kernel Interfaces
+    observables:
+    - su
+    - sudo
+    - pkexec
+    - passwd
+    - umount
+    - mount
+    - chsh
+    - chfn
+    - gpasswd
+    - newgrp
+    - socket
+    - splice
+    - bind
+    - pedit COW
+    - RefluXFS
+    - OVSwrap
+    - Copy Fail
+    - DirtyFrag
+    - Fragnesia
+    - DirtyDecrypt
+    - DirtyClone
+    slug: privilege-escalation-trigger
+    tactic: privilege-escalation
+    techniques:
+    - T1548.001
+    - T1068
+  - name: Privilege Transition to Root
+    observables:
+    - &#39;user_name: root&#39;
+    - process.user.id == 0
+    - process.real_user.id != 0
+    - uid_change to 0
+    slug: privilege-transition-to-root
+    tactic: privilege-escalation
+    techniques:
+    - T1548.001
+  - name: Root Status Verification
+    observables:
+    - whoami
+    - id
+    - logname
+    slug: post-escalation-verification
+    tactic: discovery
+    techniques:
+    - T1033
+  summary: Exploit binaries are executed from writable Linux directories like /tmp
+    or /dev/shm to trigger kernel memory bugs or abuse SUID-root helpers. This results
+    in a privilege transition where an unprivileged process lineage gains root access,
+    often followed by diagnostic commands like whoami.
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# Linux LPE via Writable Path Execution
+
+Local privilege escalation (LPE) in Linux often involves a predictable lifecycle: a binary is dropped into a world-writable directory like /tmp or /dev/shm, executed, and leverages a kernel vulnerability or SUID helper to gain root status. This hunt identifies this transition by monitoring processes launched from suspicious paths that eventually run as root, baselining their prevalence across the fleet to identify unique exploit payloads, and corroborating these with post-escalation discovery commands like whoami.
+
+## identify-vulnerable-linux-hosts
+&lt;!-- Identify potentially vulnerable Linux hosts --&gt;
+Scope the hunt to Linux hosts that have reported privilege escalation vulnerabilities or general Linux devices by joining vulnerability findings with device inventory.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hostnames with known LPE vulnerabilities. This narrows the scope
+  for more intensive telemetry analysis.
+reads:
+- device_uid
+- cve_uid
+- title
+- status
+- provider
+silence: not_evidence_of_absence
+source: hb_vulnerability_finding
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT d.hostname AS device_hostname, f.cve_uid, f.title FROM hb_vulnerability_finding f JOIN hb_devices d ON f.device_uid = d.device_uid WHERE (LOWER(f.title) LIKE &#39;%privilege escalation%&#39; OR LOWER(f.title) LIKE &#39;%kernel%&#39;) AND f.status != &#39;suppressed&#39; AND f.provider IN (&#39;wiz&#39;, &#39;aws&#39;, &#39;vanta&#39;)
+```
+
+## parallel-evidence-gathering
+&lt;!-- Gather behavioural evidence side-by-side --&gt;
+parallel:
+- → root-processes-in-writable-paths
+- → rare-writable-binaries
+- → post-escalation-discovery
+join: → triage-escalation
+
+## root-processes-in-writable-paths
+&lt;!-- Root processes launched from writable paths --&gt;
+Identify processes running as root whose image resides in world-writable directories, a core indicator of LPE.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A row indicates a process that achieved root privileges while running from
+  a directory normally restricted for system binaries.
+reads:
+- device_hostname
+- process_name
+- process_path
+- process_cmd_line
+- user_name
+- parent_process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, parent_process_name, time FROM hb_process_activity WHERE user_name = &#39;root&#39; AND (process_path LIKE &#39;/tmp/%&#39; OR process_path LIKE &#39;/var/tmp/%&#39; OR process_path LIKE &#39;/dev/shm/%&#39; OR process_path LIKE &#39;/run/user/%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-writable-binaries
+&lt;!-- Rare binaries in writable paths --&gt;
+Identify one-off exploit payloads by baselining the prevalence of all binaries executing from world-writable paths.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Unique or rare paths/binaries in /tmp or /dev/shm. Routine scripts appear
+  on many hosts; exploits are typically rare.
+prevalence:
+  by: device_hostname
+  key:
+  - full_path
+  - proc_name
+  rare_below: 3
+reads:
+- process_path
+- process_name
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT LOWER(process_path) AS full_path, LOWER(process_name) AS proc_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (process_path LIKE &#39;/tmp/%&#39; OR process_path LIKE &#39;/dev/shm/%&#39; OR process_path LIKE &#39;/var/tmp/%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY full_path, proc_name HAVING hosts &lt;= 3 ORDER BY hosts ASC
+```
+
+## post-escalation-discovery
+&lt;!-- Post-escalation discovery by root --&gt;
+Find root-owned discovery processes to corroborate that a privilege transition was successful and followed by verification.
+
+```sqlite target=endpoint role=enrichment params=(discovery_tools=discovery_tools, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A &#39;whoami&#39; or &#39;id&#39; command running as root. This is the &#39;finishing move&#39;
+  that confirms the exploit worked.
+reads:
+- device_hostname
+- process_name
+- process_path
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE user_name = &#39;root&#39; AND instr(&#39;,&#39; || &#39;{{discovery_tools}}&#39; || &#39;,&#39;, &#39;,&#39; || REPLACE(REPLACE(LOWER(process_name), &#39;/usr/bin/&#39;, &#39;&#39;), &#39;/bin/&#39;, &#39;&#39;) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-escalation
+&lt;!-- Triage escalation evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- root-processes-in-writable-paths
+- rare-writable-binaries
+- post-escalation-discovery
+max_iterations: 3
+objective: Determine if any host shows a rare binary running from a writable path
+  that successfully transitioned to root UID, followed by discovery tools like &#39;whoami&#39;.
+  Cite the specific process and time of transition.
+success_criteria: A verdict citing specific rows that confirm the LPE lifecycle.
+tools:
+- endpoint
+```
+
+## decision-route
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host showing the writable-to-root flow&#34; (confidence: high, judge=hunter)
+then: → contain-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: no-endpoint-telemetry)
+else: → analyst-review
+
+## contain-host
+&lt;!-- Isolate Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately. Collect the binary identified in the writable directory for reverse engineering.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review --&gt;
+```manual target=analyst
+Review the process lineage to identify the initial entry point (e.g., a vulnerable web service). Validate the rare binary and check for signs of credential theft or persistence.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=linux-lpe-writable-path-execution" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

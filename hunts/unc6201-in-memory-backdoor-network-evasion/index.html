@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UNC6201: In-Memory Backdoor and Network Evasion · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary has modified the firewall configuration of a Dell or VMware appliance to implement Single Packet Authorization (SPA) and is running a Native AOT-compiled backdoor from a web-server directory, potentially using a deleted binary.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/unc6201-in-memory-backdoor-network-evasion/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="UNC6201: In-Memory Backdoor and Network Evasion · Huntbase Hunts">
+  <meta property="og:description" content="An adversary has modified the firewall configuration of a Dell or VMware appliance to implement Single Packet Authorization (SPA) and is running a Native AOT-compiled backdoor from a web-server directory, potentially using a deleted binary.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/unc6201-in-memory-backdoor-network-evasion/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev critical">critical</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">UNC6201: In-Memory Backdoor and Network Evasion</h1>
+      <p class="hyp-lead">An adversary has modified the firewall configuration of a Dell or VMware appliance to implement Single Packet Authorization (SPA) and is running a Native AOT-compiled backdoor from a web-server directory, potentially using a deleted binary.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day" rel="noopener">Mandiant</a></span>
+<span>2026-09-17</span>        <span>9 steps · 4 queries</span>
+<span class="mono">T1071 T1090.003 T1190 T1505.003</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=unc6201-in-memory-backdoor-network-evasion" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Threat actors are increasingly targeting virtualized infrastructure and edge appliances where traditional EDR visibility is often limited. A recent report from Google Cloud, "UNC6201 exploiting a Dell RecoverPoint zero-day" (https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day), details how the Silk Typhoon group (UNC6201) leverages vulnerabilities like CVE-2026-22769 to establish deep persistence. One of their most effective techniques is the use of Single Packet Authorization (SPA) combined with the GRIMBOLT backdoor.\n\nOur hypothesis for this hunt is that the adversary has modified the appliance's firewall configuration to implement SPA and is running a Native AOT-compiled backdoor from web-server directories, potentially operating as a deleted binary to evade file-based detection.\n\nThe hunt begins by scoping your environment for Dell RecoverPoint appliances or hosts running related Dell software. Since the target is specific to these appliances, focusing the behavioral analysis here reduces the noise inherent in broad network telemetry. If no Dell software is indexed, the hunt can be run across all Linux-based servers to look for the same patterns of network evasion.\n\nThe second phase examines the network and firewall layer. We look for process activity involving the iptables utility, specifically searching for rules that use hex-string matching or redirection to port 10443. This is a primary indicator of SPA, which allows an attacker to send a specific packet to open a hidden listener. We simultaneously check for active listeners on port 10443 to identify backdoors that are currently staged or active. Even if the rule was deleted, the historical process log of the iptables command remains a durable signal.\n\nThe third phase focuses on process execution. We triage root-level processes running from sensitive paths such as /home/kos/ or Tomcat library directories. A key indicator here is the 'on_disk' status; if a process is running but its backing binary has been deleted, it suggests a memory-resident backdoor like GRIMBOLT or BRICKSTORM. Native AOT-compiled binaries are often used in these campaigns to minimize dependencies and evade signature-based tools.\n\nThere are specific blind spots to consider. This hunt may miss iptables modifications if they were applied and immediately reverted before a telemetry snapshot occurred, or if the adversary used shell scripts that cleaned their own tracks. Furthermore, the creation of "Ghost NICs" on ESXi hosts—a management-plane action—is not visible through standard endpoint process or network surfaces. These require dedicated ESXi audit logs which are outside the scope of this particular playbook.\n\nThis is published as a hunt.md playbook. You can import it into Huntbase or any runtime that supports the hunt.md format to begin the scoping and behavioral analysis. Because SPA is specifically designed to be invisible to traditional port scanners, this hunt relies on the correlation of endpoint-level configuration changes and process context to find what network security tools cannot see.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/dell-recoverpoint-appliance-compromise/index.html">Part 1: Dell RecoverPoint Appliance Compromise</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>CVEs</span></p>
+          <p class="mono dim">CVE-2026-22769</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary has modified the firewall configuration of a Dell or VMware appliance to implement Single Packet Authorization (SPA) and is running a Native AOT-compiled backdoor from a web-server directory, potentially using a deleted binary.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify hosts running Dell software or vulnerable to CVE-2026-22769 to focus the behavioral hunt.", "expected": "Hostnames of Dell appliances. Silence suggests no such software is indexed in the estate.", "id": "scope-recoverpoint-appliances", "label": "Scope potentially affected Dell RecoverPoint appliances", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%recoverpoint%\u0027 OR LOWER(vendor_name) LIKE \u0027%dell%\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Identify process activity modifying firewall rules to include string matching or port redirection to 10443.", "expected": "Process executions showing iptables rules that mention port 10443 or hex-string matching. This is a durable signal of SPA tradecraft.", "id": "iptables-spa-rules", "label": "Search for IPTables SPA configuration", "parents": [{"branch": null, "id": "scope-recoverpoint-appliances", "kind": null}], "query": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE \u0027%iptables%\u0027 AND (LOWER(process_cmd_line) LIKE \u0027%--hex-string%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%10443%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%redirect%\u0027)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Find systems currently listening on the reported SPA port to identify active backdoors.", "expected": "Any row indicates a process interacting with port 10443. Silence suggests the SPA listener is not currently active.", "id": "spa-port-listeners", "label": "Active listeners on port 10443", "parents": [{"branch": null, "id": "scope-recoverpoint-appliances", "kind": null}], "query": "SELECT device_hostname, process_name, dst_endpoint_port, COUNT(*) as count FROM hb_network_connection WHERE (dst_endpoint_port = {{spa_port}} OR src_endpoint_port = {{spa_port}}) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) GROUP BY device_hostname, process_name, dst_endpoint_port", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Identify GRIMBOLT or BRICKSTORM execution by looking for root processes in Dell/Tomcat directories, especially those no longer on disk.", "expected": "A process running from a Dell application path as root. High confidence if on_disk is 0, indicating the binary was deleted after launch.", "id": "grimbolt-execution-triage", "label": "Suspicious root processes in application paths", "parents": [{"branch": null, "id": "scope-recoverpoint-appliances", "kind": null}], "query": "SELECT device_hostname, process_path, process_cmd_line, on_disk, user_name, time FROM hb_process_activity WHERE (process_path LIKE \u0027%/home/kos/%\u0027 OR process_path LIKE \u0027%/var/lib/tomcat9/%\u0027 OR process_path LIKE \u0027%/var/cache/tomcat9/%\u0027) AND user_name = \u0027root\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "triage", "source": "hb_process_activity", "type": "query"}, {"description": "Correlate the process execution, firewall modifications, and network listeners to confirm the presence of GRIMBOLT/SPA tradecraft.", "expected": "A host-by-host assessment citing the rows that suggest compromise.", "id": "triage-agent", "label": "Evaluate UNC6201 Indicators", "parents": [{"branch": null, "id": "iptables-spa-rules", "kind": "merge"}, {"branch": null, "id": "spa-port-listeners", "kind": "merge"}, {"branch": null, "id": "grimbolt-execution-triage", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Determine the response path based on whether the behavior matches the UNC6201 campaign.", "expected": null, "id": "route-decision", "label": "Route on Triage Verdict", "parents": [{"branch": null, "id": "triage-agent", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the threat by isolating the compromised appliance.", "expected": null, "id": "isolate-host", "label": "Isolate Host", "parents": [{"branch": "on_supports", "id": "route-decision", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review findings and perform deeper forensic analysis if behavior is suspicious but not conclusively malicious.", "expected": null, "id": "analyst-manual-review", "label": "Analyst Manual Review", "parents": [{"branch": "default", "id": "route-decision", "kind": null}, {"branch": "on_unavailable", "id": "route-decision", "kind": null}, {"branch": "on_refutes", "id": "route-decision", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-recoverpoint-appliances">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope potentially affected Dell RecoverPoint appliances</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify hosts running Dell software or vulnerable to CVE-2026-22769 to focus the behavioral hunt.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%recoverpoint%&#39; OR LOWER(vendor_name) LIKE &#39;%dell%&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Hostnames of Dell appliances. Silence suggests no such software is indexed in the estate.</p>        </li>
+        <li class="card step" id="step-iptables-spa-rules">
+          <div class="step-head">
+            <h3 class="heading-sm">Search for IPTables SPA configuration</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify process activity modifying firewall rules to include string matching or port redirection to 10443.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%iptables%&#39; AND (LOWER(process_cmd_line) LIKE &#39;%--hex-string%&#39; OR LOWER(process_cmd_line) LIKE &#39;%10443%&#39; OR LOWER(process_cmd_line) LIKE &#39;%redirect%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Process executions showing iptables rules that mention port 10443 or hex-string matching. This is a durable signal of SPA tradecraft.</p>        </li>
+        <li class="card step" id="step-spa-port-listeners">
+          <div class="step-head">
+            <h3 class="heading-sm">Active listeners on port 10443</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Find systems currently listening on the reported SPA port to identify active backdoors.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, dst_endpoint_port, COUNT(*) as count FROM hb_network_connection WHERE (dst_endpoint_port = {{spa_port}} OR src_endpoint_port = {{spa_port}}) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) GROUP BY device_hostname, process_name, dst_endpoint_port</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Any row indicates a process interacting with port 10443. Silence suggests the SPA listener is not currently active.</p>        </li>
+        <li class="card step" id="step-grimbolt-execution-triage">
+          <div class="step-head">
+            <h3 class="heading-sm">Suspicious root processes in application paths</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Identify GRIMBOLT or BRICKSTORM execution by looking for root processes in Dell/Tomcat directories, especially those no longer on disk.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_path, process_cmd_line, on_disk, user_name, time FROM hb_process_activity WHERE (process_path LIKE &#39;%/home/kos/%&#39; OR process_path LIKE &#39;%/var/lib/tomcat9/%&#39; OR process_path LIKE &#39;%/var/cache/tomcat9/%&#39;) AND user_name = &#39;root&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A process running from a Dell application path as root. High confidence if on_disk is 0, indicating the binary was deleted after launch.</p>        </li>
+        <li class="card step" id="step-triage-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Evaluate UNC6201 Indicators</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate the process execution, firewall modifications, and network listeners to confirm the presence of GRIMBOLT/SPA tradecraft.</p>        </li>
+        <li class="card step" id="step-route-decision">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Triage Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Determine the response path based on whether the behavior matches the UNC6201 campaign.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the threat by isolating the compromised appliance.</p>        </li>
+        <li class="card step" id="step-analyst-manual-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Manual Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review findings and perform deeper forensic analysis if behavior is suspicious but not conclusively malicious.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>GRIMBOLT Backdoor Execution<br><span class="mono dim">T1071</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>grimbolt-execution-triage</td></tr>            <tr><td>Network Evasion via iptables SPA<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>iptables-spa-rules, spa-port-listeners</td></tr>            <tr><td>Network Pivoting via Ghost NICs<br><span class="mono dim">T1021</span></td>
+            <td><span class="no">Not visible</span></td>
+            <td>Creating temporary NICs on ESXi is a management-plane action not visible in normalized endpoint or network surfaces; requires ESXi-specific audit logs.</td></tr>            <tr><td>Exploitation of Dell RecoverPoint Tomcat Manager<br><span class="mono dim">T1190</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;UNC6201 exploiting a Dell RecoverPoint zero-day&#39; series.</td></tr>            <tr><td>SLAYSTYLE Web Shell Deployment<br><span class="mono dim">T1505.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;UNC6201 exploiting a Dell RecoverPoint zero-day&#39; series.</td></tr>            <tr><td>Boot Persistence via shell script<br><span class="mono dim">T1133</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;UNC6201 exploiting a Dell RecoverPoint zero-day&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs host-level iptables logging or persistent listener monitoring.</strong> A short-lived change to firewall rules might be missed if the process activity log is not continuous or if the adversary uses a shell script that clears its own tracks. <span class="dim">It would answer whether iptables rules were changed and then immediately reverted.</span></li>          <li class="card"><strong>Needs vCenter or ESXi audit logs for NIC management.</strong> Endpoint surfaces can see traffic from a NIC but not the administrative creation of the &#39;Ghost NIC&#39; itself. <span class="dim">It would answer whether temporary network interfaces were created.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Specific hostnames to focus on; leave empty for the whole estate.</td></tr>            <tr><td><code>spa_port</code></td><td class="mono dim">number</td><td class="mono">10443</td><td>The port used for Single Packet Authorization redirection as reported in the article.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: This is a hunt because SPA (Single Packet Authorization) is designed to
+  be invisible to traditional port scanners and IDS rules. Only by corroborating endpoint-level
+  iptables rule changes with live network listeners and suspicious process context
+  can we detect this persistence mechanism.
+blind_spots:
+- id: limited-appliance-visibility
+  question: whether iptables rules were changed and then immediately reverted
+  requires: host-level iptables logging or persistent listener monitoring
+  risk: A short-lived change to firewall rules might be missed if the process activity
+    log is not continuous or if the adversary uses a shell script that clears its
+    own tracks.
+  stage: defense-evasion-spa-iptables
+- id: missing-esxi-native-logs
+  question: whether temporary network interfaces were created
+  requires: vCenter or ESXi audit logs for NIC management
+  risk: Endpoint surfaces can see traffic from a NIC but not the administrative creation
+    of the &#39;Ghost NIC&#39; itself.
+  stage: lateral-movement-ghost-nics
+coverage:
+- stage: backdoor-execution-grimbolt
+  status: covered
+  steps:
+  - grimbolt-execution-triage
+- stage: defense-evasion-spa-iptables
+  status: covered
+  steps:
+  - iptables-spa-rules
+  - spa-port-listeners
+- blind_spot: missing-esxi-native-logs
+  reason: Creating temporary NICs on ESXi is a management-plane action not visible
+    in normalized endpoint or network surfaces; requires ESXi-specific audit logs.
+  stage: lateral-movement-ghost-nics
+  status: not_visible
+- reason: Belongs to another part of the &#39;UNC6201 exploiting a Dell RecoverPoint zero-day&#39;
+    series.
+  stage: exploit-hardcoded-credentials
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;UNC6201 exploiting a Dell RecoverPoint zero-day&#39;
+    series.
+  stage: webshell-persistence-slaystyle
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;UNC6201 exploiting a Dell RecoverPoint zero-day&#39;
+    series.
+  stage: boot-script-persistence
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: UNC6201 is a critical threat targeting edge appliances with high-impact
+    vulnerabilities. A negative result confirming no SPA listeners or suspicious root-level
+    backdoor execution provides significant security assurance for critical virtual
+    infrastructure.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary has modified the firewall configuration of a Dell or VMware
+  appliance to implement Single Packet Authorization (SPA) and is running a Native
+  AOT-compiled backdoor from a web-server directory, potentially using a deleted binary.
+labels:
+- hunt
+- attack.t1071
+- attack.t1090.003
+- attack.t1505.003
+- attack.t1190
+name: &#39;UNC6201: In-Memory Backdoor and Network Evasion&#39;
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Specific hostnames to focus on; leave empty for the whole estate.
+    type: list[host]
+  spa_port:
+    default: &#39;10443&#39;
+    description: The port used for Single Packet Authorization redirection as reported
+      in the article.
+    type: number
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on perimeter-facing Dell RecoverPoint and VMware appliances. If scoping
+  is empty, run behaviorally across all Linux-based servers.
+references:
+- name: UNC6201 exploiting a Dell RecoverPoint zero-day
+  url: https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day
+related:
+- hunt: unc6201-initial-access-and-webshells
+  reason: Initial access via CVE-2026-22769 and subsequent SLAYSTYLE web shells are
+    covered in the precursor hunt of this series.
+  relation: out-of-scope-alternative
+- hunt: dell-recoverpoint-appliance-compromise
+  relation: follows
+scenario:
+  stages:
+  - name: Exploitation of Dell RecoverPoint Tomcat Manager
+    observables:
+    - CVE-2026-22769
+    - admin
+    - tomcat-users.xml
+    - PUT /manager/text/deploy?path=/
+    - /home/kos/auditlog/fapi_cl_audit_log.log
+    - /manager/text/deploy
+    slug: exploit-hardcoded-credentials
+    tactic: initial-access
+    techniques:
+    - T1190
+  - name: SLAYSTYLE Web Shell Deployment
+    observables:
+    - org.apache.catalina.startup.hostconfig.deploywar
+    - java.io
+    - base64.getdecoder
+    - runtime.getruntime
+    - /var/lib/tomcat9
+    - /var/cache/tomcat9/Catalina
+    - c.substring
+    slug: webshell-persistence-slaystyle
+    tactic: persistence
+    techniques:
+    - T1505.003
+  - name: Boot Persistence via shell script
+    observables:
+    - convert_hosts.sh
+    - rc.local
+    - /home/kos/kbox/src/installation/distribution/convert_hosts.sh
+    slug: boot-script-persistence
+    tactic: persistence
+    techniques:
+    - T1133
+  - name: GRIMBOLT Backdoor Execution
+    observables:
+    - GRIMBOLT
+    - BRICKSTORM
+    - Native AOT-compiled C# binary
+    - UPX packed binary
+    - /proc/self/exe
+    slug: backdoor-execution-grimbolt
+    tactic: execution
+    techniques:
+    - T1071
+  - name: Network Evasion via iptables SPA
+    observables:
+    - iptables -I INPUT -i eth0 -p tcp --dport 443 -m string --hex-string
+    - iptables -t nat -A IPT -p tcp -j REDIRECT --to-ports 10443
+    - Port 10443
+    - Single Packet Authorization
+    slug: defense-evasion-spa-iptables
+    tactic: defense-evasion
+    techniques:
+    - T1090.003
+  - name: Network Pivoting via Ghost NICs
+    observables:
+    - Ghost NICs
+    - Temporary network ports on virtual machines
+    - ESXi
+    slug: lateral-movement-ghost-nics
+    tactic: lateral-movement
+    techniques:
+    - T1021
+  summary: UNC6201 exploited a hardcoded credential vulnerability (CVE-2026-22769)
+    in Dell RecoverPoint for Virtual Machines to deploy SLAYSTYLE web shells and GRIMBOLT
+    backdoors. The actor maintained persistence via modified appliance boot scripts
+    and used sophisticated network evasion, including iptables-based Single Packet
+    Authorization (SPA) and Ghost NICs on ESXi, to pivot into internal and SaaS environments.
+series:
+  index: 2
+  slug: unc6201-exploiting-a-dell-recoverpoint-zero-day
+  title: UNC6201 exploiting a Dell RecoverPoint zero-day
+  total: 2
+severity: critical
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# UNC6201: In-Memory Backdoor and Network Evasion
+
+This hunt targets the post-exploitation tradecraft of UNC6201 (Silk Typhoon), focusing on the stealthy persistence and network evasion techniques observed following the exploitation of CVE-2026-22769. It looks for behavioral markers of the GRIMBOLT backdoor, including Native AOT binaries running from sensitive Dell RecoverPoint paths (like /home/kos/) and the implementation of Single Packet Authorization (SPA) using iptables redirection to port 10443. The hunt corroborates firewall rule changes, active network listeners on the SPA port, and suspicious root-level process execution to identify compromised virtual infrastructure.
+
+## scope-recoverpoint-appliances
+&lt;!-- Scope potentially affected Dell RecoverPoint appliances --&gt;
+Identify hosts running Dell software or vulnerable to CVE-2026-22769 to focus the behavioral hunt.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: Hostnames of Dell appliances. Silence suggests no such software is indexed
+  in the estate.
+reads:
+- device_hostname
+- package_name
+- vendor_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%recoverpoint%&#39; OR LOWER(vendor_name) LIKE &#39;%dell%&#39;)
+```
+
+## behavioral-parallel-check
+&lt;!-- Corroborate Network and Process Evidence --&gt;
+parallel:
+- → iptables-spa-rules
+- → spa-port-listeners
+- → grimbolt-execution-triage
+join: → triage-agent
+
+## iptables-spa-rules
+&lt;!-- Search for IPTables SPA configuration --&gt;
+Identify process activity modifying firewall rules to include string matching or port redirection to 10443.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Process executions showing iptables rules that mention port 10443 or hex-string
+  matching. This is a durable signal of SPA tradecraft.
+reads:
+- device_hostname
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%iptables%&#39; AND (LOWER(process_cmd_line) LIKE &#39;%--hex-string%&#39; OR LOWER(process_cmd_line) LIKE &#39;%10443%&#39; OR LOWER(process_cmd_line) LIKE &#39;%redirect%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## spa-port-listeners
+&lt;!-- Active listeners on port 10443 --&gt;
+Find systems currently listening on the reported SPA port to identify active backdoors.
+
+```sqlite target=network role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts, spa_port=spa_port)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Any row indicates a process interacting with port 10443. Silence suggests
+  the SPA listener is not currently active.
+prevalence:
+  by: device_hostname
+  key:
+  - process_name
+  - dst_endpoint_port
+  rare_below: 3
+reads:
+- device_hostname
+- process_name
+- dst_endpoint_port
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, dst_endpoint_port, COUNT(*) as count FROM hb_network_connection WHERE (dst_endpoint_port = {{spa_port}} OR src_endpoint_port = {{spa_port}}) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) GROUP BY device_hostname, process_name, dst_endpoint_port
+```
+
+## grimbolt-execution-triage
+&lt;!-- Suspicious root processes in application paths --&gt;
+Identify GRIMBOLT or BRICKSTORM execution by looking for root processes in Dell/Tomcat directories, especially those no longer on disk.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: A process running from a Dell application path as root. High confidence
+  if on_disk is 0, indicating the binary was deleted after launch.
+reads:
+- device_hostname
+- process_path
+- process_cmd_line
+- on_disk
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_path, process_cmd_line, on_disk, user_name, time FROM hb_process_activity WHERE (process_path LIKE &#39;%/home/kos/%&#39; OR process_path LIKE &#39;%/var/lib/tomcat9/%&#39; OR process_path LIKE &#39;%/var/cache/tomcat9/%&#39;) AND user_name = &#39;root&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## triage-agent
+&lt;!-- Evaluate UNC6201 Indicators --&gt;
+```agent target=hunter
+cite: required
+context:
+- scope-recoverpoint-appliances
+- iptables-spa-rules
+- spa-port-listeners
+- grimbolt-execution-triage
+max_iterations: 4
+objective: Determine if any host shows signs of SPA redirection (iptables rules +
+  port 10443 activity) and backdoor execution (root processes in app paths).
+success_criteria: A verdict of malicious | suspicious | benign per host, citing relevant
+  telemetry.
+tools:
+- endpoint
+- network
+```
+
+## route-decision
+&lt;!-- Route on Triage Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host showing both iptables changes and suspicious root processes&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-manual-review
+unavailable: → analyst-manual-review (blind_spot: limited-appliance-visibility)
+else: → analyst-manual-review
+
+## isolate-host
+&lt;!-- Isolate Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host and collect the binary from the application paths identified in the triage.
+```
+→ analyst-manual-review
+
+## analyst-manual-review
+&lt;!-- Analyst Manual Review --&gt;
+```manual target=analyst
+Review the iptables command lines and root process activity. If on_disk was 0, prioritize host-level forensics to recover deleted binaries.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=unc6201-in-memory-backdoor-network-evasion" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

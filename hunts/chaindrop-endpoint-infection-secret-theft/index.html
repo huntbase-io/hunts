@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChainDrop Endpoint Infection and Secret Theft · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is using trojanized npm packages to execute a background worm that harvests developer credentials and establishes cross-linked persistence via VS Code and AI-assisted coding tools.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/chaindrop-endpoint-infection-secret-theft/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="ChainDrop Endpoint Infection and Secret Theft · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is using trojanized npm packages to execute a background worm that harvests developer credentials and establishes cross-linked persistence via VS Code and AI-assisted coding tools.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/chaindrop-endpoint-infection-secret-theft/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">ChainDrop Endpoint Infection and Secret Theft</h1>
+      <p class="hyp-lead">An adversary is using trojanized npm packages to execute a background worm that harvests developer credentials and establishes cross-linked persistence via VS Code and AI-assisted coding tools.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" rel="noopener">Unit 42</a></span>
+<span>2026-09-17</span>        <span>10 steps · 5 queries</span>
+<span class="mono">T1003.001 T1059.003 T1195.002 T1546 T1547 T1552.001 T1552.004</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=chaindrop-endpoint-infection-secret-theft" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Recent research by Unit 42, titled <a href="https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/" rel="noopener noreferrer">ChainDrop: Inside a Self-Propagating npm Worm</a>, details a worm that infects legitimate packages via preinstall hooks to steal credentials and propagate. Unlike simpler malware, ChainDrop specifically targets developer environments, including VS Code and AI-assisted coding tools, and even scrapes CI runner memory to capture ephemeral OIDC tokens.</p>
+<p>Our hypothesis is that an adversary is using these trojanized npm packages to execute background processes that harvest cloud credentials, SSH keys, and CI secrets while establishing cross-linked persistence. This hunt is designed to find these artifacts by connecting the dots between script interpreter behavior and sensitive file access.</p>
+<p>The hunt begins by scoping the environment to hosts where Node.js, npm, or Bun are present. This ensures we are looking at the most relevant attack surface without over-processing data from systems that lack the necessary runtimes for the worm to execute.</p>
+<p>Next, the flow identifies the execution of specific dropper scripts like <code>setup.mjs</code> or <code>math_init.js</code>. Since these are often spawned by legitimate interpreters, we focus on the command-line arguments and environment variables that signify the worm's initialization routine rather than just the process names.</p>
+<p>The core of the hunt is a three-pronged correlation phase. We look for rare file access where interpreters like <code>node</code> or <code>bun</code> read sensitive files such as SSH keys or <code>.env</code> configurations. Simultaneously, we monitor for the creation of persistence artifacts in IDE directories, specifically targeting VS Code tasks and Claude Code settings. We also examine access to <code>/proc/mem</code> and <code>/proc/maps</code>, a high-confidence indicator of the worm's attempt to scrape CI runner memory for secrets.</p>
+<p>There are two primary blind spots to consider. First, if your telemetry does not capture full command-line arguments for interpreters, the specific script names will be invisible. Second, many EDR platforms filter access to the <code>/proc</code> filesystem by default to reduce noise; if this filtering is active, the memory-scraping behavior characteristic of the CI-targeting logic will not be detected.</p>
+<p>To run this hunt, you can import the provided <code>hunt.md</code> playbook into Huntbase or any compatible runtime. It uses a triage agent to correlate these signals temporally, ensuring that a verdict is only reached when execution and credential theft occur on the same host within a narrow window.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/chaindrop-c2-npm-propagation/index.html">Part 2: ChainDrop C2 and npm Propagation</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 5 of 7 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is using trojanized npm packages to execute a background worm that harvests developer credentials and establishes cross-linked persistence via VS Code and AI-assisted coding tools.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify hosts with npm or Bun installed, which are the primary targets for this supply chain worm.", "expected": "A list of hosts running Node.js or Bun environments. Silence means no such software was inventoried.", "id": "scope-npm-environments", "label": "Scope to npm-enabled hosts", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (LOWER(package_name) IN (\u0027npm\u0027, \u0027node\u0027, \u0027bun\u0027)) AND asset_scope = \u0027endpoint\u0027", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Identify process execution of the specific worm scripts or environment variables named in the research within the scoped estate.", "expected": "Processes running setup.mjs or math_init.js, often spawned by node or bun interpreters. Silence indicates these specific command-line indicators are not present.", "id": "detect-worm-execution", "label": "ChainDrop execution via JS Dropper", "parents": [{"branch": null, "id": "scope-npm-environments", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (process_cmd_line LIKE \u0027%setup.mjs%\u0027 OR process_cmd_line LIKE \u0027%math_init.js%\u0027 OR process_cmd_line LIKE \u0027%_NODE_RUNTIME_INIT=1%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify rare file access to sensitive developer configurations by script interpreters, standing out from normal tool usage.", "expected": "Access to SSH keys or .env files by node/bun processes that is limited to a few hosts. Silence means no suspicious interpreter access to these files.", "id": "rare-credential-access", "label": "Rare harvesting of developer credentials", "parents": [{"branch": null, "id": "detect-worm-execution", "kind": null}], "query": "SELECT file_path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_file_activity WHERE (LOWER(process_name) LIKE \u0027%node%\u0027 OR LOWER(process_name) LIKE \u0027%bun%\u0027 OR LOWER(process_name) LIKE \u0027%python%\u0027) AND (instr(\u0027,\u0027 || \u0027{{sensitive_paths}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(file_path) || \u0027,\u0027) \u003e 0 OR file_path LIKE \u0027%/.ssh/%\u0027 OR file_path LIKE \u0027%/kubeconfig%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY file_path HAVING hosts \u003c 5", "role": "baseline", "source": "hb_file_activity", "type": "query"}, {"description": "Detect the creation or update of VS Code and Claude Code configuration files used for cross-linked persistence.", "expected": "Creation of IDE task files or AI settings files that link to external scripts. Normal developer usage might write these, so prevalence counts are important.", "id": "persistence-file-creation", "label": "AI and IDE tool persistence creation", "parents": [{"branch": null, "id": "detect-worm-execution", "kind": null}], "query": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE (instr(\u0027,\u0027 || \u0027{{persistence_files}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(file_path) || \u0027,\u0027) \u003e 0 OR file_path LIKE \u0027%/.vscode/tasks.json\u0027 OR file_path LIKE \u0027%/.claude/settings.json\u0027) AND activity_name IN (\u0027Create\u0027, \u0027Update\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Detect script interpreters accessing process memory maps, a behavior used to steal OIDC tokens from CI runners.", "expected": "A script interpreter reading memory or maps of another process. Extremely rare and highly characteristic of the ChainDrop worm\u0027s CI logic.", "id": "ci-memory-scraping", "label": "CI environment memory scraping", "parents": [{"branch": null, "id": "detect-worm-execution", "kind": null}], "query": "SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE (file_path LIKE \u0027/proc/%/mem\u0027 OR file_path LIKE \u0027/proc/%/maps\u0027) AND (LOWER(process_name) LIKE \u0027%node%\u0027 OR LOWER(process_name) LIKE \u0027%python%\u0027 OR LOWER(process_name) LIKE \u0027%bun%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Correlate the process execution, credential access, and persistence changes to confirm a ChainDrop infection.", "expected": "A per-host verdict linking the execution of setup.mjs to the subsequent theft of keys or modification of IDE configs.", "id": "triage-infection", "label": "Triage ChainDrop infection", "parents": [{"branch": null, "id": "rare-credential-access", "kind": "merge"}, {"branch": null, "id": "persistence-file-creation", "kind": "merge"}, {"branch": null, "id": "ci-memory-scraping", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the workflow based on the agent\u0027s confidence and the presence of malicious indicators.", "expected": null, "id": "respond-on-verdict", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-infection", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the threat and prevent credential reuse.", "expected": null, "id": "isolate-infected-host", "label": "Isolate host and revoke tokens", "parents": [{"branch": "on_supports", "id": "respond-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review findings and tune detection parameters.", "expected": null, "id": "analyst-review", "label": "Analyst review", "parents": [{"branch": "default", "id": "respond-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "respond-on-verdict", "kind": null}, {"branch": "on_refutes", "id": "respond-on-verdict", "kind": null}, {"branch": null, "id": "isolate-infected-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-npm-environments">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope to npm-enabled hosts</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify hosts with npm or Bun installed, which are the primary targets for this supply chain worm.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (LOWER(package_name) IN (&#39;npm&#39;, &#39;node&#39;, &#39;bun&#39;)) AND asset_scope = &#39;endpoint&#39;</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts running Node.js or Bun environments. Silence means no such software was inventoried.</p>        </li>
+        <li class="card step" id="step-detect-worm-execution">
+          <div class="step-head">
+            <h3 class="heading-sm">ChainDrop execution via JS Dropper</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify process execution of the specific worm scripts or environment variables named in the research within the scoped estate.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (process_cmd_line LIKE &#39;%setup.mjs%&#39; OR process_cmd_line LIKE &#39;%math_init.js%&#39; OR process_cmd_line LIKE &#39;%_NODE_RUNTIME_INIT=1%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Processes running setup.mjs or math_init.js, often spawned by node or bun interpreters. Silence indicates these specific command-line indicators are not present.</p>        </li>
+        <li class="card step" id="step-rare-credential-access">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare harvesting of developer credentials</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify rare file access to sensitive developer configurations by script interpreters, standing out from normal tool usage.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT file_path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_file_activity WHERE (LOWER(process_name) LIKE &#39;%node%&#39; OR LOWER(process_name) LIKE &#39;%bun%&#39; OR LOWER(process_name) LIKE &#39;%python%&#39;) AND (instr(&#39;,&#39; || &#39;{{sensitive_paths}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 OR file_path LIKE &#39;%/.ssh/%&#39; OR file_path LIKE &#39;%/kubeconfig%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY file_path HAVING hosts &lt; 5</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Access to SSH keys or .env files by node/bun processes that is limited to a few hosts. Silence means no suspicious interpreter access to these files.</p>        </li>
+        <li class="card step" id="step-persistence-file-creation">
+          <div class="step-head">
+            <h3 class="heading-sm">AI and IDE tool persistence creation</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect the creation or update of VS Code and Claude Code configuration files used for cross-linked persistence.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE (instr(&#39;,&#39; || &#39;{{persistence_files}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 OR file_path LIKE &#39;%/.vscode/tasks.json&#39; OR file_path LIKE &#39;%/.claude/settings.json&#39;) AND activity_name IN (&#39;Create&#39;, &#39;Update&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Creation of IDE task files or AI settings files that link to external scripts. Normal developer usage might write these, so prevalence counts are important.</p>        </li>
+        <li class="card step" id="step-ci-memory-scraping">
+          <div class="step-head">
+            <h3 class="heading-sm">CI environment memory scraping</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect script interpreters accessing process memory maps, a behavior used to steal OIDC tokens from CI runners.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE (file_path LIKE &#39;/proc/%/mem&#39; OR file_path LIKE &#39;/proc/%/maps&#39;) AND (LOWER(process_name) LIKE &#39;%node%&#39; OR LOWER(process_name) LIKE &#39;%python%&#39; OR LOWER(process_name) LIKE &#39;%bun%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A script interpreter reading memory or maps of another process. Extremely rare and highly characteristic of the ChainDrop worm&#39;s CI logic.</p>        </li>
+        <li class="card step" id="step-triage-infection">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage ChainDrop infection</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate the process execution, credential access, and persistence changes to confirm a ChainDrop infection.</p>        </li>
+        <li class="card step" id="step-respond-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the workflow based on the agent&#39;s confidence and the presence of malicious indicators.</p>        </li>
+        <li class="card step" id="step-isolate-infected-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate host and revoke tokens</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the threat and prevent credential reuse.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review findings and tune detection parameters.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Trojanised npm Package Hook<br><span class="mono dim">T1195.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>detect-worm-execution</td></tr>            <tr><td>Dropper Execution and Locale Evasion<br><span class="mono dim">T1059.003 · T1105 · T1614.001 · T1027</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>detect-worm-execution</td></tr>            <tr><td>GitHub Actions Memory Scraping<br><span class="mono dim">T1003.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>ci-memory-scraping</td></tr>            <tr><td>Developer Tooling Credential Harvesting<br><span class="mono dim">T1552.001 · T1552.004</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-credential-access</td></tr>            <tr><td>Cross-linked AI and Dev Tool Persistence<br><span class="mono dim">T1546 · T1547</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>persistence-file-creation</td></tr>            <tr><td>Blockchain C2 Infrastructure<br><span class="mono dim">T1102.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;ChainDrop: Inside a Self-Propagating npm Worm&#39; series.</td></tr>            <tr><td>Supply Chain Worm Propagation<br><span class="mono dim">T1571 · T1195</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;ChainDrop: Inside a Self-Propagating npm Worm&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_process_activity with command line capture.</strong> Without command line telemetry, script names like setup.mjs cannot be seen, as the process name is usually &#39;node&#39; or &#39;bun&#39;. <span class="dim">It would answer whether the specific dropper script was executed.</span></li>          <li class="card"><strong>Needs hb_file_activity capturing /proc access.</strong> Many EDRs filter /proc noise; if filtered, OIDC token theft remains invisible. <span class="dim">It would answer whether the worm scraped CI runner memory.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>persistence_files</code></td><td class="mono dim">list[path]</td><td class="mono">.vscode/tasks.json, .claude/settings.json, .claude/setup.mjs, com.user.gh-token-monitor.plist, gh-token-monitor.service</td><td>Configuration files modified for cross-linked persistence.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to narrow the search (e.g., CI runners or dev workstations) obtained from the scoping step.</td></tr>            <tr><td><code>sensitive_paths</code></td><td class="mono dim">list[path]</td><td class="mono">.ssh/id_rsa, .ssh/id_ed25519, kubeconfig, .env, .netrc, .docker/config.json, .npmrc, .vault-token</td><td>Sensitive developer files targeted for exfiltration.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple rule might flag the command line, but a hunt correlates the dropper
+  execution with the subsequent rare file access and persistence creation across three
+  telemetry surfaces (process, software inventory, and file activity) within a tight
+  time window.
+blind_spots:
+- id: no-process-telemetry
+  question: whether the specific dropper script was executed
+  requires: hb_process_activity with command line capture
+  risk: Without command line telemetry, script names like setup.mjs cannot be seen,
+    as the process name is usually &#39;node&#39; or &#39;bun&#39;.
+  stage: dropper-execution-and-evasion
+- id: procfs-filtering
+  question: whether the worm scraped CI runner memory
+  requires: hb_file_activity capturing /proc access
+  risk: Many EDRs filter /proc noise; if filtered, OIDC token theft remains invisible.
+  stage: ci-memory-scraping
+coverage:
+- stage: npm-hook-infection
+  status: covered
+  steps:
+  - detect-worm-execution
+- stage: dropper-execution-and-evasion
+  status: covered
+  steps:
+  - detect-worm-execution
+- stage: ci-memory-scraping
+  status: covered
+  steps:
+  - ci-memory-scraping
+- stage: developer-credential-harvesting
+  status: covered
+  steps:
+  - rare-credential-access
+- stage: ai-tool-persistence
+  status: covered
+  steps:
+  - persistence-file-creation
+- reason: &#39;Belongs to another part of the &#39;&#39;ChainDrop: Inside a Self-Propagating npm
+    Worm&#39;&#39; series.&#39;
+  stage: blockchain-c2-routing
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;ChainDrop: Inside a Self-Propagating npm
+    Worm&#39;&#39; series.&#39;
+  stage: supply-chain-propagation
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: ChainDrop specifically targets developer workstation and CI infrastructure
+    to propagate silently and steal secrets. Negative results on this hunt provide
+    confidence that our internal software supply chain and CI secrets remain uncompromised.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is using trojanized npm packages to execute a background
+  worm that harvests developer credentials and establishes cross-linked persistence
+  via VS Code and AI-assisted coding tools.
+labels:
+- hunt
+- attack.t1195.002
+- attack.t1059.003
+- attack.t1552.001
+- attack.t1552.004
+- attack.t1003.001
+- attack.t1546
+- attack.t1547
+name: ChainDrop Endpoint Infection and Secret Theft
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  persistence_files:
+    default:
+    - .vscode/tasks.json
+    - .claude/settings.json
+    - .claude/setup.mjs
+    - com.user.gh-token-monitor.plist
+    - gh-token-monitor.service
+    description: Configuration files modified for cross-linked persistence.
+    from:
+      kind: article
+      observed: &#39;2026-08-06&#39;
+      ref: unit42-chaindrop
+    type: list[path]
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to narrow the search (e.g., CI runners
+      or dev workstations) obtained from the scoping step.
+    type: list[host]
+  sensitive_paths:
+    default:
+    - .ssh/id_rsa
+    - .ssh/id_ed25519
+    - kubeconfig
+    - .env
+    - .netrc
+    - .docker/config.json
+    - .npmrc
+    - .vault-token
+    description: Sensitive developer files targeted for exfiltration.
+    from:
+      kind: article
+      observed: &#39;2026-08-06&#39;
+      ref: unit42-chaindrop
+    type: list[path]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: The hunt is programmatically restricted to hosts identified as running
+  Node.js, npm, or Bun via the first scoping step. Analysts should run &#39;scope-npm-environments&#39;,
+  copy the hostnames, and paste them into the &#39;scope_hosts&#39; parameter before running
+  the behavior queries.
+references:
+- name: &#34;Unit 42 \u2014 ChainDrop: Inside a Self-Propagating npm Worm&#34;
+  url: https://unit42.paloaltonetworks.com/chaindrop-npm-worm-analysis/
+related:
+- hunt: chaindrop-network-and-supply-chain
+  reason: This hunt focuses on endpoint infection; the follow-on hunt examines blockchain-based
+    C2 resolution and npm-based propagation.
+  relation: follows
+scenario:
+  stages:
+  - name: Trojanised npm Package Hook
+    observables:
+    - &#39;package.json containing preinstall: node setup.mjs&#39;
+    - setup.mjs
+    - math_init.js
+    slug: npm-hook-infection
+    tactic: initial-access
+    techniques:
+    - T1195.002
+  - name: Dropper Execution and Locale Evasion
+    observables:
+    - Downloading Bun 1.3.13 from GitHub
+    - Check for Russian language locale
+    - Exiting as russian language detected!
+    - Environment variable _NODE_RUNTIME_INIT=1
+    - Detached background process spawning
+    slug: dropper-execution-and-evasion
+    tactic: execution
+    techniques:
+    - T1059.003
+    - T1105
+    - T1614.001
+    - T1027
+  - name: GitHub Actions Memory Scraping
+    observables:
+    - Runner.Worker process target
+    - Opening /proc/&lt;pid&gt;/maps
+    - Opening /proc/&lt;pid&gt;/mem
+    - Scraping for OIDC tokens and runner secrets
+    slug: ci-memory-scraping
+    tactic: credential-access
+    techniques:
+    - T1003.001
+  - name: Developer Tooling Credential Harvesting
+    observables:
+    - Accessing .ssh/id_rsa
+    - Reading kubeconfig and service-account tokens
+    - Harvesting .env and .netrc files
+    - Collecting Docker, Helm, Poetry, and PyPI credentials
+    - Accessing Jenkins encrypted credentials
+    slug: developer-credential-harvesting
+    tactic: credential-access
+    techniques:
+    - T1552.001
+    - T1552.004
+  - name: Cross-linked AI and Dev Tool Persistence
+    observables:
+    - .vscode/tasks.json with task Environment Setup
+    - .claude/settings.json with SessionStart command hook
+    - node .claude/setup.mjs
+    - node .vscode/setup.mjs
+    - com.user.gh-token-monitor LaunchAgent
+    - gh-token-monitor.service systemd unit
+    slug: ai-tool-persistence
+    tactic: persistence
+    techniques:
+    - T1546
+    - T1547
+  - name: Blockchain C2 Infrastructure
+    observables:
+    - Ethereum transaction-based C2 reconfiguration
+    - Network traffic to Ethereum blockchain nodes
+    slug: blockchain-c2-routing
+    tactic: command-and-control
+    techniques:
+    - T1102.001
+  - name: Supply Chain Worm Propagation
+    observables:
+    - Republishing packages to registry.npmjs.org
+    - &#39;GitHub repository description Shai-Hulud: Here We Go Again&#39;
+    - .github/workflows/codeql_analysis.yml serializing secrets
+    - OIDC token exchange with npm:registry.npmjs.org
+    slug: supply-chain-propagation
+    tactic: impact
+    techniques:
+    - T1571
+    - T1195
+  summary: ChainDrop is a self-propagating npm worm that infects packages via malicious
+    preinstall hooks to steal developer credentials, including GitHub Actions runner
+    secrets extracted via memory scraping. It uses Ethereum transactions for command-and-control
+    routing and persists by embedding itself in VS Code and AI tool configurations
+    before republishing itself to further npm packages.
+series:
+  index: 1
+  slug: chaindrop-inside-a-self-propagating-npm-worm
+  title: &#39;ChainDrop: Inside a Self-Propagating npm Worm&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# ChainDrop Endpoint Infection and Secret Theft
+
+ChainDrop is a self-propagating npm worm that infects legitimate packages by adding a preinstall hook. Once executed, it downloads a portable runtime (Bun), detaches a background process, and sweeps the host for cloud credentials, SSH keys, and CI secrets. It specifically targets GitHub Actions runner memory to steal OIDC tokens and secrets that are designed to exist only during job execution. This hunt identifies the infection by looking for the specific dropper scripts, rare access to sensitive developer configuration files by script interpreters, and the creation of persistence artifacts in IDE and AI tool directories. The triage agent correlates these behaviors to distinguish legitimate developer activity from the worm&#39;s automated collection and propagation routine, prioritizing the temporal link between dropper execution and credential theft.
+
+## scope-npm-environments
+&lt;!-- Scope to npm-enabled hosts --&gt;
+Identify hosts with npm or Bun installed, which are the primary targets for this supply chain worm.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts running Node.js or Bun environments. Silence means no such
+  software was inventoried.
+reads:
+- device_hostname
+- package_name
+- package_version
+- install_path
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (LOWER(package_name) IN (&#39;npm&#39;, &#39;node&#39;, &#39;bun&#39;)) AND asset_scope = &#39;endpoint&#39;
+```
+
+## detect-worm-execution
+&lt;!-- ChainDrop execution via JS Dropper --&gt;
+Identify process execution of the specific worm scripts or environment variables named in the research within the scoped estate.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Processes running setup.mjs or math_init.js, often spawned by node or bun
+  interpreters. Silence indicates these specific command-line indicators are not present.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (process_cmd_line LIKE &#39;%setup.mjs%&#39; OR process_cmd_line LIKE &#39;%math_init.js%&#39; OR process_cmd_line LIKE &#39;%_NODE_RUNTIME_INIT=1%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-corroboration
+&lt;!-- Corroborate behavior and persistence --&gt;
+parallel:
+- → rare-credential-access
+- → persistence-file-creation
+- → ci-memory-scraping
+join: → triage-infection
+
+## rare-credential-access
+&lt;!-- Rare harvesting of developer credentials --&gt;
+Identify rare file access to sensitive developer configurations by script interpreters, standing out from normal tool usage.
+
+```sqlite target=endpoint role=baseline params=(sensitive_paths=sensitive_paths, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Access to SSH keys or .env files by node/bun processes that is limited to
+  a few hosts. Silence means no suspicious interpreter access to these files.
+prevalence:
+  by: device_hostname
+  key:
+  - file_path
+  rare_below: 5
+reads:
+- device_hostname
+- process_name
+- file_path
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT file_path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_file_activity WHERE (LOWER(process_name) LIKE &#39;%node%&#39; OR LOWER(process_name) LIKE &#39;%bun%&#39; OR LOWER(process_name) LIKE &#39;%python%&#39;) AND (instr(&#39;,&#39; || &#39;{{sensitive_paths}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 OR file_path LIKE &#39;%/.ssh/%&#39; OR file_path LIKE &#39;%/kubeconfig%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY file_path HAVING hosts &lt; 5
+```
+
+## persistence-file-creation
+&lt;!-- AI and IDE tool persistence creation --&gt;
+Detect the creation or update of VS Code and Claude Code configuration files used for cross-linked persistence.
+
+```sqlite target=endpoint role=enrichment params=(persistence_files=persistence_files, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Creation of IDE task files or AI settings files that link to external scripts.
+  Normal developer usage might write these, so prevalence counts are important.
+reads:
+- device_hostname
+- process_name
+- file_path
+- activity_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE (instr(&#39;,&#39; || &#39;{{persistence_files}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(file_path) || &#39;,&#39;) &gt; 0 OR file_path LIKE &#39;%/.vscode/tasks.json&#39; OR file_path LIKE &#39;%/.claude/settings.json&#39;) AND activity_name IN (&#39;Create&#39;, &#39;Update&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## ci-memory-scraping
+&lt;!-- CI environment memory scraping --&gt;
+Detect script interpreters accessing process memory maps, a behavior used to steal OIDC tokens from CI runners.
+
+```sqlite target=endpoint role=enrichment params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A script interpreter reading memory or maps of another process. Extremely
+  rare and highly characteristic of the ChainDrop worm&#39;s CI logic.
+reads:
+- device_hostname
+- process_name
+- file_path
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE (file_path LIKE &#39;/proc/%/mem&#39; OR file_path LIKE &#39;/proc/%/maps&#39;) AND (LOWER(process_name) LIKE &#39;%node%&#39; OR LOWER(process_name) LIKE &#39;%python%&#39; OR LOWER(process_name) LIKE &#39;%bun%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-infection
+&lt;!-- Triage ChainDrop infection --&gt;
+```agent target=hunter
+cite: required
+context:
+- detect-worm-execution
+- rare-credential-access
+- persistence-file-creation
+- ci-memory-scraping
+max_iterations: 6
+objective: Determine if any host shows the pattern of ChainDrop infection. Prioritize
+  the temporal correlation between the execution of the dropper (setup.mjs/math_init.js)
+  and the specific behavior of scraping /proc/ memory or harvesting sensitive files
+  (SSH keys, .env). Check if these occur within a short window on the same device.
+success_criteria: A verdict of malicious | suspicious | benign citing specific process
+  paths and file access events.
+tools:
+- endpoint
+```
+
+## respond-on-verdict
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host, specifically noting correlation between dropper execution and sensitive file access.&#34; (confidence: high, judge=hunter)
+then: → isolate-infected-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: no-process-telemetry)
+else: → analyst-review
+
+## isolate-infected-host
+&lt;!-- Isolate host and revoke tokens --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately. Revoke and rotate all SSH keys, npm tokens, GitHub personal access tokens, and cloud credentials (AWS/Azure/GCP) associated with the compromised user or CI environment. Collect the math_init.js payload if present.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst review --&gt;
+```manual target=analyst
+Verify the cited files and processes. Review the exfiltration repositories under the victim&#39;s GitHub account if applicable. Confirm if &#39;com.user.gh-token-monitor&#39; or &#39;gh-token-monitor.service&#39; were established.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=chaindrop-endpoint-infection-secret-theft" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

@@ -1,0 +1,567 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Entra Agent ID introduces a novel impersonation vector that can bypass traditional MFA once delegated consent is granted. Monitoring these workflows ensures that even if an attacker bypasses MFA via consent, their subsequent actions can be identified."
+      },
+      "name": "Suspicious Entra Agentic Workflows",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001"
+      ],
+      "related": [
+        {
+          "hunt": "azure-consent-fix-monitoring",
+          "reason": "The consent-grant portion of this attack overlaps with 'ConsentFix' techniques used to maintain persistence via localhost redirects.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule would likely alert on any PowerShell on macOS; this hunt pivots from software inventory into HTTP User-Agents and then into specific cloud authentication patterns to distinguish developer activity from malicious agent abuse.",
+      "coverage": [
+        {
+          "stage": "consent-grant-access-agent",
+          "reason": "Requires Entra ID AuditLogs for delegated permission grants, which are not currently available in the listed surfaces.",
+          "status": "not_visible",
+          "blind_spot": "consent-audit-gap"
+        },
+        {
+          "stage": "powershell-client-trigger",
+          "steps": [
+            "scope-powershell-inventory",
+            "detect-powershell-ua"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "agent-obo-sign-in",
+          "steps": [
+            "graph-cli-logins",
+            "rare-auth-ips"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "graph-api-malicious-action",
+          "steps": [
+            "detect-powershell-ua"
+          ],
+          "reason": "Detection of HTTP traffic from the versioned PowerShell UA to Graph endpoints covers the exfiltration phase.",
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Consent to Agent Blueprint Scope",
+            "slug": "consent-grant-access-agent",
+            "tactic": "initial-access",
+            "observables": [
+              "access_agent",
+              "14d82eec-204b-4c2f-b7e8-296a70dab67e",
+              "http://localhost/",
+              "beddadf7-4f3b-4e9b-8443-0b0cf777446e"
+            ]
+          },
+          {
+            "name": "PowerShell Execution from MacOS",
+            "slug": "powershell-client-trigger",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "PowerShell/7.6.1",
+              "Mozilla/5.0 (Macintosh; macOS 26.4.1; en-US) PowerShell/7.6.1",
+              "51.3.97.221"
+            ]
+          },
+          {
+            "name": "Agentic On-Behalf-Of Sign-in",
+            "slug": "agent-obo-sign-in",
+            "tactic": "credential-access",
+            "observables": [
+              "8cd0a10f-0be8-413a-9bf2-f44bc568d1e4",
+              "agenticAppInstance",
+              "notAgentic",
+              "Group.Read.All",
+              "Mail.ReadWrite",
+              "Mail.Send",
+              "MailboxSettings.ReadWrite",
+              "User.Read"
+            ]
+          },
+          {
+            "name": "Graph API Email Exfiltration",
+            "slug": "graph-api-malicious-action",
+            "tactic": "exfiltration",
+            "observables": [
+              "bigwig_CFO@importantcompany.com",
+              "Here is your invoice",
+              "40.126.23.26"
+            ]
+          }
+        ],
+        "summary": "An attacker leverages Microsoft Entra Agent ID's On-Behalf-Of (OBO) flow by inducing a user to consent to an agent blueprint, enabling the attacker to impersonate the user. Using a PowerShell client on macOS, the attacker triggers the agent to send malicious emails via the Microsoft Graph API, leaving identifiable traces in sign-in metadata and network traffic."
+      },
+      "severity": "high",
+      "rationale": "The hunt begins with hb_software_inventory to identify hosts with any version of PowerShell installed. This narrows the behavioral checks to the relevant macOS or developer systems.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is abusing Entra Agent ID by tricking users into granting 'access_agent' scopes, then triggering malicious On-Behalf-Of (OBO) workflows via a specific macOS PowerShell client.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Limit behavioral queries to hosts found in the scoping step."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "powershell_version": {
+          "from": {
+            "ref": "https://redcanary.com/blog/threat-detection/entra-id-ai-workflows-assistive-agents/",
+            "kind": "article",
+            "observed": "2026-06-08"
+          },
+          "type": "string",
+          "default": "7.6.1",
+          "description": "The specific PowerShell version observed in the malicious User-Agent."
+        },
+        "graph_cli_client_id": {
+          "from": {
+            "ref": "https://redcanary.com/blog/threat-detection/entra-id-ai-workflows-assistive-agents/",
+            "kind": "article",
+            "observed": "2026-06-08"
+          },
+          "type": "string",
+          "default": "14d82eec-204b-4c2f-b7e8-296a70dab67e",
+          "description": "The Entra Client ID for the Microsoft Graph Command Line Tools application."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://redcanary.com/blog/threat-detection/entra-id-ai-workflows-assistive-agents/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://redcanary.com/blog/threat-detection/entra-id-ai-workflows-assistive-agents/",
+          "name": "Red Canary \u2014 Investigating suspicious AI workflows in Microsoft Entra Agent ID"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-cloud-agent-metadata",
+          "risk": "Without these sub-fields, we must infer OBO behavior from the AppID and IP, which may increase false positives for legitimate developers.",
+          "stage": "agent-obo-sign-in",
+          "question": "Can we definitively confirm an OBO flow occurred directly from the log fields?",
+          "requires": "hb_auth_signin with full Agentic sub-fields (agentType, agentSubjectType)"
+        },
+        {
+          "id": "consent-audit-gap",
+          "risk": "The hunt only identifies post-consent activity. Missing the root cause (consent grant) delays detection until the adversary takes their first action.",
+          "stage": "consent-grant-access-agent",
+          "question": "When and how was the initial consent granted to the agent blueprint?",
+          "requires": "Entra ID AuditLogs for 'Add delegated permission grant' operations"
+        }
+      ]
+    },
+    "name": "Suspicious Entra Agentic Workflows",
+    "description": "Entra ID assistive agents can act on behalf of users, inheriting their permissions and potentially bypassing MFA. This hunt targets the specific tradecraft of using a macOS-based PowerShell client (version 7.6.1) to trigger these workflows. It first identifies hosts with PowerShell installed, then looks for the unique HTTP User-Agent string associated with the reported exploit, and correlates these triggers with rare non-interactive sign-ins to the Microsoft Graph Command Line Tools application."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "consent-grant-access-agent",
+            "reason": "Requires Entra ID AuditLogs for delegated permission grants, which are not currently available in the listed surfaces.",
+            "status": "not_visible",
+            "blind_spot": "consent-audit-gap"
+          },
+          {
+            "stage": "powershell-client-trigger",
+            "steps": [
+              "scope-powershell-inventory",
+              "detect-powershell-ua"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "agent-obo-sign-in",
+            "steps": [
+              "graph-cli-logins",
+              "rare-auth-ips"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "graph-api-malicious-action",
+            "steps": [
+              "detect-powershell-ua"
+            ],
+            "reason": "Detection of HTTP traffic from the versioned PowerShell UA to Graph endpoints covers the exfiltration phase.",
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is abusing Entra Agent ID by tricking users into granting 'access_agent' scopes, then triggering malicious On-Behalf-Of (OBO) workflows via a specific macOS PowerShell client.",
+        "blind_spots": [
+          {
+            "id": "missing-cloud-agent-metadata",
+            "risk": "Without these sub-fields, we must infer OBO behavior from the AppID and IP, which may increase false positives for legitimate developers.",
+            "stage": "agent-obo-sign-in",
+            "question": "Can we definitively confirm an OBO flow occurred directly from the log fields?",
+            "requires": "hb_auth_signin with full Agentic sub-fields (agentType, agentSubjectType)"
+          },
+          {
+            "id": "consent-audit-gap",
+            "risk": "The hunt only identifies post-consent activity. Missing the root cause (consent grant) delays detection until the adversary takes their first action.",
+            "stage": "consent-grant-access-agent",
+            "question": "When and how was the initial consent granted to the agent blueprint?",
+            "requires": "Entra ID AuditLogs for 'Add delegated permission grant' operations"
+          }
+        ],
+        "scoping_notes": "The hunt begins with hb_software_inventory to identify hosts with any version of PowerShell installed. This narrows the behavioral checks to the relevant macOS or developer systems.",
+        "beyond_detection": "A standard detection rule would likely alert on any PowerShell on macOS; this hunt pivots from software inventory into HTTP User-Agents and then into specific cloud authentication patterns to distinguish developer activity from malicious agent abuse."
+      }
+    },
+    {
+      "id": "scope-powershell-inventory",
+      "type": "query",
+      "label": "Scope hosts with PowerShell installed",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%powershell%' OR LOWER(package_name) LIKE '%pwsh%')",
+        "surface": "hb_software_inventory",
+        "description": "Identify macOS or other hosts that have PowerShell installed, as it is the primary execution vector for triggering the malicious agentic workflow.",
+        "expected_signal": "A list of hostnames. Silence suggests the specific trigger software is not present in the estate, which limits the threat surface."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope hosts with PowerShell installed",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%powershell%' OR LOWER(package_name) LIKE '%pwsh%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames. Silence suggests the specific trigger software is not present in the estate, which limits the threat surface.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "detect-powershell-ua",
+      "type": "query",
+      "label": "Identify versioned PowerShell User-Agent",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_hostname, user_agent, time FROM hb_http_activity WHERE user_agent LIKE '%PowerShell/{{powershell_version}}%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Find HTTP traffic originating from the specific PowerShell version (7.6.1) used in the reported assistive agent exploit.",
+        "expected_signal": "HTTP requests to Graph endpoints with the versioned UA. This is a high-confidence indicator of the specific PowerShell client trigger."
+      },
+      "parents": [
+        {
+          "id": "scope-powershell-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Identify versioned PowerShell User-Agent",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "url_hostname",
+          "user_agent",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_hostname, user_agent, time FROM hb_http_activity WHERE user_agent LIKE '%PowerShell/{{powershell_version}}%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests to Graph endpoints with the versioned UA. This is a high-confidence indicator of the specific PowerShell client trigger.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "graph-cli-logins",
+      "type": "query",
+      "label": "Monitor sign-ins to Graph Command Line Tools",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%graph command line%' OR instr(LOWER(dst_endpoint_name), '{{graph_cli_client_id}}') > 0) AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify authentications to the Microsoft Graph Command Line Tools app, which is the primary target for OBO impersonation in this scenario.",
+        "expected_signal": "Successful sign-ins to the Graph CLI. Overlap with the HTTP UA IPs indicates the 'True IP' of the attacker."
+      },
+      "parents": [
+        {
+          "id": "scope-powershell-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Monitor sign-ins to Graph Command Line Tools",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%graph command line%' OR instr(LOWER(dst_endpoint_name), '{{graph_cli_client_id}}') > 0) AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Successful sign-ins to the Graph CLI. Overlap with the HTTP UA IPs indicates the 'True IP' of the attacker.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-auth-ips",
+      "type": "query",
+      "label": "Baseline authentication source IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS auth_count, MIN(time) AS first_seen FROM hb_auth_signin WHERE time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING user_count <= 2 ORDER BY user_count ASC",
+        "surface": "hb_auth_signin",
+        "description": "Stack-count source IPs to find rare endpoints accessing Entra ID, which helps isolate the adversary beachhead from common office IPs.",
+        "expected_signal": "Rare source IPs used by 2 or fewer users. This highlights the non-corporate source IPs used to trigger the Graph API."
+      },
+      "parents": [
+        {
+          "id": "scope-powershell-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Baseline authentication source IPs",
+        "reads": [
+          "src_endpoint_ip",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS auth_count, MIN(time) AS first_seen FROM hb_auth_signin WHERE time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING user_count <= 2 ORDER BY user_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare source IPs used by 2 or fewer users. This highlights the non-corporate source IPs used to trigger the Graph API.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-agentic-activity",
+      "type": "analytic",
+      "label": "Triage Agentic Activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "scope-powershell-inventory",
+          "detect-powershell-ua",
+          "graph-cli-logins",
+          "rare-auth-ips"
+        ],
+        "objective": "Determine if the combination of PowerShell hosts, versioned HTTP User-Agents, and Graph CLI sign-ins indicate an unauthorized assistive agent workflow.",
+        "description": "Correlate host-side PowerShell usage, specific HTTP User-Agents, and cloud authentication to determine if an Entra ID assistive agent is being abused.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict identifying whether a specific user/IP pair is exhibiting the Entra Agent ID impersonation pattern.",
+        "success_criteria": "A verdict of malicious or suspicious for any user/host/IP correlation that matches the reported OBO workflow signature."
+      },
+      "parents": [
+        {
+          "id": "detect-powershell-ua",
+          "kind": "merge"
+        },
+        {
+          "id": "graph-cli-logins",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-auth-ips",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-triage",
+      "type": "checkpoint",
+      "label": "Route on Triage Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one user-host pair showing the OBO pattern",
+        "condition": "the triage verdict is malicious for at least one user-host pair showing the OBO pattern",
+        "blind_spot": "missing-cloud-agent-metadata",
+        "confidence": "high",
+        "description": "Direct the hunt to containment if malicious agentic behavior is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agentic-activity"
+        }
+      ]
+    },
+    {
+      "id": "isolate-and-revoke",
+      "type": "action",
+      "label": "Isolate Beachhead and Revoke Sessions",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately halt the malicious workflow by isolating the triggering host and cutting off the impersonated cloud session.",
+        "instructions": "1. Isolate the identified macOS host via the endpoint agent.\n2. Revoke all active sessions and refresh tokens for the identified user in Entra ID.\n3. Audit all recent delegated permission grants for that user in the Entra portal.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-triage",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-manual-review",
+      "type": "task",
+      "label": "Manual Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the malicious agent blueprint and ensure the activity was not a legitimate developer workflow.",
+        "instructions": "Review the correlated HTTP traffic and Sign-in logs. Verify if the user intentionally consented to an AI agent blueprint (e.g., 'access_agent' scope). Identify the specific Agent ID used and document the blueprint principal."
+      },
+      "parents": [
+        {
+          "id": "route-on-triage",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-triage",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-triage",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-and-revoke"
+        }
+      ]
+    },
+    {
+      "id": "hunt-close-out",
+      "type": "task",
+      "label": "Hunt Close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final documentation and determination of whether to promote the User-Agent detection to a standing rule.",
+        "instructions": "Document the findings, specifically the malicious Agent Blueprint IDs and source IPs. If the PowerShell User-Agent version (7.6.1) was confirmed as malicious, promote the detection step to a permanent alerting rule."
+      },
+      "parents": [
+        {
+          "id": "analyst-manual-review"
+        }
+      ]
+    }
+  ]
+}

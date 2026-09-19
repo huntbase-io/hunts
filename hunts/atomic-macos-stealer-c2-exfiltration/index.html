@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atomic macOS Stealer C2 and Data Exfiltration · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder is exfiltrating sensitive macOS data, including keychain items and browser cookies, via distinctive HTTP POST requests with &#39;stage=&#39; parameters to rare or known-malicious IP infrastructure.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/atomic-macos-stealer-c2-exfiltration/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Atomic macOS Stealer C2 and Data Exfiltration · Huntbase Hunts">
+  <meta property="og:description" content="An intruder is exfiltrating sensitive macOS data, including keychain items and browser cookies, via distinctive HTTP POST requests with &#39;stage=&#39; parameters to rare or known-malicious IP infrastructure.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/atomic-macos-stealer-c2-exfiltration/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">Atomic macOS Stealer C2 and Data Exfiltration</h1>
+      <p class="hyp-lead">An intruder is exfiltrating sensitive macOS data, including keychain items and browser cookies, via distinctive HTTP POST requests with &#39;stage=&#39; parameters to rare or known-malicious IP infrastructure.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://unit42.paloaltonetworks.com/atomic-macos-amos-stealer-activity/" rel="noopener">Unit 42</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1041 T1071.001 T1090.003 T1555</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=atomic-macos-stealer-c2-exfiltration" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>The Atomic macOS (AMOS) stealer continues to be a persistent threat to macOS users, with recent analysis from Unit 42 (Atomic macOS (AMOS) Stealer Activity: https://unit42.paloaltonetworks.com/atomic-macos-amos-stealer-activity/) highlighting its rapid evolution. AMOS focuses on harvesting sensitive data, such as browser cookies, keychain items, and cryptocurrency wallets. Because the malware’s delivery mechanisms and file hashes rotate frequently, static detection is often insufficient. This hunt focuses on the more durable behavioral signals found during the exfiltration phase.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins by scoping the environment to identify the active macOS fleet. This step ensures that subsequent, more resource-intensive queries are restricted to the relevant platform, as AMOS is specifically designed for Darwin-based systems.</p>
+<p>Once the scope is defined, the hunt executes a parallel investigation across four telemetry surfaces. We search for HTTP POST activity containing specific stage-based URL parameters that indicate data transfer. Simultaneously, we baseline outbound network connections to identify rare process-IP pairs. We specifically exclude known browsers to focus on anomalous traffic from system-sounding processes like accountsd, mdworker, or generic 'helper' binaries that AMOS frequently mimics.</p>
+<p>The investigation further corroborates these signals by looking for the 'out.zip' file in the /tmp/ directory. This is where the stealer typically aggregates stolen data before transmission. We also check DNS activity against a list of known AMOS C2 domains to catch infrastructure that has not yet rotated.</p>
+<p>In the final phase, the hunt uses an automated triage step to weigh the collected evidence. A high-confidence verdict is reached if a single host demonstrates a 'join' of these signals—for example, the presence of the staging file combined with outbound network traffic from a masqueraded process.</p>
+<h3>What the Hunt Cannot See</h3>
+<p>This hunt has two primary limitations. First, if the malware utilizes HTTPS and the environment lacks SSL/TLS decryption or endpoint-based HTTP dissection, the specific 'stage=' URL parameters will not be visible in network telemetry. In such cases, the hunt relies more heavily on the process masquerading and file staging indicators. Second, the 'out.zip' file is often ephemeral. If the malware completes its exfiltration and deletes the staging file between polling intervals, this local artifact may be missed.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li><li><span>Web server / proxy logs</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder is exfiltrating sensitive macOS data, including keychain items and browser cookies, via distinctive HTTP POST requests with \u0027stage=\u0027 parameters to rare or known-malicious IP infrastructure.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Narrow the estate to macOS devices, as AMOS is platform-specific, and produce a list for subsequent filtering.", "expected": "A list of macOS hostnames to be used in the scope_hosts parameter. Zero rows means no macOS devices were recently seen.", "id": "scoping-macos", "label": "Identify macOS fleet", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT hostname AS device_hostname, os_version, device_uid FROM hb_devices WHERE platform = \u0027darwin\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Detect the specific \u0027stage=\u0027 URL parameters used by AMOS for exfiltrating data.", "expected": "HTTP POST requests containing AMOS-specific stage parameters. Multiple stages from one host indicate high-confidence exfiltration.", "id": "amos-http-exfiltration", "label": "AMOS Staged HTTP Exfiltration", "parents": [{"branch": null, "id": "scoping-macos", "kind": null}], "query": "SELECT device_hostname, url_full, http_method, dst_endpoint_ip, user_agent, time FROM hb_http_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND LOWER(http_method) = \u0027post\u0027 AND (instr(LOWER(url_full), \u0027stage=boot\u0027) \u003e 0 OR instr(LOWER(url_full), \u0027stage=credentials\u0027) \u003e 0 OR instr(LOWER(url_full), \u0027stage=wallets\u0027) \u003e 0 OR instr(LOWER(url_full), \u0027stage=browsers\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_http_activity", "type": "query"}, {"description": "Find outbound network activity from processes that exclude known browsers and focus on AMOS masquerade targets like accountsd or mdworker.", "expected": "A rare process-IP pair involving a system-sounding process exfiltrating data. AMOS binaries often masquerade as .com.apple.accountsd.", "id": "rare-outbound-baseline", "label": "Rare Outbound Connections from Masqueraded Processes", "parents": [{"branch": null, "id": "scoping-macos", "kind": null}], "query": "SELECT user_name, process_path, dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_network_connection WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND direction = \u0027outbound\u0027 AND dst_endpoint_port IN (80, 443) AND (LOWER(process_path) NOT LIKE \u0027%safari%\u0027 AND LOWER(process_path) NOT LIKE \u0027%chrome%\u0027 AND LOWER(process_path) NOT LIKE \u0027%firefox%\u0027) AND (LOWER(process_path) LIKE \u0027%.apple.%\u0027 OR LOWER(process_path) LIKE \u0027%mdworker%\u0027 OR LOWER(process_path) LIKE \u0027%helper%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY user_name, process_path, dst_endpoint_ip HAVING hosts \u003c= 3 ORDER BY hosts ASC", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Filter for DNS resolutions of known AMOS-associated domains to pipe into triage.", "expected": "Resolutions for known malicious domains. Silence means indicators have likely rotated, requiring reliance on behavioral signals.", "id": "amos-dns-indicators", "label": "DNS Filtering for AMOS Infrastructure", "parents": [{"branch": null, "id": "scoping-macos", "kind": null}], "query": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND instr(\u0027,\u0027 || \u0027{{c2_domains}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(query_hostname) || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_dns_activity", "type": "query"}, {"description": "Corroborate exfiltration with the presence of the \u0027out.zip\u0027 staging file in temporary directories.", "expected": "Creation or modification of \u0027out.zip\u0027 in /tmp. This confirms the collection stage of the AMOS lifecycle.", "id": "amos-staging-file", "label": "Detection of out.zip Staging", "parents": [{"branch": null, "id": "scoping-macos", "kind": null}], "query": "SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(file_name) = \u0027out.zip\u0027 OR LOWER(file_path) LIKE \u0027%/tmp/out.zip%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Correlate HTTP parameters, rare network flows from system-like processes, and staging files to confirm exfiltration.", "expected": "A per-host verdict. Malicious when HTTP stages correlate with non-browser processes and the presence of out.zip.", "id": "triage-amos-activity", "label": "Weigh Exfiltration Evidence", "parents": [{"branch": null, "id": "amos-http-exfiltration", "kind": "merge"}, {"branch": null, "id": "rare-outbound-baseline", "kind": "merge"}, {"branch": null, "id": "amos-dns-indicators", "kind": "merge"}, {"branch": null, "id": "amos-staging-file", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Route to action or manual review based on the agent\u0027s findings.", "expected": null, "id": "decision-amos-verdict", "label": "Route on Triage Verdict", "parents": [{"branch": null, "id": "triage-amos-activity", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Sever the C2 channel immediately.", "expected": null, "id": "action-isolate-host", "label": "Isolate macOS Host", "parents": [{"branch": "on_supports", "id": "decision-amos-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review the exfiltration sequence and update detection rules.", "expected": null, "id": "task-analyst-review", "label": "Analyst Post-Mortem", "parents": [{"branch": "default", "id": "decision-amos-verdict", "kind": null}, {"branch": "on_unavailable", "id": "decision-amos-verdict", "kind": null}, {"branch": null, "id": "action-isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Finalize the hunt and record evidence of absence.", "expected": null, "id": "task-close-out", "label": "Hunt Close-out", "parents": [{"branch": "on_refutes", "id": "decision-amos-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scoping-macos">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify macOS fleet</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Narrow the estate to macOS devices, as AMOS is platform-specific, and produce a list for subsequent filtering.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT hostname AS device_hostname, os_version, device_uid FROM hb_devices WHERE platform = &#39;darwin&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of macOS hostnames to be used in the scope_hosts parameter. Zero rows means no macOS devices were recently seen.</p>        </li>
+        <li class="card step" id="step-amos-http-exfiltration">
+          <div class="step-head">
+            <h3 class="heading-sm">AMOS Staged HTTP Exfiltration</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect the specific &#39;stage=&#39; URL parameters used by AMOS for exfiltrating data.</p>          <div class="code"><div class="code-head"><span>reads hb_http_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, url_full, http_method, dst_endpoint_ip, user_agent, time FROM hb_http_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND LOWER(http_method) = &#39;post&#39; AND (instr(LOWER(url_full), &#39;stage=boot&#39;) &gt; 0 OR instr(LOWER(url_full), &#39;stage=credentials&#39;) &gt; 0 OR instr(LOWER(url_full), &#39;stage=wallets&#39;) &gt; 0 OR instr(LOWER(url_full), &#39;stage=browsers&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> HTTP POST requests containing AMOS-specific stage parameters. Multiple stages from one host indicate high-confidence exfiltration.</p>        </li>
+        <li class="card step" id="step-rare-outbound-baseline">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare Outbound Connections from Masqueraded Processes</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Find outbound network activity from processes that exclude known browsers and focus on AMOS masquerade targets like accountsd or mdworker.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT user_name, process_path, dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_network_connection WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND direction = &#39;outbound&#39; AND dst_endpoint_port IN (80, 443) AND (LOWER(process_path) NOT LIKE &#39;%safari%&#39; AND LOWER(process_path) NOT LIKE &#39;%chrome%&#39; AND LOWER(process_path) NOT LIKE &#39;%firefox%&#39;) AND (LOWER(process_path) LIKE &#39;%.apple.%&#39; OR LOWER(process_path) LIKE &#39;%mdworker%&#39; OR LOWER(process_path) LIKE &#39;%helper%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY user_name, process_path, dst_endpoint_ip HAVING hosts &lt;= 3 ORDER BY hosts ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A rare process-IP pair involving a system-sounding process exfiltrating data. AMOS binaries often masquerade as .com.apple.accountsd.</p>        </li>
+        <li class="card step" id="step-amos-dns-indicators">
+          <div class="step-head">
+            <h3 class="heading-sm">DNS Filtering for AMOS Infrastructure</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Filter for DNS resolutions of known AMOS-associated domains to pipe into triage.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND instr(&#39;,&#39; || &#39;{{c2_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Resolutions for known malicious domains. Silence means indicators have likely rotated, requiring reliance on behavioral signals.</p>        </li>
+        <li class="card step" id="step-amos-staging-file">
+          <div class="step-head">
+            <h3 class="heading-sm">Detection of out.zip Staging</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Corroborate exfiltration with the presence of the &#39;out.zip&#39; staging file in temporary directories.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(file_name) = &#39;out.zip&#39; OR LOWER(file_path) LIKE &#39;%/tmp/out.zip%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Creation or modification of &#39;out.zip&#39; in /tmp. This confirms the collection stage of the AMOS lifecycle.</p>        </li>
+        <li class="card step" id="step-triage-amos-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Weigh Exfiltration Evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate HTTP parameters, rare network flows from system-like processes, and staging files to confirm exfiltration.</p>        </li>
+        <li class="card step" id="step-decision-amos-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Triage Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Route to action or manual review based on the agent&#39;s findings.</p>        </li>
+        <li class="card step" id="step-action-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate macOS Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Sever the C2 channel immediately.</p>        </li>
+        <li class="card step" id="step-task-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Post-Mortem</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review the exfiltration sequence and update detection rules.</p>        </li>
+        <li class="card step" id="step-task-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Hunt Close-out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Finalize the hunt and record evidence of absence.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Exfiltration over HTTP POST<br><span class="mono dim">T1071.001 · T1041</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>amos-http-exfiltration, rare-outbound-baseline, amos-dns-indicators</td></tr>            <tr><td>Local Data Collection and Staging<br><span class="mono dim">T1005 · T1115</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>amos-staging-file</td></tr>            <tr><td>Deceptive Terminal Command Execution<br><span class="mono dim">T1204.002 · T1059.004</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Handled by the Initial Access hunt in this series.</td></tr>            <tr><td>Persistence via Masqueraded Binaries<br><span class="mono dim">T1543.001 · T1036</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Handled by the Persistence hunt in this series.</td></tr>            <tr><td>Password Prompt and Permission Requests<br><span class="mono dim">T1555</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Atomic macOS (AMOS) Stealer Activity&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs Endpoint-based HTTP dissection or SSL decryption proxy..</strong> If AMOS uses HTTPS without decryption, query parameters like stage=wallets will not be visible in hb_http_activity. <span class="dim">It would answer What are the URL parameters (stage=boot) for encrypted HTTPS traffic?.</span></li>          <li class="card"><strong>Needs hb_file_activity with close-to-realtime collection..</strong> If the malware stages and exfiltrates data very rapidly, the &#39;out.zip&#39; file may be deleted before detection steps run. <span class="dim">It would answer Is the out.zip file deleted before the EDR or osquery can snapshot it?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>c2_domains</code></td><td class="mono dim">list[domain]</td><td class="mono">getmacouscloud.com, ferncore13.com, grove-89.com, malware-traffic-analysis.net</td><td>Known AMOS infrastructure domains.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to focus the hunt; provided by the scoping step.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>            <tr><td>Web server / proxy logs</td><td class="dim">siem</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A single rule on static IPs fails as AMOS infrastructure rotates. This hunt
+  correlates the behavioral &#39;join&#39; of a staging file (out.zip) with rare outbound
+  traffic from system-masquerading processes (like accountsd) and specific HTTP exfiltration
+  stages, providing context an analyst can use to confirm a breach.
+blind_spots:
+- id: https-visibility-gap
+  question: What are the URL parameters (stage=boot) for encrypted HTTPS traffic?
+  requires: Endpoint-based HTTP dissection or SSL decryption proxy.
+  risk: If AMOS uses HTTPS without decryption, query parameters like stage=wallets
+    will not be visible in hb_http_activity.
+  stage: c2-exfiltration
+- id: ephemeral-staging
+  question: Is the out.zip file deleted before the EDR or osquery can snapshot it?
+  requires: hb_file_activity with close-to-realtime collection.
+  risk: If the malware stages and exfiltrates data very rapidly, the &#39;out.zip&#39; file
+    may be deleted before detection steps run.
+  stage: collection-and-staging
+coverage:
+- stage: c2-exfiltration
+  status: covered
+  steps:
+  - amos-http-exfiltration
+  - rare-outbound-baseline
+  - amos-dns-indicators
+- stage: collection-and-staging
+  status: covered
+  steps:
+  - amos-staging-file
+- reason: Handled by the Initial Access hunt in this series.
+  stage: initial-access-terminal-execution
+  status: out_of_scope
+- reason: Handled by the Persistence hunt in this series.
+  stage: persistence-and-masquerading
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Atomic macOS (AMOS) Stealer Activity&#39; series.
+  stage: credential-and-permission-access
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: AMOS is a fast-evolving threat to macOS credentials. Because its
+    network signatures (staged POST requests) are more stable than its file hashes,
+    a cross-surface behavioral hunt provides the most durable coverage.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder is exfiltrating sensitive macOS data, including keychain items
+  and browser cookies, via distinctive HTTP POST requests with &#39;stage=&#39; parameters
+  to rare or known-malicious IP infrastructure.
+labels:
+- hunt
+- attack.t1071.001
+- attack.t1041
+- attack.t1090.003
+- attack.t1555
+name: Atomic macOS Stealer C2 and Data Exfiltration
+parameters:
+  c2_domains:
+    default:
+    - getmacouscloud.com
+    - ferncore13.com
+    - grove-89.com
+    - malware-traffic-analysis.net
+    description: Known AMOS infrastructure domains.
+    from:
+      kind: article
+      observed: &#39;2026-08-05&#39;
+      ref: unit42-amos-2026
+    type: list[domain]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to focus the hunt; provided by the scoping
+      step.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://unit42.paloaltonetworks.com/atomic-macos-amos-stealer-activity/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with all macOS (darwin) hosts. Focus on systems where administrative
+  passwords might be entered into terminal prompts.
+references:
+- name: &#34;Unit 42 \u2014 Atomic macOS (AMOS) Stealer Activity&#34;
+  url: https://unit42.paloaltonetworks.com/atomic-macos-amos-stealer-activity/
+related:
+- hunt: amos-persistence-masquerading
+  reason: This hunt focuses on the network aftermath; the persistence mechanisms (launchd
+    plists) are a sibling behavioral signal.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: Deceptive Terminal Command Execution
+    observables:
+    - getmacouscloud.com
+    - ferncore13.com
+    - curl -L
+    - zsh script execution via Terminal
+    - 608e70d1338612686917ee5cd300ff7ed8e318dfd787a50257f92142e99bd688
+    slug: initial-access-terminal-execution
+    tactic: initial-access
+    techniques:
+    - T1204.002
+    - T1059.004
+  - name: Persistence via Masqueraded Binaries
+    observables:
+    - /tmp/helper
+    - /tmp/starter
+    - .com.apple.accountsd/AccountsHelper
+    - .com.apple.metadata.mds/mdworker_shared
+    - ~/Library/Application Support/.com.apple.accountsd/
+    - ~/Library/Application Support/.com.apple.metadata.mds/
+    slug: persistence-and-masquerading
+    tactic: persistence
+    techniques:
+    - T1543.001
+    - T1036
+  - name: Password Prompt and Permission Requests
+    observables:
+    - OS password prompt for administrative access
+    - TCC permissions requests for Finder, Desktop, Documents, and Notes
+    slug: credential-and-permission-access
+    tactic: credential-access
+    techniques:
+    - T1555
+  - name: Local Data Collection and Staging
+    observables:
+    - /tmp/out.zip
+    - zsh_history
+    - deskwallets/Binance
+    - FileGrabber/aws
+    - FileGrabber/docker
+    slug: collection-and-staging
+    tactic: collection
+    techniques:
+    - T1005
+    - T1115
+  - name: Exfiltration over HTTP POST
+    observables:
+    - 161.35.146.120
+    - 188.166.78.138
+    - grove-89.com
+    - HTTP POST with stage=boot
+    - HTTP POST with stage=credentials
+    - HTTP POST with stage=wallets
+    - HTTP POST with stage=browsers
+    slug: c2-exfiltration
+    tactic: command-and-control
+    techniques:
+    - T1071.001
+    - T1041
+  summary: Users are lured to fake setup pages where they are instructed to paste
+    a malicious command into the macOS Terminal. This command downloads Zsh scripts
+    and Mach-O binaries that establish persistence by masquerading as Apple services,
+    prompt for administrative credentials, and exfiltrate browser and crypto wallet
+    data to a C2 server via HTTP POST.
+series:
+  index: 2
+  slug: atomic-macos-amos-stealer-activity
+  title: Atomic macOS (AMOS) Stealer Activity
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+  web:
+    category: siem
+    name: Web server / proxy logs
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Atomic macOS Stealer C2 and Data Exfiltration
+
+This hunt targets the network infrastructure and exfiltration behavior of Atomic macOS (AMOS) stealer. While the malware&#39;s delivery mechanisms and file paths rotate, its reliance on a staged exfiltration process—captured as sequential HTTP POST requests with specific stage parameters (e.g., stage=boot, stage=wallets)—remains a durable behavioral signal. We identify these parameters in HTTP traffic, corroborate them with local collection artifacts like &#39;out.zip&#39;, and match network activity against masqueraded system processes and known C2 domains.
+
+## scoping-macos
+&lt;!-- Identify macOS fleet --&gt;
+Narrow the estate to macOS devices, as AMOS is platform-specific, and produce a list for subsequent filtering.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of macOS hostnames to be used in the scope_hosts parameter. Zero
+  rows means no macOS devices were recently seen.
+reads:
+- hostname
+- os_version
+- device_uid
+- platform
+- time
+silence: not_evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT hostname AS device_hostname, os_version, device_uid FROM hb_devices WHERE platform = &#39;darwin&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-investigation
+&lt;!-- Correlate HTTP, Network, Staging, and DNS Indicators --&gt;
+parallel:
+- → amos-http-exfiltration
+- → rare-outbound-baseline
+- → amos-dns-indicators
+- → amos-staging-file
+join: → triage-amos-activity
+
+## amos-http-exfiltration
+&lt;!-- AMOS Staged HTTP Exfiltration --&gt;
+Detect the specific &#39;stage=&#39; URL parameters used by AMOS for exfiltrating data.
+
+```sqlite target=web role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: HTTP POST requests containing AMOS-specific stage parameters. Multiple stages
+  from one host indicate high-confidence exfiltration.
+reads:
+- device_hostname
+- url_full
+- http_method
+- dst_endpoint_ip
+- user_agent
+- time
+silence: not_evidence_of_absence
+source: hb_http_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, url_full, http_method, dst_endpoint_ip, user_agent, time FROM hb_http_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND LOWER(http_method) = &#39;post&#39; AND (instr(LOWER(url_full), &#39;stage=boot&#39;) &gt; 0 OR instr(LOWER(url_full), &#39;stage=credentials&#39;) &gt; 0 OR instr(LOWER(url_full), &#39;stage=wallets&#39;) &gt; 0 OR instr(LOWER(url_full), &#39;stage=browsers&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-outbound-baseline
+&lt;!-- Rare Outbound Connections from Masqueraded Processes --&gt;
+Find outbound network activity from processes that exclude known browsers and focus on AMOS masquerade targets like accountsd or mdworker.
+
+```sqlite target=network role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A rare process-IP pair involving a system-sounding process exfiltrating
+  data. AMOS binaries often masquerade as .com.apple.accountsd.
+prevalence:
+  by: device_hostname
+  key:
+  - user_name
+  - process_path
+  - dst_endpoint_ip
+  rare_below: 3
+reads:
+- user_name
+- process_path
+- dst_endpoint_ip
+- device_hostname
+- direction
+- dst_endpoint_port
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT user_name, process_path, dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_network_connection WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND direction = &#39;outbound&#39; AND dst_endpoint_port IN (80, 443) AND (LOWER(process_path) NOT LIKE &#39;%safari%&#39; AND LOWER(process_path) NOT LIKE &#39;%chrome%&#39; AND LOWER(process_path) NOT LIKE &#39;%firefox%&#39;) AND (LOWER(process_path) LIKE &#39;%.apple.%&#39; OR LOWER(process_path) LIKE &#39;%mdworker%&#39; OR LOWER(process_path) LIKE &#39;%helper%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY user_name, process_path, dst_endpoint_ip HAVING hosts &lt;= 3 ORDER BY hosts ASC
+```
+
+## amos-dns-indicators
+&lt;!-- DNS Filtering for AMOS Infrastructure --&gt;
+Filter for DNS resolutions of known AMOS-associated domains to pipe into triage.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days, c2_domains=c2_domains, scope_hosts=scope_hosts)
+~~~yaml
+expected: Resolutions for known malicious domains. Silence means indicators have likely
+  rotated, requiring reliance on behavioral signals.
+reads:
+- device_hostname
+- query_hostname
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND instr(&#39;,&#39; || &#39;{{c2_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## amos-staging-file
+&lt;!-- Detection of out.zip Staging --&gt;
+Corroborate exfiltration with the presence of the &#39;out.zip&#39; staging file in temporary directories.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Creation or modification of &#39;out.zip&#39; in /tmp. This confirms the collection
+  stage of the AMOS lifecycle.
+reads:
+- device_hostname
+- file_path
+- file_name
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(file_name) = &#39;out.zip&#39; OR LOWER(file_path) LIKE &#39;%/tmp/out.zip%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-amos-activity
+&lt;!-- Weigh Exfiltration Evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- amos-http-exfiltration
+- rare-outbound-baseline
+- amos-dns-indicators
+- amos-staging-file
+max_iterations: 4
+objective: Determine if any host is exfiltrating data via AMOS patterns. A host showing
+  matches in more than one signal (e.g., DNS hit + Rare IP hit, or HTTP stage + out.zip
+  file touch) must be prioritized.
+success_criteria: A verdict of malicious | suspicious | benign per host citing specific
+  rows from at least two surfaces.
+tools:
+- endpoint
+- network
+- web
+```
+
+## decision-amos-verdict
+&lt;!-- Route on Triage Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host based on the correlation of staged HTTP exfiltration and anomalous non-browser processes&#34; (confidence: high, judge=hunter)
+then: → action-isolate-host
+indeterminate: → task-analyst-review
+unavailable: → task-analyst-review (blind_spot: https-visibility-gap)
+else: → task-close-out
+
+## action-isolate-host
+&lt;!-- Isolate macOS Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host and collect the file from /tmp/out.zip before any system cleanup.
+```
+→ task-analyst-review
+
+## task-analyst-review
+&lt;!-- Analyst Post-Mortem --&gt;
+```manual target=analyst
+Review the cited rows. Confirm whether the identified process (e.g., AccountsHelper) was masquerading as a system process and if the out.zip file was present.
+```
+→ end
+
+## task-close-out
+&lt;!-- Hunt Close-out --&gt;
+```manual target=analyst
+Record that no multi-surface AMOS exfiltration patterns were observed.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=atomic-macos-stealer-c2-exfiltration" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

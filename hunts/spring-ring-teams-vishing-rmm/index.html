@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spring Ring: Teams Support Impersonation and Initial Discovery · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is impersonating internal IT support via external Microsoft Teams accounts to trick users into running remote support tools and conducting initial environment reconnaissance.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/spring-ring-teams-vishing-rmm/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Spring Ring: Teams Support Impersonation and Initial Discovery · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is impersonating internal IT support via external Microsoft Teams accounts to trick users into running remote support tools and conducting initial environment reconnaissance.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/spring-ring-teams-vishing-rmm/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 3</span>      </div>
+      <h1 class="heading-xl">Spring Ring: Teams Support Impersonation and Initial Discovery</h1>
+      <p class="hyp-lead">An adversary is impersonating internal IT support via external Microsoft Teams accounts to trick users into running remote support tools and conducting initial environment reconnaissance.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://unit42.paloaltonetworks.com/spring-ring-voice-phishing-campaigns/" rel="noopener">Unit 42</a></span>
+<span>2026-09-17</span>        <span>10 steps · 4 queries</span>
+<span class="mono">T1033 T1069.002 T1204.002 T1566.003 T1566.004</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=spring-ring-teams-vishing-rmm" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why This Hunt Matters\n\nUnit 42 recently published an analysis of \"Spring Ring,\" an operation where adversaries leverage the inherent trust in Microsoft Teams to impersonate internal IT help desks. You can find their detailed reporting in <a href="https://unit42.paloaltonetworks.com/spring-ring-voice-phishing-campaigns/" rel="noopener noreferrer">Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams</a>. Unlike traditional phishing, this campaign relies on vishing (voice phishing) within the Teams ecosystem to trick users into installing legitimate remote monitoring and management (RMM) tools. Once the attacker gains control via the RMM, they conduct rapid environment discovery.\n\n### The Hypothesis\n\nWe hypothesize that we can identify these campaigns by looking for the technical residue of the social engineering lure—specifically, endpoint DNS lookups to known attacker-controlled .onmicrosoft.com tenants—and linking them temporally to the execution of RMM tools and manual reconnaissance commands that are atypical for the specific host.\n\n### How the Hunt Flows\n\nThe hunt begins by scoping the environment to hosts that actively use Microsoft Teams. This ensures we are focusing our telemetry analysis on the relevant attack surface. We leverage software inventory data to identify these systems before moving into behavioral analysis.\n\nIn the second phase, we perform a parallel check across DNS and process activity. We look for resolutions of specific .onmicrosoft.com domains known to masquerade as IT support. Simultaneously, we baseline RMM tool usage across the fleet. The goal is to find \"rare\" executions—instances where QuickAssist, AnyDesk, or ScreenConnect appear on only one or two hosts, suggesting a user-initiated install rather than a centralized IT deployment.\n\nFinally, we pivot to process command-line data to look for interactive discovery. We look for patterns like 'net group /dom' or 'whoami /groups' occurring shortly after the RMM tool execution. By correlating the DNS lead, the rare binary, and the discovery commands within a short time window, we build a narrative of compromise that a single static alert would likely miss or mark as low-priority noise.\n\n### What This Hunt Cannot See\n\nThere are two primary blind spots to consider. First, if your organization routes endpoint DNS traffic through a proxy that does not preserve the source endpoint ID in logs, the initial lure phase will be invisible at the host level. Second, this hunt looks at the technical aftermath; without ingestion of M365 Unified Audit Logs, we cannot see the actual chat content or the specific external identity that initiated the Teams call.\n\n### How to Run It\n\nThis hunt is packaged as a hunt.md playbook. It is designed to be imported into Huntbase or any runtime that supports the hunt.md specification. It uses portable SQL logic to query software inventory, DNS logs, and process activity. Because this hunt relies on fleet-wide rarity and temporal correlation, it is best run as a proactive exercise rather than a real-time detection.</h3>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/spring-ring-powershell-rat-evasion/index.html">Part 2: Spring Ring: PowerShell RAT Delivery and Defensive Evasion</a></li><li><a href="../../hunts/tailored-payload-persistence-ntlm-relay/index.html">Part 3: Tailored Payload Persistence and NTLM Relay</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 8 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is impersonating internal IT support via external Microsoft Teams accounts to trick users into running remote support tools and conducting initial environment reconnaissance.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Scope the hunt to systems where Microsoft Teams is likely installed to identify the primary attack surface for external vishing lures.", "expected": "A list of hostnames. None found means the software inventory is either incomplete or the organization does not use Microsoft software.", "id": "identify-teams-hosts", "label": "Identify Hosts with Microsoft Teams", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%microsoft teams%\u0027 OR LOWER(vendor_name) LIKE \u0027%microsoft%\u0027) AND asset_scope = \u0027endpoint\u0027", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Identify potential vishing victims by finding lookups to the specific .onmicrosoft.com domains used for attacker identities.", "expected": "A host resolving one of the report\u0027s domains. This confirms an external Teams connection attempt occurred.", "id": "dns-lure-detection", "label": "DNS Lookups to Attacker Teams Tenants", "parents": [{"branch": null, "id": "identify-teams-hosts", "kind": null}], "query": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE instr(\u0027,\u0027 || \u0027{{attacker_tenants}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(query_hostname) || \u0027,\u0027) \u003e 0 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_dns_activity", "type": "query"}, {"description": "Identify hosts running remote support software that is rare across the fleet, suggesting execution prompted by a vishing lure rather than standard IT deployment.", "expected": "A remote support binary running on very few hosts. Legitimate IT tools should have high host counts; vishing lures will stand out as rare outliers.", "id": "rare-rmm-tool-usage", "label": "Rare RMM Tool Execution", "parents": [{"branch": null, "id": "identify-teams-hosts", "kind": null}], "query": "SELECT LOWER(process_name) AS rmm_binary, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (instr(\u0027,\u0027 || \u0027{{rmm_tools}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 OR LOWER(process_name) LIKE \u0027%quickassist%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY 1 HAVING host_count \u003c= 3 ORDER BY host_count ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Detect the specific discovery commands observed in Spring Ring campaigns that suggest manual reconnaissance by an attacker after gaining remote access.", "expected": "Rows indicating manual reconnaissance. These are suspicious when following a DNS lookup to an attacker tenant or if launched by an RMM tool.", "id": "discovery-commands", "label": "Interactive Host and Domain Discovery", "parents": [{"branch": null, "id": "identify-teams-hosts", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE \u0027%whoami /groups%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%net group /dom%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%net group \"domain admins\" /dom%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) ORDER BY time DESC", "role": "enrichment", "source": "hb_process_activity", "type": "query"}, {"description": "Review all gathered telemetry to determine if a host was successfully lured into a vishing session and subsequent discovery activity.", "expected": "A per-host verdict linking the DNS lead, the RMM execution, and the discovery commands into a single incident narrative.", "id": "triage-interaction", "label": "Spring Ring Triage Agent", "parents": [{"branch": null, "id": "dns-lure-detection", "kind": "merge"}, {"branch": null, "id": "rare-rmm-tool-usage", "kind": "merge"}, {"branch": null, "id": "discovery-commands", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Route the hunt based on the agent\u0027s findings.", "expected": null, "id": "route-verdict", "label": "Route on Triage Verdict", "parents": [{"branch": null, "id": "triage-interaction", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent immediate follow-on malware delivery or lateral movement after a confirmed vishing-led remote access session.", "expected": null, "id": "isolate-host", "label": "Isolate Compromised Host", "parents": [{"branch": "on_supports", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review the interactive session and search for secondary payloads (PowerShell RATs) that often follow the discovery phase.", "expected": null, "id": "analyst-review", "label": "Analyst Review and RAT Search", "parents": [{"branch": "default", "id": "route-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document findings and negative results.", "expected": null, "id": "close-out", "label": "Hunt Close-out", "parents": [{"branch": "on_refutes", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-identify-teams-hosts">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Hosts with Microsoft Teams</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Scope the hunt to systems where Microsoft Teams is likely installed to identify the primary attack surface for external vishing lures.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%microsoft teams%&#39; OR LOWER(vendor_name) LIKE &#39;%microsoft%&#39;) AND asset_scope = &#39;endpoint&#39;</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames. None found means the software inventory is either incomplete or the organization does not use Microsoft software.</p>        </li>
+        <li class="card step" id="step-dns-lure-detection">
+          <div class="step-head">
+            <h3 class="heading-sm">DNS Lookups to Attacker Teams Tenants</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify potential vishing victims by finding lookups to the specific .onmicrosoft.com domains used for attacker identities.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE instr(&#39;,&#39; || &#39;{{attacker_tenants}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A host resolving one of the report&#39;s domains. This confirms an external Teams connection attempt occurred.</p>        </li>
+        <li class="card step" id="step-rare-rmm-tool-usage">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare RMM Tool Execution</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify hosts running remote support software that is rare across the fleet, suggesting execution prompted by a vishing lure rather than standard IT deployment.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT LOWER(process_name) AS rmm_binary, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{rmm_tools}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_name) LIKE &#39;%quickassist%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1 HAVING host_count &lt;= 3 ORDER BY host_count ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A remote support binary running on very few hosts. Legitimate IT tools should have high host counts; vishing lures will stand out as rare outliers.</p>        </li>
+        <li class="card step" id="step-discovery-commands">
+          <div class="step-head">
+            <h3 class="heading-sm">Interactive Host and Domain Discovery</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect the specific discovery commands observed in Spring Ring campaigns that suggest manual reconnaissance by an attacker after gaining remote access.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%whoami /groups%&#39; OR LOWER(process_cmd_line) LIKE &#39;%net group /dom%&#39; OR LOWER(process_cmd_line) LIKE &#39;%net group &#34;domain admins&#34; /dom%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) ORDER BY time DESC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Rows indicating manual reconnaissance. These are suspicious when following a DNS lookup to an attacker tenant or if launched by an RMM tool.</p>        </li>
+        <li class="card step" id="step-triage-interaction">
+          <div class="step-head">
+            <h3 class="heading-sm">Spring Ring Triage Agent</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Review all gathered telemetry to determine if a host was successfully lured into a vishing session and subsequent discovery activity.</p>        </li>
+        <li class="card step" id="step-route-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Triage Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Route the hunt based on the agent&#39;s findings.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Compromised Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent immediate follow-on malware delivery or lateral movement after a confirmed vishing-led remote access session.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review and RAT Search</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review the interactive session and search for secondary payloads (PowerShell RATs) that often follow the discovery phase.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Hunt Close-out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document findings and negative results.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>External Teams Vishing Lure<br><span class="mono dim">T1566.003 · T1566.004</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>dns-lure-detection</td></tr>            <tr><td>User-initiated Remote Support Execution<br><span class="mono dim">T1204.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-rmm-tool-usage</td></tr>            <tr><td>Host and Domain Enumeration<br><span class="mono dim">T1033 · T1069.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>discovery-commands</td></tr>            <tr><td>PowerShell RAT Delivery and C2<br><span class="mono dim">T1105 · T1071.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams&#39; series.</td></tr>            <tr><td>AMSI Bypass Evasion<br><span class="mono dim">T1562.001 · T1059.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams&#39; series.</td></tr>            <tr><td>Tailored Executable Persistence<br><span class="mono dim">T1204.002 · T1547.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams&#39; series.</td></tr>            <tr><td>Headless Browser Extension Sideloading<br><span class="mono dim">T1564.003 · T1574.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams&#39; series.</td></tr>            <tr><td>NTLM Relay Lateral Movement<br><span class="mono dim">T1557.001 · T1210</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs Endpoint DNS activity (hb_dns_activity).</strong> Without endpoint-level DNS, we cannot see the initial lure if the traffic is routed through a proxy that only logs the final destination, not the lookup. <span class="dim">It would answer Did the host resolve the attacker-controlled tenant?.</span> <span class="dim">Remediation: Enable and forward DNS resolution events from the endpoint agent.</span></li>          <li class="card"><strong>Needs Microsoft Teams Unified Audit Logs.</strong> While we see the technical DNS resolution, we cannot see the display name or message content of the chat that initiated the call without SaaS logs. <span class="dim">It would answer Which external identities contacted our users?.</span> <span class="dim">Remediation: Ingest M365 Teams audit logs for &#39;MemberAdded&#39; or &#39;MessageSent&#39; events from external tenants.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>attacker_tenants</code></td><td class="mono dim">list[domain]</td><td class="mono">internalsystemsdaily.onmicrosoft.com, itprotectiondepartment.onmicrosoft.com, mandatorynetworkmonitoring.onmicrosoft.com, internalusahelpdeskit.onmicrosoft.com, certifiedupdatenetwork.onmicrosoft.com, infrastructureopsdesk.onmicrosoft.com, systemdeploymentcenter.onmicrosoft.com, systemsupportoperations.onmicrosoft.com</td><td>Attacker-controlled .onmicrosoft.com subdomains masquerading as internal IT help desks.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>rmm_tools</code></td><td class="mono dim">list[string]</td><td class="mono">quickassist.exe, teamviewer.exe, anydesk.exe, connectwisecontrol.client.exe, screenconnect.client.exe, ateraagent.exe</td><td>Common RMM and remote support binary names mentioned in campaign reports.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional: focus the hunt on these hostnames (comma-separated list).</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A static detection rule for discovery commands like &#39;whoami&#39; is excessively
+  noisy. This hunt pivots between a DNS-level lead (the lure), the fleet-wide rarity
+  of the RMM binary, and the temporal proximity of reconnaissance, providing context
+  a single rule lacks.
+blind_spots:
+- id: missing-endpoint-dns-logs
+  owner: Network Engineering
+  question: Did the host resolve the attacker-controlled tenant?
+  remediation: Enable and forward DNS resolution events from the endpoint agent.
+  requires: Endpoint DNS activity (hb_dns_activity)
+  risk: Without endpoint-level DNS, we cannot see the initial lure if the traffic
+    is routed through a proxy that only logs the final destination, not the lookup.
+  stage: teams-external-vishing-lure
+- id: teams-chat-logs-unavailable
+  owner: Security Operations / M365 Admin
+  question: Which external identities contacted our users?
+  remediation: Ingest M365 Teams audit logs for &#39;MemberAdded&#39; or &#39;MessageSent&#39; events
+    from external tenants.
+  requires: Microsoft Teams Unified Audit Logs
+  risk: While we see the technical DNS resolution, we cannot see the display name
+    or message content of the chat that initiated the call without SaaS logs.
+  stage: teams-external-vishing-lure
+coverage:
+- stage: teams-external-vishing-lure
+  status: covered
+  steps:
+  - dns-lure-detection
+- stage: user-initiated-remote-support-execution
+  status: covered
+  steps:
+  - rare-rmm-tool-usage
+- stage: host-and-domain-enumeration
+  status: covered
+  steps:
+  - discovery-commands
+- reason: &#39;Belongs to another part of the &#39;&#39;Spring Ring: An Inside Look at Voice Phishing
+    Campaigns in Microsoft Teams&#39;&#39; series.&#39;
+  stage: powershell-rat-delivery-and-c2
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Spring Ring: An Inside Look at Voice Phishing
+    Campaigns in Microsoft Teams&#39;&#39; series.&#39;
+  stage: amsi-bypass-evasion
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Spring Ring: An Inside Look at Voice Phishing
+    Campaigns in Microsoft Teams&#39;&#39; series.&#39;
+  stage: tailored-executable-persistence
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Spring Ring: An Inside Look at Voice Phishing
+    Campaigns in Microsoft Teams&#39;&#39; series.&#39;
+  stage: headless-browser-extension-sideloading
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Spring Ring: An Inside Look at Voice Phishing
+    Campaigns in Microsoft Teams&#39;&#39; series.&#39;
+  stage: ntlm-relay-lateral-movement
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Spring Ring leverages a high-trust SaaS platform (Teams) and human
+    interaction (vishing) to bypass technical controls. A negative result confirms
+    the estate&#39;s lack of exposure to this specific social engineering infrastructure.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is impersonating internal IT support via external Microsoft
+  Teams accounts to trick users into running remote support tools and conducting initial
+  environment reconnaissance.
+labels:
+- hunt
+- attack.t1566.003
+- attack.t1566.004
+- attack.t1204.002
+- attack.t1033
+- attack.t1069.002
+name: &#39;Spring Ring: Teams Support Impersonation and Initial Discovery&#39;
+parameters:
+  attacker_tenants:
+    default:
+    - internalsystemsdaily.onmicrosoft.com
+    - itprotectiondepartment.onmicrosoft.com
+    - mandatorynetworkmonitoring.onmicrosoft.com
+    - internalusahelpdeskit.onmicrosoft.com
+    - certifiedupdatenetwork.onmicrosoft.com
+    - infrastructureopsdesk.onmicrosoft.com
+    - systemdeploymentcenter.onmicrosoft.com
+    - systemsupportoperations.onmicrosoft.com
+    description: Attacker-controlled .onmicrosoft.com subdomains masquerading as internal
+      IT help desks.
+    from:
+      kind: article
+      observed: &#39;2026-08-31&#39;
+      ref: unit42-spring-ring
+    type: list[domain]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  rmm_tools:
+    default:
+    - quickassist.exe
+    - teamviewer.exe
+    - anydesk.exe
+    - connectwisecontrol.client.exe
+    - screenconnect.client.exe
+    - ateraagent.exe
+    description: Common RMM and remote support binary names mentioned in campaign
+      reports.
+    type: list[string]
+  scope_hosts:
+    default: []
+    description: &#39;Optional: focus the hunt on these hostnames (comma-separated list).&#39;
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://unit42.paloaltonetworks.com/spring-ring-voice-phishing-campaigns/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: The hunt focuses on systems where Teams is installed. It then looks for
+  the specific .onmicrosoft.com domains reported as masquerading help desk identities.
+references:
+- name: &#34;Unit 42 \u2014 Spring Ring: An Inside Look at Voice Phishing Campaigns in\
+    \ Microsoft Teams&#34;
+  url: https://unit42.paloaltonetworks.com/spring-ring-voice-phishing-campaigns/
+related:
+- hunt: spring-ring-rat-payload-and-amsi
+  reason: This hunt identifies the interactive entry point; the next hunt focuses
+    on the persistent PowerShell RAT and evasion techniques.
+  relation: follows
+- hunt: spring-ring-lateral-movement-ntlm
+  reason: Identifies the PetitPotam and SMB scanning behavior seen in Campaign B.
+  relation: follows
+scenario:
+  stages:
+  - name: External Teams Vishing Lure
+    observables:
+    - internalsystemsdaily.onmicrosoft.com
+    - itprotectiondepartment.onmicrosoft.com
+    - mandatorynetworkmonitoring.onmicrosoft.com
+    - internalusahelpdeskit.onmicrosoft.com
+    - certifiedupdatenetwork.onmicrosoft.com
+    - infrastructureopsdesk.onmicrosoft.com
+    - systemdeploymentcenter.onmicrosoft.com
+    - systemsupportoperations.onmicrosoft.com
+    - &#39;Teams display names: help desk, IT assistance, support staff&#39;
+    - Voice calls lasting 10-15 minutes
+    slug: teams-external-vishing-lure
+    tactic: initial-access
+    techniques:
+    - T1566.003
+    - T1566.004
+  - name: User-initiated Remote Support Execution
+    observables:
+    - Quick Assist
+    - Third-party RMM software downloads
+    slug: user-initiated-remote-support-execution
+    tactic: execution
+    techniques:
+    - T1204.002
+  - name: Host and Domain Enumeration
+    observables:
+    - whoami /groups
+    - net group /dom
+    slug: host-and-domain-enumeration
+    tactic: discovery
+    techniques:
+    - T1033
+    - T1069.002
+  - name: PowerShell RAT Delivery and C2
+    observables:
+    - san-sid.com
+    - PowerShell command line download from external domain
+    - Encrypted host data beacons
+    slug: powershell-rat-delivery-and-c2
+    tactic: command-and-control
+    techniques:
+    - T1105
+    - T1071.001
+  - name: AMSI Bypass Evasion
+    observables:
+    - amsiInitFailed flag manipulation
+    - Obfuscated 9-line C2 stager script
+    slug: amsi-bypass-evasion
+    tactic: defense-evasion
+    techniques:
+    - T1562.001
+    - T1059.001
+  - name: Tailored Executable Persistence
+    observables:
+    - s3.us-west-2.amazonaws.com
+    - &lt;company_name&gt;-org-filters-update-&lt;victim_name&gt;.exe
+    - &#39;Files: vhlp-*.exe, scnr-*.exe&#39;
+    - &#39;Path: \Temp\&#39;
+    slug: tailored-executable-persistence
+    tactic: persistence
+    techniques:
+    - T1204.002
+    - T1547.001
+  - name: Headless Browser Extension Sideloading
+    observables:
+    - Headless Microsoft Edge execution
+    - Sideloaded Edge extension
+    slug: headless-browser-extension-sideloading
+    tactic: defense-evasion
+    techniques:
+    - T1564.003
+    - T1574.002
+  - name: NTLM Relay Lateral Movement
+    observables:
+    - C:\ProgramData\IntegrityData\python.exe
+    - SMB scanning on port 445
+    - PetitPotam coercion attempts against Domain Controllers
+    slug: ntlm-relay-lateral-movement
+    tactic: lateral-movement
+    techniques:
+    - T1557.001
+    - T1210
+  summary: &#39;Spring Ring is a vishing operation where attackers use external Microsoft
+    Teams accounts to impersonate IT support and coerce employees into executing remote
+    management tools or custom malware. The campaign employs two distinct paths: one
+    using an obfuscated PowerShell-based RAT with AMSI bypasses, and another using
+    tailored executables and browser hijacking to perform NTLM relay attacks via PetitPotam
+    against domain controllers.&#39;
+series:
+  index: 1
+  slug: spring-ring-an-inside-look-at-voice-phishing-campaigns-in-microsoft-teams
+  title: &#39;Spring Ring: An Inside Look at Voice Phishing Campaigns in Microsoft Teams&#39;
+  total: 3
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# Spring Ring: Teams Support Impersonation and Initial Discovery
+
+This hunt identifies the early stages of the &#39;Spring Ring&#39; campaign by targeting the vishing lure phase and subsequent interactive control. It monitors for DNS lookups to known attacker-controlled .onmicrosoft.com tenants designed to mimic internal help desks. To corroborate, it identifies rare executions of remote monitoring and management (RMM) tools and stack-counts manual discovery commands (e.g., net group /dom) that follow the vishing lure, allowing an agent to correlate the lure with the technical aftermath.
+
+## identify-teams-hosts
+&lt;!-- Identify Hosts with Microsoft Teams --&gt;
+Scope the hunt to systems where Microsoft Teams is likely installed to identify the primary attack surface for external vishing lures.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hostnames. None found means the software inventory is either incomplete
+  or the organization does not use Microsoft software.
+reads:
+- device_hostname
+- package_name
+- vendor_name
+- asset_scope
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%microsoft teams%&#39; OR LOWER(vendor_name) LIKE &#39;%microsoft%&#39;) AND asset_scope = &#39;endpoint&#39;
+```
+
+## parallel-behavior-check
+&lt;!-- Parallel Behavioral Analysis --&gt;
+parallel:
+- → dns-lure-detection
+- → rare-rmm-tool-usage
+- → discovery-commands
+join: → triage-interaction
+
+## dns-lure-detection
+&lt;!-- DNS Lookups to Attacker Teams Tenants --&gt;
+Identify potential vishing victims by finding lookups to the specific .onmicrosoft.com domains used for attacker identities.
+
+```sqlite target=endpoint role=detection-candidate params=(attacker_tenants=attacker_tenants, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A host resolving one of the report&#39;s domains. This confirms an external
+  Teams connection attempt occurred.
+reads:
+- device_hostname
+- query_hostname
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE instr(&#39;,&#39; || &#39;{{attacker_tenants}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-rmm-tool-usage
+&lt;!-- Rare RMM Tool Execution --&gt;
+Identify hosts running remote support software that is rare across the fleet, suggesting execution prompted by a vishing lure rather than standard IT deployment.
+
+```sqlite target=endpoint role=baseline params=(rmm_tools=rmm_tools, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A remote support binary running on very few hosts. Legitimate IT tools should
+  have high host counts; vishing lures will stand out as rare outliers.
+prevalence:
+  by: device_hostname
+  key:
+  - rmm_binary
+  rare_below: 3
+reads:
+- device_hostname
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT LOWER(process_name) AS rmm_binary, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{rmm_tools}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_name) LIKE &#39;%quickassist%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1 HAVING host_count &lt;= 3 ORDER BY host_count ASC
+```
+
+## discovery-commands
+&lt;!-- Interactive Host and Domain Discovery --&gt;
+Detect the specific discovery commands observed in Spring Ring campaigns that suggest manual reconnaissance by an attacker after gaining remote access.
+
+```sqlite target=endpoint role=enrichment params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Rows indicating manual reconnaissance. These are suspicious when following
+  a DNS lookup to an attacker tenant or if launched by an RMM tool.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- parent_process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%whoami /groups%&#39; OR LOWER(process_cmd_line) LIKE &#39;%net group /dom%&#39; OR LOWER(process_cmd_line) LIKE &#39;%net group &#34;domain admins&#34; /dom%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) ORDER BY time DESC
+```
+
+## triage-interaction
+&lt;!-- Spring Ring Triage Agent --&gt;
+```agent target=hunter
+cite: required
+context:
+- dns-lure-detection
+- rare-rmm-tool-usage
+- discovery-commands
+max_iterations: 6
+objective: Determine if any host resolved an attacker .onmicrosoft.com domain AND
+  executed an RMM tool OR performed discovery commands within a narrow temporal window
+  (e.g., 2 hours).
+success_criteria: A per-host verdict of malicious | suspicious | benign, citing specific
+  rows and the timing between the DNS lead and binary execution.
+tools:
+- endpoint
+```
+
+## route-verdict
+&lt;!-- Route on Triage Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: missing-endpoint-dns-logs)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate Compromised Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately. Revoke the user&#39;s Microsoft 365 / Teams session tokens and initiate a password reset.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review and RAT Search --&gt;
+```manual target=analyst
+Review the timeframe immediately following RMM execution. Search for PowerShell activity, AMSI bypass attempts (amsiInitFailed), and traffic to &#39;san-sid.com&#39; or AWS S3 buckets.
+```
+→ end
+
+## close-out
+&lt;!-- Hunt Close-out --&gt;
+```manual target=analyst
+Record the hosts that resolved the attacker tenants but showed no follow-on activity. Finalize the report and mark for periodic re-run.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=spring-ring-teams-vishing-rmm" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

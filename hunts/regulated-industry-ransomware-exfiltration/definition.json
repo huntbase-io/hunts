@@ -1,0 +1,661 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Regulated industries face significant legal and ethical consequences for data loss. Hunting across the entire attack lifecycle is necessary as single-surface rules are frequently bypassed by evolving tactics."
+      },
+      "name": "Regulated Industry Ransomware and Exfiltration",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1090.003",
+        "attack.t1486"
+      ],
+      "related": [
+        {
+          "hunt": "cloud-credential-theft-regulated",
+          "reason": "This hunt focuses on host-level ransomware, whereas phishing may lead directly to cloud credential theft.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt correlates proxy connections with the parent process context of a mail client and the downstream high-velocity file activity burst (100+ files). This provides the multi-surface context needed to confirm an active campaign that single-surface rules miss.",
+      "coverage": [
+        {
+          "stage": "initial-access-phishing",
+          "steps": [
+            "phishing-execution-chains"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-multi-hop-proxy",
+          "steps": [
+            "outbound-proxy-activity",
+            "rare-proxy-dns-lookups"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "impact-data-encryption",
+          "steps": [
+            "ransomware-impact-signals"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Phishing for Initial Access",
+            "slug": "initial-access-phishing",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Phishing links clicked in email clients",
+              "Automated phishing messages",
+              "AI-enhanced deepfake social engineering",
+              "Unusual attachments downloaded from webmail"
+            ]
+          },
+          {
+            "name": "Command and Control via Multi-hop Proxy",
+            "slug": "c2-multi-hop-proxy",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Connections to Tor onion services",
+              "Multi-hop proxy chain traffic",
+              "High-frequency outbound traffic to VPS or ORB networks",
+              "DNS lookups for known proxy or onion domains"
+            ]
+          },
+          {
+            "name": "Data Encrypted for Impact",
+            "slug": "impact-data-encryption",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "Rapid modification of file extensions to known ransomware suffixes",
+              "Creation of ransom note files such as README.txt or DECRYPT.txt",
+              "High volume of file rename and write activity in user directories",
+              "Process activity involving cryptographic APIs or ransomware executables"
+            ]
+          }
+        ],
+        "summary": "Threat actors targeting the healthcare and finance sectors utilize phishing to obtain initial access before establishing command-and-control through multi-hop proxies. The campaign concludes with the deployment of ransomware that encrypts sensitive data to cause operational disruption and financial loss."
+      },
+      "severity": "medium",
+      "rationale": "Focus on servers and workstations within regulated VLANs (Finance, Medical). Use the scope_hosts parameter if specific server naming conventions are available.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has gained initial access to a healthcare or financial host via a phishing campaign and is using multi-hop proxies to exfiltrate data or deploy ransomware.",
+      "parameters": {
+        "proxy_ports": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-09-01"
+          },
+          "type": "list[string]",
+          "default": [
+            "1080",
+            "9001",
+            "9050",
+            "9150",
+            "8080"
+          ],
+          "description": "Common ports used by multi-hop proxies and SOCKS tunnels."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-09-01"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the hunt (e.g., servers in medical/finance VLANs)."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-09-01"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "ransom_extensions": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-09-01"
+          },
+          "type": "list[string]",
+          "default": [
+            ".locked",
+            ".crypted",
+            ".crypt",
+            ".enc",
+            ".honey"
+          ],
+          "description": "Known extensions appended during ransomware encryption."
+        },
+        "phishing_child_names": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/cyberattack-readiness",
+            "kind": "article",
+            "observed": "2026-09-01"
+          },
+          "type": "list[string]",
+          "default": [
+            "cmd.exe",
+            "powershell.exe",
+            "wscript.exe",
+            "cscript.exe",
+            "certutil.exe",
+            "mshta.exe"
+          ],
+          "description": "Suspicious child processes spawned from entry points."
+        },
+        "phishing_parent_names": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/cyberattack-readiness",
+            "kind": "article",
+            "observed": "2026-09-01"
+          },
+          "type": "list[string]",
+          "default": [
+            "outlook.exe",
+            "chrome.exe",
+            "msedge.exe",
+            "excel.exe",
+            "winword.exe",
+            "acrobat.exe"
+          ],
+          "description": "Process names for common entry points like mail clients and browsers."
+        },
+        "proxy_domain_suffixes": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-09-01"
+          },
+          "type": "list[domain]",
+          "default": [
+            ".onion",
+            ".hiddenservice.net",
+            ".onion.it",
+            ".onion.to",
+            ".onion.cab"
+          ],
+          "description": "Common suffixes for multi-hop or onion routing services."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/cyberattack-readiness",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/cyberattack-readiness",
+          "name": "Huntress \u2014 Cyberattack Readiness"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "limited-endpoint-visibility",
+          "risk": "A host without an agent provides no telemetry, meaning an intrusion could progress entirely in a blind spot.",
+          "owner": "Infrastructure Team",
+          "stage": "initial-access-phishing",
+          "question": "whether the initial execution occurred on unmanaged or shadow-IT devices",
+          "requires": "Endpoint agents on all hosts in scope",
+          "remediation": "Audit device inventory and ensure 100% agent coverage on all high-value assets."
+        },
+        {
+          "id": "encrypted-c2-content",
+          "risk": "While the presence of the proxy is visible via port and suffix, the specifics of data being exfiltrated remain hidden without traffic decryption.",
+          "owner": "Network Security",
+          "stage": "c2-multi-hop-proxy",
+          "question": "what the actual content of the multi-hop proxy traffic was",
+          "requires": "SSL/TLS decryption at the proxy",
+          "remediation": "Implement TLS inspection for outbound traffic to known VPS and ORB networks."
+        }
+      ]
+    },
+    "name": "Regulated Industry Ransomware and Exfiltration",
+    "description": "This hunt targets the primary threat lifecycle identified for regulated sectors like healthcare and finance. It focuses on identifying three critical pivots: the initial execution of shells or administrative tools from productivity applications, the subsequent masking of C2 traffic via multi-hop proxy chains (Tor/ORB networks), and the final impact phase marked by rapid file modification and ransom note creation. By correlating these signals, the hunt identifies intrusions that bypass traditional endpoint-only detection rules."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-phishing",
+            "steps": [
+              "phishing-execution-chains"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-multi-hop-proxy",
+            "steps": [
+              "outbound-proxy-activity",
+              "rare-proxy-dns-lookups"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "impact-data-encryption",
+            "steps": [
+              "ransomware-impact-signals"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has gained initial access to a healthcare or financial host via a phishing campaign and is using multi-hop proxies to exfiltrate data or deploy ransomware.",
+        "blind_spots": [
+          {
+            "id": "limited-endpoint-visibility",
+            "risk": "A host without an agent provides no telemetry, meaning an intrusion could progress entirely in a blind spot.",
+            "owner": "Infrastructure Team",
+            "stage": "initial-access-phishing",
+            "question": "whether the initial execution occurred on unmanaged or shadow-IT devices",
+            "requires": "Endpoint agents on all hosts in scope",
+            "remediation": "Audit device inventory and ensure 100% agent coverage on all high-value assets."
+          },
+          {
+            "id": "encrypted-c2-content",
+            "risk": "While the presence of the proxy is visible via port and suffix, the specifics of data being exfiltrated remain hidden without traffic decryption.",
+            "owner": "Network Security",
+            "stage": "c2-multi-hop-proxy",
+            "question": "what the actual content of the multi-hop proxy traffic was",
+            "requires": "SSL/TLS decryption at the proxy",
+            "remediation": "Implement TLS inspection for outbound traffic to known VPS and ORB networks."
+          }
+        ],
+        "scoping_notes": "Focus on servers and workstations within regulated VLANs (Finance, Medical). Use the scope_hosts parameter if specific server naming conventions are available.",
+        "beyond_detection": "This hunt correlates proxy connections with the parent process context of a mail client and the downstream high-velocity file activity burst (100+ files). This provides the multi-surface context needed to confirm an active campaign that single-surface rules miss."
+      }
+    },
+    {
+      "id": "scope-regulated-hosts",
+      "type": "query",
+      "label": "Inventory Active Regulated Sector Hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT hostname, os_name, platform, last_seen FROM hb_devices WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0)",
+        "surface": "hb_devices",
+        "description": "Identify active hosts in the estate to provide context for the hunt scope and verify enrollment.",
+        "expected_signal": "A list of hosts currently reporting telemetry. Absence of a host here means it is a blind spot."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Inventory Active Regulated Sector Hosts",
+        "reads": [
+          "hostname",
+          "os_name",
+          "platform",
+          "last_seen"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname, os_name, platform, last_seen FROM hb_devices WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts currently reporting telemetry. Absence of a host here means it is a blind spot.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "phishing-execution-chains",
+      "type": "query",
+      "label": "Suspicious Process Spawned from Entry Points",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (instr(',' || '{{phishing_parent_names}}' || ',', ',' || REPLACE(LOWER(parent_process_name), RTRIM(LOWER(parent_process_name), REPLACE(LOWER(parent_process_name), '\\', '')), '') || ',') > 0 OR instr(',' || '{{phishing_parent_names}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0) AND (instr(',' || '{{phishing_child_names}}' || ',', ',' || REPLACE(LOWER(process_name), RTRIM(LOWER(process_name), REPLACE(LOWER(process_name), '\\', '')), '') || ',') > 0 OR instr(',' || '{{phishing_child_names}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_process_activity",
+        "description": "Identify potential phishing success by finding shells or admin tools spawned from browsers or mail clients, extracting the filename from the path to ensure matches.",
+        "expected_signal": "Execution of system interpreters (PowerShell, CMD) triggered directly by productivity software."
+      },
+      "parents": [
+        {
+          "id": "scope-regulated-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Suspicious Process Spawned from Entry Points",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (instr(',' || '{{phishing_parent_names}}' || ',', ',' || REPLACE(LOWER(parent_process_name), RTRIM(LOWER(parent_process_name), REPLACE(LOWER(parent_process_name), '\\', '')), '') || ',') > 0 OR instr(',' || '{{phishing_parent_names}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0) AND (instr(',' || '{{phishing_child_names}}' || ',', ',' || REPLACE(LOWER(process_name), RTRIM(LOWER(process_name), REPLACE(LOWER(process_name), '\\', '')), '') || ',') > 0 OR instr(',' || '{{phishing_child_names}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Execution of system interpreters (PowerShell, CMD) triggered directly by productivity software.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "outbound-proxy-activity",
+      "type": "query",
+      "label": "Outbound Multi-hop Proxy Traffic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE direction = 'outbound' AND instr(',' || '{{proxy_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0 AND LOWER(process_name) NOT LIKE '%\\chrome.exe' AND LOWER(process_name) NOT LIKE '%\\msedge.exe' AND LOWER(process_name) NOT LIKE '%\\firefox.exe' AND LOWER(process_name) NOT LIKE '%\\svchost.exe' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_network_connection",
+        "description": "Identify connections to common proxy ports, filtering out legitimate browser noise.",
+        "expected_signal": "Connections to ports like 9050 or 9150 (Tor) from non-standard processes."
+      },
+      "parents": [
+        {
+          "id": "phishing-execution-chains"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Outbound Multi-hop Proxy Traffic",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE direction = 'outbound' AND instr(',' || '{{proxy_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0 AND LOWER(process_name) NOT LIKE '%\\chrome.exe' AND LOWER(process_name) NOT LIKE '%\\msedge.exe' AND LOWER(process_name) NOT LIKE '%\\firefox.exe' AND LOWER(process_name) NOT LIKE '%\\svchost.exe' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Connections to ports like 9050 or 9150 (Tor) from non-standard processes.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-proxy-dns-lookups",
+      "type": "query",
+      "label": "Rare Proxy and Onion Domain Lookups",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT query_hostname, process_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_dns_activity WHERE (instr(',' || '{{proxy_domain_suffixes}}' || ',', ',' || LOWER(SUBSTR(query_hostname, instr(query_hostname, '.'))) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY query_hostname, process_name HAVING host_count <= 2",
+        "surface": "hb_dns_activity",
+        "description": "Identify potential C2 through DNS activity for known onion suffixes or rare external domains.",
+        "expected_signal": "DNS requests for multi-hop proxy suffixes or rare domains seen on very few hosts."
+      },
+      "parents": [
+        {
+          "id": "phishing-execution-chains"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Proxy and Onion Domain Lookups",
+        "reads": [
+          "query_hostname",
+          "process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT query_hostname, process_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_dns_activity WHERE (instr(',' || '{{proxy_domain_suffixes}}' || ',', ',' || LOWER(SUBSTR(query_hostname, instr(query_hostname, '.'))) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY query_hostname, process_name HAVING host_count <= 2",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "DNS requests for multi-hop proxy suffixes or rare domains seen on very few hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname",
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "ransomware-impact-signals",
+      "type": "query",
+      "label": "High-Velocity Ransomware Encryption Bursts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, COUNT(*) as activity_count, MIN(time) as start_time, MAX(time) as end_time FROM hb_file_activity WHERE activity_id IN (1, 3, 5) AND (instr(LOWER(file_name), 'readme') > 0 OR instr(LOWER(file_name), 'decrypt') > 0 OR (instr(file_name, '.') > 0 AND instr(',' || '{{ransom_extensions}}' || ',', ',' || LOWER(SUBSTR(file_name, instr(file_name, '.'))) || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, process_name HAVING activity_count >= 100",
+        "surface": "hb_file_activity",
+        "description": "Detect the final impact stage by identifying rapid file creation or rename activity exceeding normal OS thresholds.",
+        "expected_signal": "Rapid bursts of at least 100 file modifications with encrypted suffixes or note creation from a single process."
+      },
+      "parents": [
+        {
+          "id": "phishing-execution-chains"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "High-Velocity Ransomware Encryption Bursts",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "activity_id",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, COUNT(*) as activity_count, MIN(time) as start_time, MAX(time) as end_time FROM hb_file_activity WHERE activity_id IN (1, 3, 5) AND (instr(LOWER(file_name), 'readme') > 0 OR instr(LOWER(file_name), 'decrypt') > 0 OR (instr(file_name, '.') > 0 AND instr(',' || '{{ransom_extensions}}' || ',', ',' || LOWER(SUBSTR(file_name, instr(file_name, '.'))) || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, process_name HAVING activity_count >= 100",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rapid bursts of at least 100 file modifications with encrypted suffixes or note creation from a single process.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-lifecycle",
+      "type": "analytic",
+      "label": "Correlate Attack Chain Signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "phishing-execution-chains",
+          "outbound-proxy-activity",
+          "rare-proxy-dns-lookups",
+          "ransomware-impact-signals"
+        ],
+        "objective": "Determine if execution from entry points is linked to the observed proxying or file impact activity. Citing process names and hostnames is mandatory.",
+        "description": "Evaluate whether the observed entry, C2, and impact signals form a coherent ransomware or exfiltration campaign.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict linking initial access to subsequent malicious behaviors.",
+        "success_criteria": "A verdict of 'malicious' for hosts showing the full lifecycle, or 'suspicious' for isolated behaviors."
+      },
+      "parents": [
+        {
+          "id": "outbound-proxy-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-proxy-dns-lookups",
+          "kind": "merge"
+        },
+        {
+          "id": "ransomware-impact-signals",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-by-verdict",
+      "type": "checkpoint",
+      "label": "Route on Attack Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host exhibiting a complete chain from phishing to impact",
+        "condition": "the triage verdict is malicious for at least one host exhibiting a complete chain from phishing to impact",
+        "blind_spot": "limited-endpoint-visibility",
+        "confidence": "high",
+        "description": "Direct the workflow to immediate response for malicious findings or analyst review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-lifecycle"
+        }
+      ]
+    },
+    {
+      "id": "isolate-malicious-host",
+      "type": "action",
+      "label": "Isolate Malicious Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt data exfiltration and file encryption by disconnecting the affected host.",
+        "instructions": "Immediately isolate the identified host from the network to prevent further encryption or exfiltration. Collect volatile memory and current network connections before analyst review.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-by-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-remediation-review",
+      "type": "task",
+      "label": "Analyst Review and Remediation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the attack details and manage full eradication and tuning steps.",
+        "instructions": "Review the cited rows from the triage agent. For confirmed malicious hosts, initiate credential resets and forensic imaging. For suspicious but benign cases, update exclusions."
+      },
+      "parents": [
+        {
+          "id": "route-by-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-by-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-by-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-malicious-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out-investigation",
+      "type": "task",
+      "label": "Close Out and Record Gaps",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt by recording what was found and noting any visibility gaps.",
+        "instructions": "Document the hunt outcome and escalate coverage gaps to infrastructure teams."
+      },
+      "parents": [
+        {
+          "id": "analyst-remediation-review"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linux Memory-Resident Execution and Evasion · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is executing payloads through anonymous memory descriptors (memfd_create) or unlinking binaries immediately after launch to evade on-disk scanning and durable detection.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/linux-memory-resident-execution-evasion/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Linux Memory-Resident Execution and Evasion · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is executing payloads through anonymous memory descriptors (memfd_create) or unlinking binaries immediately after launch to evade on-disk scanning and durable detection.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/linux-memory-resident-execution-evasion/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">Linux Memory-Resident Execution and Evasion</h1>
+      <p class="hyp-lead">An adversary is executing payloads through anonymous memory descriptors (memfd_create) or unlinking binaries immediately after launch to evade on-disk scanning and durable detection.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.elastic.co/security-labs/threat-command/memfd-create-linux-fileless-execution" rel="noopener">Elastic Security Labs</a></span>
+<span>2026-09-17</span>        <span>10 steps · 4 queries</span>
+<span class="mono">T1059 T1070.004 T1547.006 T1620</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=linux-memory-resident-execution-evasion" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Recent research by Elastic Security Labs, titled "Linux Detection Engineering - Fileless Execution," highlights a sophisticated shift in Linux malware tactics. Attackers are increasingly leveraging memory-resident techniques to evade traditional detection. By utilizing anonymous memory descriptors via the memfd_create syscall or unlinking binaries immediately after execution, these threats avoid creating durable artifacts on the disk.\n\n## The Hypothesis\n\nOur hypothesis for this hunt is that an adversary is currently maintaining persistence or executing payloads using these fileless methods. Because these processes do not have a backing file on disk, they often bypass EDR solutions that rely on file-integrity monitoring or point-of-write scanning.\n\n## How the Hunt Flows\n\nThe hunt flow begins with the broad identification of memory-resident processes. We use the hb_process_activity surface to filter for processes where the on_disk flag is false or where the execution path originates from memfd or /proc/ descriptors. This initial step captures potential fileless activity but also includes legitimate noise from container runtimes or dynamic system tools.\n\nTo refine these results, we move into a parallel corroboration phase. We first perform a prevalence analysis across the fleet to identify rare diskless binaries, as malicious implants are typically unique to a few targets. Simultaneously, we search for "(deleted)" markers in process paths, which indicate the binary was unlinked post-launch to frustrate analysis. We also pivot to the hb_module_activity surface to identify kernel modules loaded from memory, a high-confidence indicator of evasion.\n\nThe final phase involves an automated triage of these indicators. By weighing the process prevalence against the presence of unlinked paths or memory-loaded modules, we can distinguish between standard administrative behavior and an active intrusion. This layered approach ensures that the investigation focuses on the most suspicious deviations rather than the baseline noise of a modern Linux environment.\n\n## Blind Spots and Limitations\n\nThere are two primary blind spots to consider. First, on Linux kernels older than 5.10.16 or those without eBPF capabilities, the memfd_create syscall might not be explicitly logged. In these environments, the hunt relies on observing the secondary procfs descriptors. Second, there is a risk involving the snapshot interval. If a fileless loader executes and terminates within seconds, it may fall between process inventory collections.\n\n## How to Run This Hunt\n\nThis hunt is delivered as a hunt.md playbook. It is designed to be imported into Huntbase or any hunt.md-aware runtime. Since the logic depends heavily on fleet-wide prevalence stacking, we recommend running it against your entire Linux server estate to establish an accurate baseline.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/linux-fileless-delivery-staging/index.html">Part 1: Linux Fileless Delivery and Staging</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is executing payloads through anonymous memory descriptors (memfd_create) or unlinking binaries immediately after launch to evade on-disk scanning and durable detection.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Find processes currently running where the binary is missing or the path indicates execution from an anonymous memory descriptor.", "expected": "Rows naming processes running without disk artifacts. Legitimate container runtimes or updaters may appear, requiring prevalence analysis.", "id": "detect-memory-resident-processes", "label": "Identify Diskless or Descriptor-Based Processes", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, process_name, process_path, process_cmd_line, pid, time FROM hb_process_activity WHERE (on_disk = 0 OR LOWER(process_path) LIKE \u0027memfd:%\u0027 OR LOWER(process_path) LIKE \u0027/proc/%/fd/%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Stack-count processes running from memory to highlight unique or rare binaries that differ from standard fleet-wide software.", "expected": "A diskless process seen on only 1 or 2 hosts is a strong indicator of a targeted payload.", "id": "rare-diskless-prevalence", "label": "Prevalence of Diskless Binaries", "parents": [{"branch": null, "id": "detect-memory-resident-processes", "kind": null}], "query": "SELECT process_path, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE on_disk = 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY process_path, process_cmd_line HAVING hosts \u003c= 3 ORDER BY hosts ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Identify binaries that were deleted immediately after execution, leaving \u0027(deleted)\u0027 markers in their path.", "expected": "Rows indicating processes unlinked from disk, a common evasion tactic to prevent binary analysis.", "id": "deleted-binary-evidence", "label": "Processes from Unlinked Paths", "parents": [{"branch": null, "id": "detect-memory-resident-processes", "kind": null}], "query": "SELECT device_hostname, process_name, process_path, process_cmd_line, pid, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE \u0027%(deleted)%\u0027 OR LOWER(process_name) LIKE \u0027%(deleted)%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_process_activity", "type": "query"}, {"description": "Find loadable kernel modules (LKMs) sourced from memory or anonymous file descriptors rather than on-disk .ko files.", "expected": "Kernel modules loaded from descriptors or memfd. This is a very high-confidence indicator of kernel-level fileless persistence.", "id": "memory-module-evidence", "label": "Kernel Modules from Memory", "parents": [{"branch": null, "id": "detect-memory-resident-processes", "kind": null}], "query": "SELECT device_hostname, module_path, process_name, pid, time FROM hb_module_activity WHERE (LOWER(module_path) LIKE \u0027memfd:%\u0027 OR LOWER(module_path) LIKE \u0027/proc/%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_module_activity", "type": "query"}, {"description": "Determine if the observed diskless processes or modules indicate a malicious implant or legitimate administrative activity.", "expected": "A verdict characterizing the severity and intent of the diskless activity.", "id": "triage-fileless-activity", "label": "Evaluate Fileless Evidence", "parents": [{"branch": null, "id": "rare-diskless-prevalence", "kind": "merge"}, {"branch": null, "id": "deleted-binary-evidence", "kind": "merge"}, {"branch": null, "id": "memory-module-evidence", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Escalate malicious findings for isolation or analyst review.", "expected": null, "id": "route-on-verdict", "label": "Route on Verdict", "parents": [{"branch": null, "id": "triage-fileless-activity", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the host to prevent lateral movement and preserve the memory of the fileless payload.", "expected": null, "id": "isolate-host", "label": "Isolate Endpoint", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Manually confirm the findings and perform forensic extraction from memory.", "expected": null, "id": "analyst-review", "label": "Analyst Review", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Archive the hunt results and tune future iterations.", "expected": null, "id": "close-out", "label": "Close Out", "parents": [{"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "analyst-review", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-detect-memory-resident-processes">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Diskless or Descriptor-Based Processes</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Find processes currently running where the binary is missing or the path indicates execution from an anonymous memory descriptor.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_path, process_cmd_line, pid, time FROM hb_process_activity WHERE (on_disk = 0 OR LOWER(process_path) LIKE &#39;memfd:%&#39; OR LOWER(process_path) LIKE &#39;/proc/%/fd/%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Rows naming processes running without disk artifacts. Legitimate container runtimes or updaters may appear, requiring prevalence analysis.</p>        </li>
+        <li class="card step" id="step-rare-diskless-prevalence">
+          <div class="step-head">
+            <h3 class="heading-sm">Prevalence of Diskless Binaries</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count processes running from memory to highlight unique or rare binaries that differ from standard fleet-wide software.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT process_path, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE on_disk = 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_path, process_cmd_line HAVING hosts &lt;= 3 ORDER BY hosts ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A diskless process seen on only 1 or 2 hosts is a strong indicator of a targeted payload.</p>        </li>
+        <li class="card step" id="step-deleted-binary-evidence">
+          <div class="step-head">
+            <h3 class="heading-sm">Processes from Unlinked Paths</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify binaries that were deleted immediately after execution, leaving &#39;(deleted)&#39; markers in their path.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_path, process_cmd_line, pid, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE &#39;%(deleted)%&#39; OR LOWER(process_name) LIKE &#39;%(deleted)%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Rows indicating processes unlinked from disk, a common evasion tactic to prevent binary analysis.</p>        </li>
+        <li class="card step" id="step-memory-module-evidence">
+          <div class="step-head">
+            <h3 class="heading-sm">Kernel Modules from Memory</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Find loadable kernel modules (LKMs) sourced from memory or anonymous file descriptors rather than on-disk .ko files.</p>          <div class="code"><div class="code-head"><span>reads hb_module_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, module_path, process_name, pid, time FROM hb_module_activity WHERE (LOWER(module_path) LIKE &#39;memfd:%&#39; OR LOWER(module_path) LIKE &#39;/proc/%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Kernel modules loaded from descriptors or memfd. This is a very high-confidence indicator of kernel-level fileless persistence.</p>        </li>
+        <li class="card step" id="step-triage-fileless-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Evaluate Fileless Evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Determine if the observed diskless processes or modules indicate a malicious implant or legitimate administrative activity.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Escalate malicious findings for isolation or analyst review.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Endpoint</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the host to prevent lateral movement and preserve the memory of the fileless payload.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Manually confirm the findings and perform forensic extraction from memory.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close Out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Archive the hunt results and tune future iterations.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Anonymous memory-backed execution<br><span class="mono dim">T1620 · T1059</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>detect-memory-resident-processes, rare-diskless-prevalence</td></tr>            <tr><td>Deleted-file execution<br><span class="mono dim">T1070.004</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>deleted-binary-evidence</td></tr>            <tr><td>Memory-only kernel module load<br><span class="mono dim">T1547.006 · T1620</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>memory-module-evidence</td></tr>            <tr><td>Staging of FENIX framework<br><span class="mono dim">T1059.004 · T1105</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Linux Detection Engineering - Fileless Execution&#39; series.</td></tr>            <tr><td>Interpreter-backed fileless execution<br><span class="mono dim">T1059.004 · T1059.006 · T1105</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Linux Detection Engineering - Fileless Execution&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs Linux Kernel 5.10.16+ with eBPF enabled.</strong> On older kernels, the explicit syscall may not be logged, forcing the hunt to rely entirely on &#39;on_disk=0&#39; or procfs path markers. <span class="dim">It would answer Was the initial memfd_create syscall recorded?.</span></li>          <li class="card"><strong>Needs hb_process_activity snapshot frequency.</strong> If a loader creates a memfd, executes, and exits within seconds, a snapshot-based process inventory may miss it entirely. <span class="dim">It would answer Did a short-lived loader run and exit between inventory reads?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to focus the hunt on.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: While a rule can alert on &#39;on_disk=0&#39;, this hunt uses fleet-wide prevalence
+  and pivots across process and module loading surfaces to filter out container runtime
+  noise and identify kernel-level evasion.
+blind_spots:
+- id: missing-ebpf-events
+  question: Was the initial memfd_create syscall recorded?
+  requires: Linux Kernel 5.10.16+ with eBPF enabled
+  risk: On older kernels, the explicit syscall may not be logged, forcing the hunt
+    to rely entirely on &#39;on_disk=0&#39; or procfs path markers.
+  stage: memfd-anonymous-execution
+- id: snapshot-interval-gap
+  question: Did a short-lived loader run and exit between inventory reads?
+  requires: hb_process_activity snapshot frequency
+  risk: If a loader creates a memfd, executes, and exits within seconds, a snapshot-based
+    process inventory may miss it entirely.
+  stage: deleted-binary-execution
+coverage:
+- stage: memfd-anonymous-execution
+  status: covered
+  steps:
+  - detect-memory-resident-processes
+  - rare-diskless-prevalence
+- stage: deleted-binary-execution
+  status: covered
+  steps:
+  - deleted-binary-evidence
+- stage: fileless-kernel-module-load
+  status: covered
+  steps:
+  - memory-module-evidence
+- reason: Belongs to another part of the &#39;Linux Detection Engineering - Fileless Execution&#39;
+    series.
+  stage: fenix-framework-staging
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Linux Detection Engineering - Fileless Execution&#39;
+    series.
+  stage: interpreter-one-liner-execution
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Fileless execution is a primary method for evading traditional EDRs
+    that scan files at write/execute time. A negative hunt result provides assurance
+    that no persistent implants are active in memory across the Linux estate.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is executing payloads through anonymous memory descriptors
+  (memfd_create) or unlinking binaries immediately after launch to evade on-disk scanning
+  and durable detection.
+labels:
+- hunt
+- attack.t1620
+- attack.t1059
+- attack.t1070.004
+- attack.t1547.006
+name: Linux Memory-Resident Execution and Evasion
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    from:
+      kind: manual
+      observed: &#39;2024-05-20&#39;
+      ref: hunt-standard
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to focus the hunt on.
+    from:
+      kind: manual
+      observed: &#39;2024-05-20&#39;
+      ref: hunt-standard
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.elastic.co/security-labs/threat-command/memfd-create-linux-fileless-execution
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on servers and high-uptime Linux instances where memory-resident
+  persistence is most effective. Exclude ephemeral container hosts unless testing
+  CI/CD staging.
+references:
+- name: &#34;Elastic Security Labs \u2014 memfd_create Linux Fileless Execution&#34;
+  url: https://www.elastic.co/security-labs/threat-command/memfd-create-linux-fileless-execution
+related:
+- hunt: interpreter-one-liner-execution
+  reason: This hunt focuses on ELF binary execution in memory; shell/python one-liners
+    that never drop an ELF are handled by a sibling hunt.
+  relation: out-of-scope-alternative
+- hunt: linux-fileless-delivery-staging
+  relation: follows
+scenario:
+  stages:
+  - name: Staging of FENIX framework
+    observables:
+    - git clone https://github.com/elastic/FENIX.git
+    - pip install -e .
+    - make all
+    - FENIX_BIN_DIR
+    slug: fenix-framework-staging
+    tactic: execution
+    techniques:
+    - T1059.004
+    - T1105
+  - name: Interpreter-backed fileless execution
+    observables:
+    - curl
+    - wget
+    - base64 -d
+    - openssl
+    - gzip -d
+    - bash
+    - python -c
+    slug: interpreter-one-liner-execution
+    tactic: execution
+    techniques:
+    - T1059.004
+    - T1059.006
+    - T1105
+  - name: Anonymous memory-backed execution
+    observables:
+    - memfd_create
+    - /proc/self/fd/
+    - fexecve
+    - execveat
+    - MFD_CLOEXEC
+    - MFD_ALLOW_SEALING
+    slug: memfd-anonymous-execution
+    tactic: execution
+    techniques:
+    - T1620
+    - T1059
+  - name: Deleted-file execution
+    observables:
+    - /proc/&lt;pid&gt;/exe
+    - (deleted)
+    - /tmp/payload
+    - unlinking after execution
+    slug: deleted-binary-execution
+    tactic: defense-evasion
+    techniques:
+    - T1070.004
+  - name: Memory-only kernel module load
+    observables:
+    - init_module
+    - finit_module
+    - memfd_create
+    - loading module from file descriptor
+    slug: fileless-kernel-module-load
+    tactic: persistence
+    techniques:
+    - T1547.006
+    - T1620
+  summary: This scenario reproduces five distinct Linux fileless execution patterns
+    used to minimize on-disk artifacts and bypass file-based security controls. The
+    techniques involve the use of anonymous memory-backed file descriptors via memfd_create,
+    interpreter-based one-liners, unlinked (deleted) executable execution, and in-memory
+    kernel module loading.
+series:
+  index: 2
+  slug: linux-detection-engineering-fileless-execution
+  title: Linux Detection Engineering - Fileless Execution
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# Linux Memory-Resident Execution and Evasion
+
+This hunt identifies fileless execution patterns on Linux by detecting processes running without a corresponding binary on disk (on_disk = 0), identifying processes executing from &#39;/proc&#39; or &#39;memfd&#39; paths, and finding kernel modules loaded from anonymous memory. It correlates this behavior with fleet-wide prevalence to distinguish legitimate administrative activity from malicious implants such as VoidLink.
+
+## detect-memory-resident-processes
+&lt;!-- Identify Diskless or Descriptor-Based Processes --&gt;
+Find processes currently running where the binary is missing or the path indicates execution from an anonymous memory descriptor.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Rows naming processes running without disk artifacts. Legitimate container
+  runtimes or updaters may appear, requiring prevalence analysis.
+reads:
+- device_hostname
+- process_name
+- process_path
+- process_cmd_line
+- on_disk
+- pid
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_path, process_cmd_line, pid, time FROM hb_process_activity WHERE (on_disk = 0 OR LOWER(process_path) LIKE &#39;memfd:%&#39; OR LOWER(process_path) LIKE &#39;/proc/%/fd/%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## corroborate-evidence
+&lt;!-- Corroborate on multiple surfaces --&gt;
+parallel:
+- → rare-diskless-prevalence
+- → deleted-binary-evidence
+- → memory-module-evidence
+join: → triage-fileless-activity
+
+## rare-diskless-prevalence
+&lt;!-- Prevalence of Diskless Binaries --&gt;
+Stack-count processes running from memory to highlight unique or rare binaries that differ from standard fleet-wide software.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A diskless process seen on only 1 or 2 hosts is a strong indicator of a
+  targeted payload.
+prevalence:
+  by: device_hostname
+  key:
+  - process_path
+  - process_cmd_line
+  rare_below: 3
+reads:
+- process_path
+- process_cmd_line
+- device_hostname
+- on_disk
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT process_path, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE on_disk = 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_path, process_cmd_line HAVING hosts &lt;= 3 ORDER BY hosts ASC
+```
+
+## deleted-binary-evidence
+&lt;!-- Processes from Unlinked Paths --&gt;
+Identify binaries that were deleted immediately after execution, leaving &#39;(deleted)&#39; markers in their path.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days)
+~~~yaml
+expected: Rows indicating processes unlinked from disk, a common evasion tactic to
+  prevent binary analysis.
+reads:
+- process_path
+- process_name
+- process_cmd_line
+- device_hostname
+- pid
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_path, process_cmd_line, pid, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE &#39;%(deleted)%&#39; OR LOWER(process_name) LIKE &#39;%(deleted)%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## memory-module-evidence
+&lt;!-- Kernel Modules from Memory --&gt;
+Find loadable kernel modules (LKMs) sourced from memory or anonymous file descriptors rather than on-disk .ko files.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days)
+~~~yaml
+expected: Kernel modules loaded from descriptors or memfd. This is a very high-confidence
+  indicator of kernel-level fileless persistence.
+reads:
+- module_path
+- device_hostname
+- process_name
+- pid
+- time
+silence: not_evidence_of_absence
+source: hb_module_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, module_path, process_name, pid, time FROM hb_module_activity WHERE (LOWER(module_path) LIKE &#39;memfd:%&#39; OR LOWER(module_path) LIKE &#39;/proc/%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-fileless-activity
+&lt;!-- Evaluate Fileless Evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- detect-memory-resident-processes
+- rare-diskless-prevalence
+- deleted-binary-evidence
+- memory-module-evidence
+max_iterations: 4
+objective: Determine if any host shows evidence of malicious fileless execution by
+  weighing the &#39;on_disk=0&#39; flag, rare prevalence, and memory-loaded modules.
+success_criteria: A per-host verdict of malicious | suspicious | benign, citing the
+  specific process PIDs and paths.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: missing-ebpf-events)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate Endpoint --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host. Before a full reboot, attempt to dump the memory of the suspicious PID identified in triage to recover the ELF payload from memfd or procfs.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review --&gt;
+```manual target=analyst
+Review the triage results. Use the identified PID to inspect /proc/&lt;pid&gt;/fd/ to recover the memfd payload, or /proc/&lt;pid&gt;/exe if it was deleted. Document if the activity corresponds to a legitimate administrative process to tune the baseline.
+```
+→ close-out
+
+## close-out
+&lt;!-- Close Out --&gt;
+```manual target=analyst
+Record whether any malicious activity was found. If the results were negative, confirm that the relevant surfaces had adequate coverage for the Linux estate.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=linux-memory-resident-execution-evasion" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

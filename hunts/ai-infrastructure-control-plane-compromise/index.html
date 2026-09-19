@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Infrastructure Control Plane Compromise · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is exploiting exposed AI gateway services to harvest runtime environment secrets, dump backend model databases, and establish persistence or resource hijacking via cryptomining.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/ai-infrastructure-control-plane-compromise/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="AI Infrastructure Control Plane Compromise · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is exploiting exposed AI gateway services to harvest runtime environment secrets, dump backend model databases, and establish persistence or resource hijacking via cryptomining.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/ai-infrastructure-control-plane-compromise/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+      </div>
+      <h1 class="heading-xl">AI Infrastructure Control Plane Compromise</h1>
+      <p class="hyp-lead">An adversary is exploiting exposed AI gateway services to harvest runtime environment secrets, dump backend model databases, and establish persistence or resource hijacking via cryptomining.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.microsoft.com/en-us/security/blog/2026/08/26/when-ai-infrastructure-becomes-target-securing-gateways-control-points/" rel="noopener">Microsoft</a></span>
+<span>2026-09-17</span>        <span>11 steps · 6 queries</span>
+<span class="mono">T1041 T1090.003 T1190 T1496</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=ai-infrastructure-control-plane-compromise" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Microsoft's recent analysis, "When AI infrastructure becomes the target" (https://www.microsoft.com/en-us/security/blog/2026/08/26/when-ai-infrastructure-becomes-target-securing-gateways-control-points/), highlights a shift in adversary focus. As organizations deploy AI gateways like LiteLLM or RAGFlow to manage model access, these services become high-value control planes. A single compromise here grants access to API keys for multiple LLM providers and the backend databases where sensitive RAG data resides.\n\nOur hypothesis is that an adversary exploits exposed AI gateway services to harvest runtime environment secrets, dump backend model databases, and establish persistence or resource hijacking via cryptomining.\n\nThe hunt begins by scoping the environment. We look for specific AI orchestration software like LiteLLM, RAGFlow, and Kestra within the software inventory. Identifying these hosts allows us to focus subsequent, noisier queries on the relevant infrastructure and containerized workloads.\n\nThe first triage step examines HTTP activity for signs of exploitation. Specifically, we look for POST requests to the Model Context Protocol (MCP) rest endpoints. These endpoints were recently identified as part of an RCE chain (CVE-2026-42271). While we cannot always see the payload body, the presence of these requests to testing endpoints on internal gateways is a strong indicator of unauthorized interest.\n\nOnce initial access is suspected, the hunt pivots to corroborate post-exploitation behavior across multiple surfaces. We monitor process activity for attempts to read the container environment block, specifically /proc/1/environ. In many containerized AI deployments, this is where provider API keys and database connection strings are stored for the application to function.\n\nSimultaneously, we analyze DNS activity for rare lookups to database hosts. If an AI gateway that usually communicates with a specific model endpoint suddenly starts resolving external or anomalous database patterns, it suggests potential data exfiltration or credential testing against production backends.\n\nThe hunt also looks for resource hijacking indicators. We monitor for the loading of the msr (Model-Specific Register) kernel module with allow_writes=1. This is a specific tuning step used by cryptominers like XMRig to optimize CPU performance for the RandomX algorithm—an activity that is highly atypical for standard AI application runtimes.\n\nFinally, we look for persistence via SSH. We check for modifications to authorized_keys files belonging to service accounts, which would allow an attacker to maintain access even if the initial gateway vulnerability is patched.\n\nThere are two primary blind spots to consider. First, without full HTTP body capture, we cannot distinguish between a legitimate connectivity test and a successful RCE injection; we only see the intent. Second, EDR visibility into the /proc filesystem across container namespaces can vary. If the agent only monitors host-level process launches, it may miss direct reads of the environment block.\n\nThis hunt is provided as a hunt.md playbook. It can be imported directly into Huntbase or any compatible runtime to automate the data collection and triage steps.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 5 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Web server / proxy logs</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">6</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>CVEs</span></p>
+          <p class="mono dim">CVE-2025-68700 CVE-2026-24770 CVE-2026-28797 CVE-2026-42271 CVE-2026-45312 CVE-2026-48710</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is exploiting exposed AI gateway services to harvest runtime environment secrets, dump backend model databases, and establish persistence or resource hijacking via cryptomining.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Locate hosts running LiteLLM, RAGFlow, or Kestra to scope the hunt to the AI control plane.", "expected": "A list of hostnames known to be running AI gateway or orchestration software.", "id": "identify-ai-infrastructure", "label": "Identify AI infrastructure", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (instr(\u0027,\u0027 || \u0027{{ai_package_keywords}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(package_name) || \u0027,\u0027) \u003e 0 OR LOWER(package_name) LIKE \u0027%litellm%\u0027 OR LOWER(package_name) LIKE \u0027%ragflow%\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Detect access to the specific MCP endpoints used in the CVE-2026-42271 RCE chain.", "expected": "POST requests to these endpoints suggest exploitation of the AI gateway test capability.", "id": "mcp-exploitation-attempts", "label": "LiteLLM MCP exploitation attempts", "parents": [{"branch": null, "id": "identify-ai-infrastructure", "kind": null}], "query": "SELECT device_hostname, url_path, src_endpoint_ip, http_method, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE \u0027%/mcp-rest/test/connection%\u0027 OR LOWER(url_path) LIKE \u0027%/mcp-rest/test/tools/list%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_http_activity", "type": "query"}, {"description": "Detect processes reading container environment blocks to steal API keys, targeting /proc/1/environ.", "expected": "Processes inspecting the container environment block or referencing database URLs.", "id": "environment-secret-harvesting", "label": "AI gateway secret harvesting", "parents": [{"branch": null, "id": "mcp-exploitation-attempts", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE \u0027%/proc/1/environ%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%DATABASE_URL%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_process_activity", "type": "query"}, {"description": "Identify rare or high-volume DNS lookups to database endpoints from AI infrastructure using reported host patterns.", "expected": "Rare database-related lookups from AI hosts; fleet-wide lookups are baseline noise.", "id": "database-exfiltration-lookups", "label": "Anomalous database DNS lookups", "parents": [{"branch": null, "id": "mcp-exploitation-attempts", "kind": null}], "query": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(\u0027,\u0027 || \u0027{{db_host_patterns}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(query_hostname) || \u0027,\u0027) \u003e 0 OR LOWER(query_hostname) LIKE \u0027%.postgres.database.azure.com\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY device_hostname, query_hostname HAVING hosts \u003c= 3", "role": "baseline", "source": "hb_dns_activity", "type": "query"}, {"description": "Detect the loading of the MSR module with write access enabled, a high-fidelity indicator for RandomX/XMRig CPU tuning.", "expected": "Loading of the \u0027msr\u0027 module with write permissions, atypical for legitimate AI application runtimes.", "id": "miner-module-tuning", "label": "Cryptomining preparation (MSR tuning)", "parents": [{"branch": null, "id": "mcp-exploitation-attempts", "kind": null}], "query": "SELECT device_hostname, module_name, process_cmd_line, time FROM hb_module_activity WHERE LOWER(module_name) = \u0027msr\u0027 AND LOWER(process_cmd_line) LIKE \u0027%allow_writes=1%\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_module_activity", "type": "query"}, {"description": "Detect modification of service-account SSH keys used for persistence on AI gateways.", "expected": "Updates to authorized_keys, suggesting the insertion of an attacker-controlled key.", "id": "persistence-ssh-keys", "label": "SSH authorized_keys modification", "parents": [{"branch": null, "id": "mcp-exploitation-attempts", "kind": null}], "query": "SELECT device_hostname, file_path, activity_name, actor_user_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE \u0027%/.ssh/authorized_keys\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Synthesize exploit attempts, environment harvesting, and miner tuning into a host-level verdict.", "expected": "A verdict citing specific rows from HTTP, process, and module activity.", "id": "triage-compromise", "label": "Triage AI gateway compromise", "parents": [{"branch": null, "id": "environment-secret-harvesting", "kind": "merge"}, {"branch": null, "id": "database-exfiltration-lookups", "kind": "merge"}, {"branch": null, "id": "miner-module-tuning", "kind": "merge"}, {"branch": null, "id": "persistence-ssh-keys", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Isolate hosts where compromise is confirmed.", "expected": null, "id": "route-verdict", "label": "Route based on verdict", "parents": [{"branch": null, "id": "triage-compromise", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent further credential exfiltration or database dumping.", "expected": null, "id": "isolate-host", "label": "Isolate AI host", "parents": [{"branch": "on_supports", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review findings and perform manual inspection of persistence mechanisms.", "expected": null, "id": "analyst-review", "label": "Post-compromise analysis", "parents": [{"branch": "default", "id": "route-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-verdict", "kind": null}, {"branch": "on_refutes", "id": "route-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-identify-ai-infrastructure">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify AI infrastructure</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Locate hosts running LiteLLM, RAGFlow, or Kestra to scope the hunt to the AI control plane.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (instr(&#39;,&#39; || &#39;{{ai_package_keywords}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(package_name) || &#39;,&#39;) &gt; 0 OR LOWER(package_name) LIKE &#39;%litellm%&#39; OR LOWER(package_name) LIKE &#39;%ragflow%&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames known to be running AI gateway or orchestration software.</p>        </li>
+        <li class="card step" id="step-mcp-exploitation-attempts">
+          <div class="step-head">
+            <h3 class="heading-sm">LiteLLM MCP exploitation attempts</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Detect access to the specific MCP endpoints used in the CVE-2026-42271 RCE chain.</p>          <div class="code"><div class="code-head"><span>reads hb_http_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, url_path, src_endpoint_ip, http_method, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE &#39;%/mcp-rest/test/connection%&#39; OR LOWER(url_path) LIKE &#39;%/mcp-rest/test/tools/list%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> POST requests to these endpoints suggest exploitation of the AI gateway test capability.</p>        </li>
+        <li class="card step" id="step-environment-secret-harvesting">
+          <div class="step-head">
+            <h3 class="heading-sm">AI gateway secret harvesting</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Detect processes reading container environment blocks to steal API keys, targeting /proc/1/environ.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%/proc/1/environ%&#39; OR LOWER(process_cmd_line) LIKE &#39;%DATABASE_URL%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Processes inspecting the container environment block or referencing database URLs.</p>        </li>
+        <li class="card step" id="step-database-exfiltration-lookups">
+          <div class="step-head">
+            <h3 class="heading-sm">Anomalous database DNS lookups</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify rare or high-volume DNS lookups to database endpoints from AI infrastructure using reported host patterns.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, query_hostname, COUNT(*) AS lookups, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{db_host_patterns}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 OR LOWER(query_hostname) LIKE &#39;%.postgres.database.azure.com&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, query_hostname HAVING hosts &lt;= 3</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Rare database-related lookups from AI hosts; fleet-wide lookups are baseline noise.</p>        </li>
+        <li class="card step" id="step-miner-module-tuning">
+          <div class="step-head">
+            <h3 class="heading-sm">Cryptomining preparation (MSR tuning)</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect the loading of the MSR module with write access enabled, a high-fidelity indicator for RandomX/XMRig CPU tuning.</p>          <div class="code"><div class="code-head"><span>reads hb_module_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, module_name, process_cmd_line, time FROM hb_module_activity WHERE LOWER(module_name) = &#39;msr&#39; AND LOWER(process_cmd_line) LIKE &#39;%allow_writes=1%&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Loading of the &#39;msr&#39; module with write permissions, atypical for legitimate AI application runtimes.</p>        </li>
+        <li class="card step" id="step-persistence-ssh-keys">
+          <div class="step-head">
+            <h3 class="heading-sm">SSH authorized_keys modification</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect modification of service-account SSH keys used for persistence on AI gateways.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, activity_name, actor_user_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE &#39;%/.ssh/authorized_keys&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Updates to authorized_keys, suggesting the insertion of an attacker-controlled key.</p>        </li>
+        <li class="card step" id="step-triage-compromise">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage AI gateway compromise</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Synthesize exploit attempts, environment harvesting, and miner tuning into a host-level verdict.</p>        </li>
+        <li class="card step" id="step-route-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route based on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Isolate hosts where compromise is confirmed.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate AI host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent further credential exfiltration or database dumping.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Post-compromise analysis</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review findings and perform manual inspection of persistence mechanisms.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>AI Gateway and Orchestrator Exploitation<br><span class="mono dim">T1190</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>identify-ai-infrastructure, mcp-exploitation-attempts</td></tr>            <tr><td>Gateway Runtime Secret Harvesting<br><span class="mono dim">T1041</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>environment-secret-harvesting</td></tr>            <tr><td>Backend Database Exfiltration<br><span class="mono dim">T1041</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>database-exfiltration-lookups</td></tr>            <tr><td>Resource Hijacking and Mining<br><span class="mono dim">T1496</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>miner-module-tuning</td></tr>            <tr><td>Relay Persistence and Multi-hop C2<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>persistence-ssh-keys</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs EDR visibility into /proc filesystem across container namespaces.</strong> Attackers can steal master keys and credentials from the environment block without triggering standard process monitoring rules. <span class="dim">It would answer Was /proc/1/environ actually read if the EDR agent only monitors host-level process launches?.</span></li>          <li class="card"><strong>Needs hb_http_activity with full POST body capture.</strong> Without the body content, we can confirm the endpoint was accessed but cannot distinguish between a legitimate test and a malicious RCE payload (CVE-2026-42271). <span class="dim">It would answer What specific command was injected into the MCP rest endpoint?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>ai_package_keywords</code></td><td class="mono dim">list[string]</td><td class="mono">litellm, ragflow, kestra</td><td>Keywords for identifying AI gateway and orchestration software.</td></tr>            <tr><td><code>db_host_patterns</code></td><td class="mono dim">list[domain]</td><td class="mono">postgres.database.azure.com, rds.amazonaws.com</td><td>Known database host suffixes or exact domains referenced in the report.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to narrow the search.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Web server / proxy logs</td><td class="dim">siem</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple rule might catch &#39;msr&#39; module loading, but this hunt pivots between
+  AI software scoping, HTTP exploitation paths, and database lookup baselines to confirm
+  the intent and scope of the AI infrastructure compromise.
+blind_spots:
+- id: container-introspection-gap
+  question: Was /proc/1/environ actually read if the EDR agent only monitors host-level
+    process launches?
+  requires: EDR visibility into /proc filesystem across container namespaces
+  risk: Attackers can steal master keys and credentials from the environment block
+    without triggering standard process monitoring rules.
+  stage: credential-harvesting-runtime-environment
+- id: http-body-blindness
+  question: What specific command was injected into the MCP rest endpoint?
+  requires: hb_http_activity with full POST body capture
+  risk: Without the body content, we can confirm the endpoint was accessed but cannot
+    distinguish between a legitimate test and a malicious RCE payload (CVE-2026-42271).
+  stage: initial-access-ai-gateway-exploitation
+coverage:
+- stage: initial-access-ai-gateway-exploitation
+  status: covered
+  steps:
+  - identify-ai-infrastructure
+  - mcp-exploitation-attempts
+- stage: credential-harvesting-runtime-environment
+  status: covered
+  steps:
+  - environment-secret-harvesting
+- stage: database-data-collection-exfiltration
+  status: covered
+  steps:
+  - database-exfiltration-lookups
+- stage: compute-monetization-cryptomining
+  status: covered
+  steps:
+  - miner-module-tuning
+- stage: relay-persistence-and-c2
+  status: covered
+  steps:
+  - persistence-ssh-keys
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: AI gateways and RAG platforms are high-value &#39;control planes&#39; that
+    concentrate model provider secrets and sensitive backend database access; a single
+    compromise can lead to massive credential exposure.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is exploiting exposed AI gateway services to harvest runtime
+  environment secrets, dump backend model databases, and establish persistence or
+  resource hijacking via cryptomining.
+labels:
+- hunt
+- attack.t1190
+- attack.t1041
+- attack.t1496
+- attack.t1090.003
+name: AI Infrastructure Control Plane Compromise
+parameters:
+  ai_package_keywords:
+    default:
+    - litellm
+    - ragflow
+    - kestra
+    description: Keywords for identifying AI gateway and orchestration software.
+    from:
+      kind: article
+      observed: &#39;2026-08-26&#39;
+      ref: msrc-blog
+    type: list[string]
+  db_host_patterns:
+    default:
+    - postgres.database.azure.com
+    - rds.amazonaws.com
+    description: Known database host suffixes or exact domains referenced in the report.
+    from:
+      kind: article
+      observed: &#39;2026-08-26&#39;
+      ref: msrc-blog
+    type: list[domain]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to narrow the search.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.microsoft.com/en-us/security/blog/2026/08/26/when-ai-infrastructure-becomes-target-securing-gateways-control-points/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Target hosts identified in hb_software_inventory as running &#39;litellm&#39; or
+  &#39;ragflow&#39;. Focus on containerized environments (Docker/K8s) where secret theft via
+  /proc/1/environ is most effective.
+references:
+- name: &#39;MSRC Blog: When AI infrastructure becomes the target&#39;
+  url: https://www.microsoft.com/en-us/security/blog/2026/08/26/when-ai-infrastructure-becomes-target-securing-gateways-control-points/
+related:
+- hunt: kestra-orchestration-abuse
+  reason: Kestra exploitation involves specific workflow/YAML logic not covered by
+    the LiteLLM/RAGFlow process patterns.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: AI Gateway and Orchestrator Exploitation
+    observables:
+    - CVE-2026-42271
+    - CVE-2026-48710
+    - CVE-2026-49869
+    - POST /mcp-rest/test/connection
+    - POST /mcp-rest/test/tools/list
+    - Burp Collaborator callback
+    - Starlette host-header bypass
+    - Kestra workflow shell execution
+    slug: initial-access-ai-gateway-exploitation
+    tactic: initial-access
+    techniques:
+    - T1190
+  - name: Gateway Runtime Secret Harvesting
+    observables:
+    - cat /proc/1/environ
+    - grep -E &#39;master|API key|token|password|UI&#39;
+    - Python urllib exfiltration
+    - curl exfiltration
+    - wget exfiltration
+    slug: credential-harvesting-runtime-environment
+    tactic: exfiltration
+    techniques:
+    - T1041
+  - name: Backend Database Exfiltration
+    observables:
+    - postgres.database.azure.com
+    - DATABASE_URL
+    - LiteLLM_ProxyModelTable
+    - LiteLLM_VerificationToken
+    - base64-encoded exfiltration chunks
+    - python3 database dump one-liner
+    slug: database-data-collection-exfiltration
+    tactic: exfiltration
+    techniques:
+    - T1041
+  - name: Resource Hijacking and Mining
+    observables:
+    - XMRig
+    - RandomX CPU tuning
+    - modprobe msr allow_writes=1
+    - crontab miner cleanup
+    - silent passwordless-sudo check
+    slug: compute-monetization-cryptomining
+    tactic: impact
+    techniques:
+    - T1496
+  - name: Relay Persistence and Multi-hop C2
+    observables:
+    - hidden-file relay execution
+    - authorized_keys SSH modification
+    - systemd service name masquerading
+    - Python hook in TenantLLM configuration
+    - chattr +i immutable attributes
+    - out-of-band network callbacks
+    slug: relay-persistence-and-c2
+    tactic: command-and-control
+    techniques:
+    - T1090.003
+  summary: Attackers are targeting exposed AI workloads including LiteLLM gateways,
+    RAGFlow retrieval engines, and Kestra orchestrators to exploit their role as centralized
+    trust points. The campaign involves exploiting unauthenticated remote code execution
+    vulnerabilities to harvest model-provider API keys from environment variables,
+    exfiltrate backend database records, and deploy cryptominers while establishing
+    persistence via hidden multi-hop proxies and SSH keys.
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  web:
+    category: siem
+    name: Web server / proxy logs
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# AI Infrastructure Control Plane Compromise
+
+This hunt targets the exploitation of AI orchestration layers including LiteLLM, RAGFlow, and Kestra. It identifies vulnerable AI infrastructure, tracks the transition from initial web-based exploitation of gateway endpoints to the harvesting of provider API keys from the container environment, and monitors for the exfiltration of backend database records. Finally, it corroborates these activities with the deployment of cryptominers that use specialized Model-Specific Register (MSR) tuning and unauthorized SSH key modifications.
+
+## identify-ai-infrastructure
+&lt;!-- Identify AI infrastructure --&gt;
+Locate hosts running LiteLLM, RAGFlow, or Kestra to scope the hunt to the AI control plane.
+
+```sqlite target=endpoint role=scoping params=(ai_package_keywords=ai_package_keywords)
+~~~yaml
+expected: A list of hostnames known to be running AI gateway or orchestration software.
+reads:
+- device_hostname
+- package_name
+- package_version
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (instr(&#39;,&#39; || &#39;{{ai_package_keywords}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(package_name) || &#39;,&#39;) &gt; 0 OR LOWER(package_name) LIKE &#39;%litellm%&#39; OR LOWER(package_name) LIKE &#39;%ragflow%&#39;)
+```
+
+## mcp-exploitation-attempts
+&lt;!-- LiteLLM MCP exploitation attempts --&gt;
+Detect access to the specific MCP endpoints used in the CVE-2026-42271 RCE chain.
+
+```sqlite target=web role=triage params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: POST requests to these endpoints suggest exploitation of the AI gateway
+  test capability.
+reads:
+- device_hostname
+- url_path
+- src_endpoint_ip
+- http_method
+- time
+silence: not_evidence_of_absence
+source: hb_http_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, url_path, src_endpoint_ip, http_method, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE &#39;%/mcp-rest/test/connection%&#39; OR LOWER(url_path) LIKE &#39;%/mcp-rest/test/tools/list%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-behavior-check
+&lt;!-- Corroborate post-exploitation behavior --&gt;
+parallel:
+- → environment-secret-harvesting
+- → database-exfiltration-lookups
+- → miner-module-tuning
+- → persistence-ssh-keys
+join: → triage-compromise
+
+## environment-secret-harvesting
+&lt;!-- AI gateway secret harvesting --&gt;
+Detect processes reading container environment blocks to steal API keys, targeting /proc/1/environ.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Processes inspecting the container environment block or referencing database
+  URLs.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%/proc/1/environ%&#39; OR LOWER(process_cmd_line) LIKE &#39;%DATABASE_URL%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## database-exfiltration-lookups
+&lt;!-- Anomalous database DNS lookups --&gt;
+Identify rare or high-volume DNS lookups to database endpoints from AI infrastructure using reported host patterns.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts, db_host_patterns=db_host_patterns)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Rare database-related lookups from AI hosts; fleet-wide lookups are baseline
+  noise.
+prevalence:
+  by: device_hostname
+  key:
+  - query_hostname
+  rare_below: 3
+reads:
+- device_hostname
+- query_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, query_hostname, COUNT(*) AS lookups, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{db_host_patterns}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 OR LOWER(query_hostname) LIKE &#39;%.postgres.database.azure.com&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, query_hostname HAVING hosts &lt;= 3
+```
+
+## miner-module-tuning
+&lt;!-- Cryptomining preparation (MSR tuning) --&gt;
+Detect the loading of the MSR module with write access enabled, a high-fidelity indicator for RandomX/XMRig CPU tuning.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Loading of the &#39;msr&#39; module with write permissions, atypical for legitimate
+  AI application runtimes.
+reads:
+- device_hostname
+- module_name
+- process_cmd_line
+- time
+silence: not_evidence_of_absence
+source: hb_module_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, module_name, process_cmd_line, time FROM hb_module_activity WHERE LOWER(module_name) = &#39;msr&#39; AND LOWER(process_cmd_line) LIKE &#39;%allow_writes=1%&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## persistence-ssh-keys
+&lt;!-- SSH authorized_keys modification --&gt;
+Detect modification of service-account SSH keys used for persistence on AI gateways.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Updates to authorized_keys, suggesting the insertion of an attacker-controlled
+  key.
+reads:
+- device_hostname
+- file_path
+- activity_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_path, activity_name, actor_user_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE &#39;%/.ssh/authorized_keys&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-compromise
+&lt;!-- Triage AI gateway compromise --&gt;
+```agent target=hunter
+cite: required
+context:
+- mcp-exploitation-attempts
+- environment-secret-harvesting
+- database-exfiltration-lookups
+- miner-module-tuning
+- persistence-ssh-keys
+max_iterations: 5
+objective: Determine if an AI workload has been compromised based on the combination
+  of web-based exploitation and subsequent malicious runtime behavior.
+success_criteria: A per-host verdict of malicious | suspicious | benign citing specific
+  process paths, DNS queries, or file touches.
+tools:
+- endpoint
+- web
+```
+
+## route-verdict
+&lt;!-- Route based on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host running AI services&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: container-introspection-gap)
+else: → analyst-review
+
+## isolate-host
+&lt;!-- Isolate AI host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host. Revoke the LiteLLM Master Key and LLM provider API keys stored in the environment.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Post-compromise analysis --&gt;
+```manual target=analyst
+Verify the identified API keys were rotated. Check for unauthorized SSH keys in /home/service_account/.ssh/authorized_keys and inspect for masqueraded systemd services.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=ai-infrastructure-control-plane-compromise" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

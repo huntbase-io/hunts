@@ -1,0 +1,609 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The ClickFix campaign uses DLL sideloading and process hollowing to evade traditional endpoint alerts. A hunt across module and process planes identifies the behavioral chain that single rules may miss."
+      },
+      "name": "ClickFix DLL Sideloading and Process Hollowing",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1574.002",
+        "attack.t1055.012",
+        "attack.t1059.001",
+        "attack.t1555"
+      ],
+      "related": [
+        {
+          "hunt": "edr-evasion-byovd",
+          "reason": "The driver-based EDR evasion component is a kernel-level behavior that requires its own hunt on driver loads and system services.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt pivots from a non-standard module load to fleet-wide path prevalence and process 'on_disk' status\u2014corroborating three independent behavioral signals into one confirmed compromise verdict.",
+      "coverage": [
+        {
+          "stage": "initial-powershell-lure",
+          "steps": [
+            "powershell-staging-lure"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "dll-search-order-hijacking",
+          "steps": [
+            "sideload-detection",
+            "rare-path-baseline"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "process-hollowing-injection",
+          "steps": [
+            "process-hollowing-signal"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remus-infostealer-activity",
+          "steps": [
+            "triage-agent"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "edr-evasion-byovd",
+          "reason": "Not examined by this hunt; belongs to a separate hunt.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "ClickFix PowerShell Staging",
+            "slug": "initial-powershell-lure",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "PowerShell script block execution",
+              "ClickFix social engineering lure",
+              "Download and drop of vb7to8.exe and mscoree.dll"
+            ]
+          },
+          {
+            "name": "DLL Sideloading via Microsoft Binary",
+            "slug": "dll-search-order-hijacking",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1574.002"
+            ],
+            "observables": [
+              "mscoree.dll loaded by vb7to8.exe from its own directory",
+              "Visual Basic 8 Keyword Upgrade Tool binary",
+              "NativeAOT library characteristics",
+              "ModuleInitializerAttribute usage",
+              "Exported functions LoadLibraryShim and LoadStringRCEx"
+            ]
+          },
+          {
+            "name": "Process Hollowing into ServiceModelReg.exe",
+            "slug": "process-hollowing-injection",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1055.012"
+            ],
+            "observables": [
+              "Creation of ServiceModelReg.exe in suspended state",
+              "Process creation flags 0x8000004 (CREATE_NO_WINDOW | CREATE_SUSPENDED)",
+              "Validation of MZ and PE bytes (4D 5A, 50 45) in target memory"
+            ]
+          },
+          {
+            "name": "BYOVD Defense Evasion",
+            "slug": "edr-evasion-byovd",
+            "tactic": "defense-evasion",
+            "observables": [
+              "Vulnerable driver delivery to disable Elastic Endpoint",
+              "Driver-based EDR termination"
+            ]
+          },
+          {
+            "name": "Infostealer Credential Access",
+            "slug": "remus-infostealer-activity",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555"
+            ],
+            "observables": [
+              "Remus infostealer payload execution inside hollowed process"
+            ]
+          }
+        ],
+        "summary": "The ClickFix campaign uses malicious PowerShell to deliver a signed Microsoft binary (vb7to8.exe) and a malicious NativeAOT-compiled DLL (mscoree.dll) for search-order hijacking. The sideloaded code then performs process hollowing on ServiceModelReg.exe to execute the Remus infostealer and attempts to disable security software using a vulnerable driver."
+      },
+      "severity": "high",
+      "rationale": "Start with hosts running .NET software. Narrow the hunt to workstations first, as ClickFix is primarily a user-targeted social engineering lure.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using ClickFix-themed social engineering to drop a legitimate Microsoft binary and a malicious NativeAOT library in a user-writable directory to achieve sideloading and process hollowing.",
+      "parameters": {
+        "hijack_dll": {
+          "type": "string",
+          "default": "mscoree.dll",
+          "description": "The library name used for sideloading."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Paste hosts from the scoping step to focus the hunt; leave empty for fleet-wide."
+        },
+        "target_exes": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-08-28"
+          },
+          "type": "list[string]",
+          "default": [
+            "vb7to8.exe",
+            "servicemodelreg.exe"
+          ],
+          "description": "Legitimate Microsoft binaries abused for sideloading and hollowing."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/dll-search-order-hijacking-elastic-defend",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/dll-search-order-hijacking-elastic-defend",
+          "name": "Elastic Security Labs \u2014 From 88 lines to 1: Detecting DLL hijacking with Elastic Defend"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-module-telemetry",
+          "risk": "A sideloading event would be invisible; detection would rely entirely on follow-on process hollowing signals.",
+          "stage": "dll-search-order-hijacking",
+          "question": "whether the sideloading occurred on hosts where module loads are not monitored",
+          "requires": "hb_module_activity with ImageLoaded events"
+        },
+        {
+          "id": "powershell-block-logging",
+          "risk": "An analyst cannot determine the source of the infection or what other files were staged.",
+          "stage": "initial-powershell-lure",
+          "question": "the exact URL and payload destination used in the staging script",
+          "requires": "hb_script_activity with full block text"
+        }
+      ]
+    },
+    "name": "ClickFix DLL Sideloading and Process Hollowing",
+    "description": "This hunt follows the ClickFix execution chain documented by Elastic Security Labs. It begins by scoping hosts with .NET environments where NativeAOT libraries can execute, then identifies the loading of mscoree.dll from non-system directories. It corroborates this lead with fleet-wide path baselining of the Visual Basic Upgrade tool (vb7to8.exe), identifies process hollowing signals on the Service Model Registration tool (ServiceModelReg.exe), and recovers the initial PowerShell staging script."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-powershell-lure",
+            "steps": [
+              "powershell-staging-lure"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "dll-search-order-hijacking",
+            "steps": [
+              "sideload-detection",
+              "rare-path-baseline"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "process-hollowing-injection",
+            "steps": [
+              "process-hollowing-signal"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remus-infostealer-activity",
+            "steps": [
+              "triage-agent"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "edr-evasion-byovd",
+            "reason": "Not examined by this hunt; belongs to a separate hunt.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using ClickFix-themed social engineering to drop a legitimate Microsoft binary and a malicious NativeAOT library in a user-writable directory to achieve sideloading and process hollowing.",
+        "blind_spots": [
+          {
+            "id": "no-module-telemetry",
+            "risk": "A sideloading event would be invisible; detection would rely entirely on follow-on process hollowing signals.",
+            "stage": "dll-search-order-hijacking",
+            "question": "whether the sideloading occurred on hosts where module loads are not monitored",
+            "requires": "hb_module_activity with ImageLoaded events"
+          },
+          {
+            "id": "powershell-block-logging",
+            "risk": "An analyst cannot determine the source of the infection or what other files were staged.",
+            "stage": "initial-powershell-lure",
+            "question": "the exact URL and payload destination used in the staging script",
+            "requires": "hb_script_activity with full block text"
+          }
+        ],
+        "scoping_notes": "Start with hosts running .NET software. Narrow the hunt to workstations first, as ClickFix is primarily a user-targeted social engineering lure.",
+        "beyond_detection": "This hunt pivots from a non-standard module load to fleet-wide path prevalence and process 'on_disk' status\u2014corroborating three independent behavioral signals into one confirmed compromise verdict."
+      }
+    },
+    {
+      "id": "dotnet-host-scoping",
+      "type": "query",
+      "label": "Scope to .NET environments",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%microsoft.net%' OR LOWER(package_name) LIKE '%.net%runtime%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts that could execute the NativeAOT payload by checking for .NET software installations.",
+        "expected_signal": "A list of hostnames. Since the payload is a .NET NativeAOT library, hosts with .NET runtimes are primary candidates for this campaign."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to .NET environments",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%microsoft.net%' OR LOWER(package_name) LIKE '%.net%runtime%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames. Since the payload is a .NET NativeAOT library, hosts with .NET runtimes are primary candidates for this campaign.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "sideload-detection",
+      "type": "query",
+      "label": "Non-system load of mscoree.dll",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, module_name, module_path, time FROM hb_module_activity WHERE LOWER(module_name) = '{{hijack_dll}}' AND LOWER(module_path) NOT LIKE 'c:\\windows\\system32\\%' AND LOWER(module_path) NOT LIKE 'c:\\windows\\syswow64\\%' AND LOWER(module_path) NOT LIKE 'c:\\windows\\microsoft.net\\%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_module_activity",
+        "description": "Detect mscoree.dll being loaded from a directory that is not a standard system path, a primary indicator of sideloading.",
+        "expected_signal": "Rows showing mscoree.dll loaded into vb7to8.exe (or similar) from paths like \\AppData\\ or \\Public\\."
+      },
+      "parents": [
+        {
+          "id": "dotnet-host-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Non-system load of mscoree.dll",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "module_name",
+          "module_path",
+          "time"
+        ],
+        "source": "hb_module_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, module_name, module_path, time FROM hb_module_activity WHERE LOWER(module_name) = '{{hijack_dll}}' AND LOWER(module_path) NOT LIKE 'c:\\windows\\system32\\%' AND LOWER(module_path) NOT LIKE 'c:\\windows\\syswow64\\%' AND LOWER(module_path) NOT LIKE 'c:\\windows\\microsoft.net\\%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Rows showing mscoree.dll loaded into vb7to8.exe (or similar) from paths like \\AppData\\ or \\Public\\.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-path-baseline",
+      "type": "query",
+      "label": "Rare execution paths for target binaries",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (instr(',' || '{{target_exes}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count the paths of vb7to8.exe to identify instances running outside of standard administrative locations.",
+        "expected_signal": "A path like C:\\Users\\Public\\vb7to8.exe appearing on only one or two hosts, whereas system-wide installations will have high counts."
+      },
+      "parents": [
+        {
+          "id": "sideload-detection"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare execution paths for target binaries",
+        "reads": [
+          "process_path",
+          "device_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (instr(',' || '{{target_exes}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A path like C:\\Users\\Public\\vb7to8.exe appearing on only one or two hosts, whereas system-wide installations will have high counts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "powershell-staging-lure",
+      "type": "query",
+      "label": "ClickFix PowerShell staging scripts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%vb7to8.exe%' OR LOWER(script_content) LIKE '%mscoree.dll%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Identify the PowerShell script blocks that downloaded or staged the malicious pair of files.",
+        "expected_signal": "Script blocks containing web requests or file-move commands targeting the specific binary names mentioned in the report."
+      },
+      "parents": [
+        {
+          "id": "sideload-detection"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "ClickFix PowerShell staging scripts",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%vb7to8.exe%' OR LOWER(script_content) LIKE '%mscoree.dll%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks containing web requests or file-move commands targeting the specific binary names mentioned in the report.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "process-hollowing-signal",
+      "type": "query",
+      "label": "Hollowing of ServiceModelReg.exe",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, on_disk, time FROM hb_process_activity WHERE LOWER(process_name) LIKE '%servicemodelreg.exe%' AND on_disk = 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify instances of the service registration tool running without a backing binary on disk, a definitive sign of hollowing.",
+        "expected_signal": "Any row where on_disk = 0 for this process is evidence of successful injection."
+      },
+      "parents": [
+        {
+          "id": "sideload-detection"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Hollowing of ServiceModelReg.exe",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "on_disk",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, on_disk, time FROM hb_process_activity WHERE LOWER(process_name) LIKE '%servicemodelreg.exe%' AND on_disk = 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Any row where on_disk = 0 for this process is evidence of successful injection.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage ClickFix campaign",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "sideload-detection",
+          "rare-path-baseline",
+          "powershell-staging-lure",
+          "process-hollowing-signal"
+        ],
+        "objective": "Determine if the loading of mscoree.dll into vb7to8.exe and subsequent spawning of a hollowed ServiceModelReg.exe indicates a successful ClickFix infection.",
+        "description": "Synthesize results to confirm the multi-stage attack chain from lure to infostealer execution.",
+        "max_iterations": 5,
+        "expected_signal": "A verdict citing specific host module loads and the presence of hollowed processes.",
+        "success_criteria": "A verdict per host citing the 'on_disk' status and module load paths."
+      },
+      "parents": [
+        {
+          "id": "rare-path-baseline",
+          "kind": "merge"
+        },
+        {
+          "id": "powershell-staging-lure",
+          "kind": "merge"
+        },
+        {
+          "id": "process-hollowing-signal",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "verdict-decision",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "no-module-telemetry",
+        "confidence": "high",
+        "description": "Route to endpoint containment if malicious activity is verified.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate Endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the infostealer execution and prevent credential exfiltration.",
+        "instructions": "Isolate the host immediately via the EDR. Collect the mscoree.dll and vb7to8.exe binaries from the observed directory for analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-task",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final validation of the compromise and extraction of IOCs.",
+        "instructions": "Examine the script_content from the staging step to identify the download URL. Verify if the host has already loaded the BYOVD driver mentioned in the article."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "default"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and schedule tuning.",
+        "instructions": "Record the hash of the malicious mscoree.dll. If the sideloading check was a true positive, consider promoting the non-system load of mscoree.dll to a standing detection rule."
+      },
+      "parents": [
+        {
+          "id": "analyst-task"
+        }
+      ]
+    }
+  ]
+}

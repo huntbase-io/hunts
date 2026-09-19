@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kimwolf v7: Masquerading and ADB Propagation · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is using unauthenticated ADB access on port 5555 to install Kimwolf malware, which then masquerades as the &#39;netd_service&#39; system process.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/kimwolf-v7-masquerading-adb-propagation/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Kimwolf v7: Masquerading and ADB Propagation · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is using unauthenticated ADB access on port 5555 to install Kimwolf malware, which then masquerades as the &#39;netd_service&#39; system process.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/kimwolf-v7-masquerading-adb-propagation/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">Kimwolf v7: Masquerading and ADB Propagation</h1>
+      <p class="hyp-lead">An adversary is using unauthenticated ADB access on port 5555 to install Kimwolf malware, which then masquerades as the &#39;netd_service&#39; system process.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://unit42.paloaltonetworks.com/kimwolf-v7-botnet-malware/" rel="noopener">Unit 42</a></span>
+<span>2026-09-17</span>        <span>9 steps · 4 queries</span>
+<span class="mono">T1036.004 T1133 T1546</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=kimwolf-v7-masquerading-adb-propagation" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>The Shift in IoT Botnets</h3>
+<p>Recent reporting from Unit 42 in their article <a href="https://unit42.paloaltonetworks.com/kimwolf-v7-botnet-malware/" rel="noopener noreferrer">Kimwolf v7: An Evolution of the Kimwolf Botnet</a> highlights a sophisticated turn for the AISURU/Kimwolf malware. It specifically targets Android-based IoT devices, such as TV boxes, by exploiting unauthenticated Android Debug Bridge (ADB) access. Unlike noisy, self-propagating worms, Kimwolf v7 uses residential proxies to mask its propagation attempts, making simple network blocking less effective.</p>
+<h3>How the Hunt Flows</h3>
+<p>The first phase focuses on scoping. We identify Android and Linux-based hosts within the environment that match the botnet's target profile. Because Kimwolf targets specific architectures, we limit the initial data set to these platforms to reduce processing overhead.</p>
+<p>The second phase looks for the execution of the masqueraded process. While a legitimate Android service named 'netd' is common, 'netd_service' is a known indicator of this v7 evolution. We query process activity logs for this specific string, capturing command lines and user contexts to differentiate it from standard system operations.</p>
+<p>The third phase introduces file-level corroboration. The malware drops characteristic ELF binaries, specifically 'libdevice.so' and 'kernel.so'. We search for the creation or modification of these files on the hosts identified in the previous phases. Finding these binaries in conjunction with the 'netd_service' process significantly increases the confidence of the infection verdict.</p>
+<p>The final phase examines the network surface for inbound ADB connections on port 5555. We look for a pattern where a host receives traffic from a small number of unique external IPs. While many environments use ADB for management, the presence of external connections followed by the aforementioned process and file artifacts indicates a successful compromise.</p>
+<h3>What the Hunt Cannot See</h3>
+<p>This hunt relies on standard endpoint and network telemetry. A primary blind spot is the use of Unix domain sockets for mutex control. Kimwolf v7 uses a socket named '@n*boxv7' to ensure only one instance of the botnet is running; this is generally invisible to standard process snapshots and requires specialized socket logging. Additionally, since the attackers use residential proxies, we cannot inherently distinguish these connections from legitimate remote management without external IP reputation data.</p>
+<h3>Deployment</h3>
+<p>This hunt is provided as a <code>hunt.md</code> playbook. This format allows for direct import into Huntbase or any other <code>hunt.md</code>-aware runtime. It is designed to be an iterative process: if 'netd_service' is found to be a legitimate component of a specific vendor's firmware, that vendor can be added to the exclusions for the next run.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/kimwolf-v7-ens-ddos/index.html">Part 2: Kimwolf v7 ENS Resolution and Outbound DDoS</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is using unauthenticated ADB access on port 5555 to install Kimwolf malware, which then masquerades as the \u0027netd_service\u0027 system process.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify Android and Linux devices that are within the known target profile of the Kimwolf botnet.", "expected": "A list of hostnames belonging to Android or Linux systems. Absence means no such devices are enrolled.", "id": "identify-targetable-iot", "label": "Identify Targetable IoT Assets", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE (LOWER(platform) LIKE \u0027%android%\u0027 OR LOWER(platform) LIKE \u0027%linux%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Detect the Kimwolf v7 process masquerading as \u0027netd_service\u0027.", "expected": "A process named \u0027netd_service\u0027 running on an Android or Linux host. Genuine Android services usually use \u0027netd\u0027, not \u0027netd_service\u0027.", "id": "masqueraded-process-activity", "label": "Masqueraded Process Activity", "parents": [{"branch": null, "id": "identify-targetable-iot", "kind": null}], "query": "SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(\u0027,\u0027 || \u0027{{masquerade_process_names}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify the presence or creation of the specific ELF filenames used by Kimwolf v7.", "expected": "Creation or access of files named \u0027libdevice.so\u0027 or \u0027kernel.so\u0027 on the target devices.", "id": "malicious-file-activity", "label": "Malicious ELF File Activity", "parents": [{"branch": null, "id": "identify-targetable-iot", "kind": null}], "query": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE instr(\u0027,\u0027 || \u0027{{kimwolf_filenames}}\u0027 || \u0027,\u0027, \u0027,\u0027 || file_name || \u0027,\u0027) \u003e 0 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Identify hosts that are unusually exposed to inbound ADB traffic (port 5555).", "expected": "A list of hosts receiving inbound 5555/TCP traffic from a small number of unique external IPs, which is common during targeted botnet infection.", "id": "adb-inbound-connections", "label": "ADB Inbound Connection Baseline", "parents": [{"branch": null, "id": "identify-targetable-iot", "kind": null}], "query": "SELECT device_hostname, dst_endpoint_ip, COUNT(DISTINCT src_endpoint_ip) AS unique_src_ips, MIN(time) AS first_connection, MAX(time) AS last_connection FROM hb_network_connection WHERE dst_endpoint_port = 5555 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY device_hostname, dst_endpoint_ip HAVING unique_src_ips \u003c= 3", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Weigh the evidence from process, file, and network logs to confirm a Kimwolf v7 infection.", "expected": "A per-host verdict of \u0027malicious\u0027 for hosts showing masqueraded processes and file artifacts.", "id": "triage-kimwolf", "label": "Triage Kimwolf Infection", "parents": [{"branch": null, "id": "masqueraded-process-activity", "kind": "merge"}, {"branch": null, "id": "malicious-file-activity", "kind": "merge"}, {"branch": null, "id": "adb-inbound-connections", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the hunt based on the triage findings.", "expected": null, "id": "route-on-verdict", "label": "Route on Verdict", "parents": [{"branch": null, "id": "triage-kimwolf", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Isolate the compromised device to prevent it from participating in DDoS attacks or further lateral movement.", "expected": null, "id": "contain-infected-host", "label": "Contain Infected IoT Host", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review findings, record tuning notes, and close the hunt.", "expected": null, "id": "analyst-review", "label": "Analyst Review and Close-out", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "contain-infected-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-identify-targetable-iot">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Targetable IoT Assets</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify Android and Linux devices that are within the known target profile of the Kimwolf botnet.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE (LOWER(platform) LIKE &#39;%android%&#39; OR LOWER(platform) LIKE &#39;%linux%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames belonging to Android or Linux systems. Absence means no such devices are enrolled.</p>        </li>
+        <li class="card step" id="step-masqueraded-process-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Masqueraded Process Activity</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect the Kimwolf v7 process masquerading as &#39;netd_service&#39;.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{masquerade_process_names}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A process named &#39;netd_service&#39; running on an Android or Linux host. Genuine Android services usually use &#39;netd&#39;, not &#39;netd_service&#39;.</p>        </li>
+        <li class="card step" id="step-malicious-file-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Malicious ELF File Activity</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify the presence or creation of the specific ELF filenames used by Kimwolf v7.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE instr(&#39;,&#39; || &#39;{{kimwolf_filenames}}&#39; || &#39;,&#39;, &#39;,&#39; || file_name || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Creation or access of files named &#39;libdevice.so&#39; or &#39;kernel.so&#39; on the target devices.</p>        </li>
+        <li class="card step" id="step-adb-inbound-connections">
+          <div class="step-head">
+            <h3 class="heading-sm">ADB Inbound Connection Baseline</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify hosts that are unusually exposed to inbound ADB traffic (port 5555).</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, dst_endpoint_ip, COUNT(DISTINCT src_endpoint_ip) AS unique_src_ips, MIN(time) AS first_connection, MAX(time) AS last_connection FROM hb_network_connection WHERE dst_endpoint_port = 5555 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, dst_endpoint_ip HAVING unique_src_ips &lt;= 3</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts receiving inbound 5555/TCP traffic from a small number of unique external IPs, which is common during targeted botnet infection.</p>        </li>
+        <li class="card step" id="step-triage-kimwolf">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage Kimwolf Infection</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Weigh the evidence from process, file, and network logs to confirm a Kimwolf v7 infection.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the hunt based on the triage findings.</p>        </li>
+        <li class="card step" id="step-contain-infected-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Contain Infected IoT Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Isolate the compromised device to prevent it from participating in DDoS attacks or further lateral movement.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review and Close-out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review findings, record tuning notes, and close the hunt.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Unauthenticated ADB Access<br><span class="mono dim">T1133</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>adb-inbound-connections</td></tr>            <tr><td>Process Masquerading and Mutex<br><span class="mono dim">T1036.004 · T1546</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>masqueraded-process-activity, malicious-file-activity</td></tr>            <tr><td>ENS Domain C2 Resolution<br><span class="mono dim">T1568 · T1102</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Kimwolf v7: An Evolution of the Kimwolf Botnet&#39; series.</td></tr>            <tr><td>Local Proxy and Tor Backup<br><span class="mono dim">T1090 · T1090.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Kimwolf v7: An Evolution of the Kimwolf Botnet&#39; series.</td></tr>            <tr><td>Vectorized DDoS Flooding<br><span class="mono dim">T1498.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Kimwolf v7: An Evolution of the Kimwolf Botnet&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs unix_domain_socket logs.</strong> While we see the process name, the unix domain socket is the definitive mutex for Kimwolf v7 and is not visible in standard process snapshots. <span class="dim">It would answer Does the &#39;@n*boxv7&#39; mutex socket exist on the host?.</span></li>          <li class="card"><strong>Needs IP reputation with proxy/residential labels.</strong> Kimwolf uses residential proxies to reach local ADB instances; without source IP reputation data, we cannot distinguish these connections from internal management traffic. <span class="dim">It would answer Is the source IP of the ADB connection a residential proxy?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>kimwolf_filenames</code></td><td class="mono dim">list[string]</td><td class="mono">libdevice.so, kernel.so</td><td>Characteristic filenames associated with the Kimwolf binary.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>masquerade_process_names</code></td><td class="mono dim">list[string]</td><td class="mono">netd_service</td><td>Common process names used by Kimwolf for masquerading.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to focus the hunt on.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple detection rule for the &#39;netd_service&#39; process might be noisy in
+  some IoT environments. This hunt corroborates the process name against file artifacts
+  (libdevice.so) and inbound ADB network patterns, providing the multi-surface context
+  needed to confirm an active botnet infection.
+blind_spots:
+- id: incomplete-telemetry-coverage
+  question: Does the &#39;@n*boxv7&#39; mutex socket exist on the host?
+  requires: unix_domain_socket logs
+  risk: While we see the process name, the unix domain socket is the definitive mutex
+    for Kimwolf v7 and is not visible in standard process snapshots.
+  stage: execution-masquerading-process
+- id: residential-proxy-masking
+  question: Is the source IP of the ADB connection a residential proxy?
+  requires: IP reputation with proxy/residential labels
+  risk: Kimwolf uses residential proxies to reach local ADB instances; without source
+    IP reputation data, we cannot distinguish these connections from internal management
+    traffic.
+  stage: initial-access-adb-proxy
+coverage:
+- stage: initial-access-adb-proxy
+  status: covered
+  steps:
+  - adb-inbound-connections
+- stage: execution-masquerading-process
+  status: covered
+  steps:
+  - masqueraded-process-activity
+  - malicious-file-activity
+- reason: &#39;Belongs to another part of the &#39;&#39;Kimwolf v7: An Evolution of the Kimwolf
+    Botnet&#39;&#39; series.&#39;
+  stage: c2-ens-blockchain-resolution
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Kimwolf v7: An Evolution of the Kimwolf
+    Botnet&#39;&#39; series.&#39;
+  stage: c2-tor-and-local-proxy
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Kimwolf v7: An Evolution of the Kimwolf
+    Botnet&#39;&#39; series.&#39;
+  stage: impact-distributed-denial-of-service
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Kimwolf v7 specifically targets unmanaged IoT devices like Android
+    TV boxes which often lack standard security agents. A negative result confirms
+    that the fleet&#39;s exposure to common unauthenticated ADB exploitation is minimized.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is using unauthenticated ADB access on port 5555 to install
+  Kimwolf malware, which then masquerades as the &#39;netd_service&#39; system process.
+labels:
+- hunt
+- attack.t1133
+- attack.t1036.004
+- attack.t1546
+name: &#39;Kimwolf v7: Masquerading and ADB Propagation&#39;
+parameters:
+  kimwolf_filenames:
+    default:
+    - libdevice.so
+    - kernel.so
+    description: Characteristic filenames associated with the Kimwolf binary.
+    from:
+      kind: article
+      observed: &#39;2026-08-11&#39;
+      ref: unit42-kimwolf-v7
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  masquerade_process_names:
+    default:
+    - netd_service
+    description: Common process names used by Kimwolf for masquerading.
+    from:
+      kind: article
+      observed: &#39;2026-08-11&#39;
+      ref: unit42-kimwolf-v7
+    type: list[string]
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to focus the hunt on.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://unit42.paloaltonetworks.com/kimwolf-v7-botnet-malware/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on the &#39;Android&#39; and &#39;Linux&#39; platforms first as Kimwolf specifically
+  targets these IoT environments. If the estate is large, prioritize devices with
+  public-facing IPs or those located in segments that allow inbound 5555/TCP.
+references:
+- name: &#34;Unit 42 \u2014 Kimwolf v7: An Evolution of the Kimwolf Botnet&#34;
+  url: https://unit42.paloaltonetworks.com/kimwolf-v7-botnet-malware/
+related:
+- hunt: kimwolf-c2-infrastructure-resolution
+  reason: This hunt focuses on endpoint infection and masquerading; Ethereum ENS resolution
+    and Tor backup C2 are behavioral phases handled in a companion hunt.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: Unauthenticated ADB Access
+    observables:
+    - port 5555
+    - residential proxy misuse
+    slug: initial-access-adb-proxy
+    tactic: initial-access
+    techniques:
+    - T1133
+  - name: Process Masquerading and Mutex
+    observables:
+    - &#39;process_name: netd_service&#39;
+    - &#39;file_name: libdevice.so&#39;
+    - &#39;file_name: kernel.so&#39;
+    - &#39;unix_domain_socket: @n*boxv7&#39;
+    slug: execution-masquerading-process
+    tactic: defence-evasion
+    techniques:
+    - T1036.004
+    - T1546
+  - name: ENS Domain C2 Resolution
+    observables:
+    - &#39;domain: 0xrpc.io&#39;
+    - &#39;domain: eth.llamarpc.com&#39;
+    - &#39;domain: ethereum-rpc.publicnode.com&#39;
+    - &#39;domain: eth-protect.rpc.blxrbdn.com&#39;
+    - &#39;domain: eth.merkle.io&#39;
+    - &#39;domain: eth.rpcuniverse.com&#39;
+    slug: c2-ens-blockchain-resolution
+    tactic: command-and-control
+    techniques:
+    - T1568
+    - T1102
+  - name: Local Proxy and Tor Backup
+    observables:
+    - 127.0.0.1:23075
+    - edctgwib2n5l34t525zkxqzk5bqb6e5il2yiq5r6zu7gtlxa4uosn3qd.onion
+    - &#39;SOCKS5 greeting: 0x05 0x01 0x00&#39;
+    slug: c2-tor-and-local-proxy
+    tactic: command-and-control
+    techniques:
+    - T1090
+    - T1090.003
+  - name: Vectorized DDoS Flooding
+    observables:
+    - &#39;destination_ip: 212.193.31.119&#39;
+    - &#39;destination_ip: 212.193.31.122&#39;
+    - &#39;destination_ip: 212.193.31.92&#39;
+    - &#39;destination_ip: 212.193.31.158&#39;
+    - &#39;destination_port: 13&#39;
+    - HTTP/2 browser fingerprints
+    - ARM NEON SIMD checksum acceleration
+    slug: impact-distributed-denial-of-service
+    tactic: impact
+    techniques:
+    - T1498.001
+  summary: Kimwolf v7 is an Android-based IoT botnet that gains initial access through
+    unauthenticated ADB on port 5555 via residential proxies. It maintains operational
+    resilience using Ethereum Name Service (ENS) for C2 resolution and Tor as a backup,
+    ultimately performing high-performance DDoS attacks with browser-fingerprinted
+    HTTP/2 floods.
+series:
+  index: 1
+  slug: kimwolf-v7-an-evolution-of-the-kimwolf-botnet
+  title: &#39;Kimwolf v7: An Evolution of the Kimwolf Botnet&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Kimwolf v7: Masquerading and ADB Propagation
+
+Kimwolf (AISURU) v7 is a specialized botnet targeting Android-based IoT devices, such as TV boxes. It propagates by misusing residential proxies to find exposed ADB instances on port 5555. Once on a device, the malware masks its process name as &#39;netd_service&#39; and drops characteristic ELF binaries such as &#39;libdevice.so&#39; and &#39;kernel.so&#39;. This hunt identifies these compromised devices by correlating inbound ADB traffic with masqueraded process activity and specific file drops.
+
+## identify-targetable-iot
+&lt;!-- Identify Targetable IoT Assets --&gt;
+Identify Android and Linux devices that are within the known target profile of the Kimwolf botnet.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames belonging to Android or Linux systems. Absence means
+  no such devices are enrolled.
+reads:
+- hostname
+- platform
+- time
+silence: not_evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE (LOWER(platform) LIKE &#39;%android%&#39; OR LOWER(platform) LIKE &#39;%linux%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## corroborate-compromise
+&lt;!-- Corroborate Evidence of Compromise --&gt;
+parallel:
+- → masqueraded-process-activity
+- → malicious-file-activity
+- → adb-inbound-connections
+join: → triage-kimwolf
+
+## masqueraded-process-activity
+&lt;!-- Masqueraded Process Activity --&gt;
+Detect the Kimwolf v7 process masquerading as &#39;netd_service&#39;.
+
+```sqlite target=endpoint role=detection-candidate params=(masquerade_process_names=masquerade_process_names, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A process named &#39;netd_service&#39; running on an Android or Linux host. Genuine
+  Android services usually use &#39;netd&#39;, not &#39;netd_service&#39;.
+reads:
+- device_hostname
+- process_name
+- process_path
+- process_cmd_line
+- user_name
+- time
+silence: evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{masquerade_process_names}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## malicious-file-activity
+&lt;!-- Malicious ELF File Activity --&gt;
+Identify the presence or creation of the specific ELF filenames used by Kimwolf v7.
+
+```sqlite target=endpoint role=enrichment params=(kimwolf_filenames=kimwolf_filenames, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Creation or access of files named &#39;libdevice.so&#39; or &#39;kernel.so&#39; on the target
+  devices.
+reads:
+- device_hostname
+- file_name
+- file_path
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE instr(&#39;,&#39; || &#39;{{kimwolf_filenames}}&#39; || &#39;,&#39;, &#39;,&#39; || file_name || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## adb-inbound-connections
+&lt;!-- ADB Inbound Connection Baseline --&gt;
+Identify hosts that are unusually exposed to inbound ADB traffic (port 5555).
+
+```sqlite target=network role=baseline params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A list of hosts receiving inbound 5555/TCP traffic from a small number of
+  unique external IPs, which is common during targeted botnet infection.
+prevalence:
+  by: src_endpoint_ip
+  key:
+  - device_hostname
+  rare_below: 3
+reads:
+- device_hostname
+- dst_endpoint_ip
+- dst_endpoint_port
+- src_endpoint_ip
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, dst_endpoint_ip, COUNT(DISTINCT src_endpoint_ip) AS unique_src_ips, MIN(time) AS first_connection, MAX(time) AS last_connection FROM hb_network_connection WHERE dst_endpoint_port = 5555 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY device_hostname, dst_endpoint_ip HAVING unique_src_ips &lt;= 3
+```
+
+## triage-kimwolf
+&lt;!-- Triage Kimwolf Infection --&gt;
+```agent target=hunter
+cite: required
+context:
+- identify-targetable-iot
+- masqueraded-process-activity
+- malicious-file-activity
+- adb-inbound-connections
+max_iterations: 3
+objective: Determine if any host shows evidence of Kimwolf masquerading (&#39;netd_service&#39;)
+  alongside infection indicators like &#39;libdevice.so&#39; or inbound port 5555 traffic.
+success_criteria: A per-host verdict citing rows from the corroboration steps.
+tools:
+- endpoint
+- network
+```
+
+## route-on-verdict
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the triage verdict is &#39;malicious&#39; for at least one host&#34; (confidence: high, judge=hunter)
+then: → contain-infected-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: incomplete-telemetry-coverage)
+else: → analyst-review
+
+## contain-infected-host
+&lt;!-- Contain Infected IoT Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the endpoint and revoke any local credentials. Preserve &#39;libdevice.so&#39; or &#39;kernel.so&#39; for forensic analysis.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review and Close-out --&gt;
+```manual target=analyst
+Verify the triage findings. If &#39;netd_service&#39; is a false positive from a legitimate app, record the app details for tuning. If confirmed malicious, ensure port 5555 is blocked at the firewall for all IoT segments.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=kimwolf-v7-masquerading-adb-propagation" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

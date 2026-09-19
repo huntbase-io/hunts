@@ -1,0 +1,538 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries frequently use WMI for internal movement because it is blended with legitimate admin activity. Identifying the intersection of this behavior with rare outbound proxy traffic is a high-confidence indicator of a mature threat actor."
+      },
+      "name": "Remote WMI Execution and Multi-hop Proxy C2",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1047",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "wmi-event-subscription-persistence",
+          "reason": "WMI is also used for persistence via Event Subscriptions, which involves the registry and different wmic command lines.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple rule for WMI child processes triggers on every admin login. This hunt adds the context of multi-hop proxy egress and uses prevalence to baseline 'normal' administrative WMI usage, transforming noise into a grounded investigation.",
+      "coverage": [
+        {
+          "stage": "lateral-movement-wmi",
+          "steps": [
+            "wmi-child-processes",
+            "anomalous-wmi-pivots"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-multi-hop-proxy",
+          "steps": [
+            "rare-proxy-dns-lookups"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "WMI Remote Execution",
+            "slug": "lateral-movement-wmi",
+            "tactic": "execution",
+            "techniques": [
+              "T1047"
+            ],
+            "observables": [
+              "wmic.exe /node:",
+              "wmiprvse.exe activity",
+              "process creation via WMI",
+              "connections on port 135 (DCOM)",
+              "connections on port 5985 or 5986 (WinRM)"
+            ]
+          },
+          {
+            "name": "Multi-hop Proxy Command and Control",
+            "slug": "c2-multi-hop-proxy",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion domains",
+              "DNS queries for .onion.ca or .onion.direct",
+              "Outbound traffic to Tor exit nodes",
+              "Connections to VPS or Operational Relay Box (ORB) networks"
+            ]
+          }
+        ],
+        "summary": "An adversary leverages Windows Management Instrumentation (WMI) for remote command execution and lateral movement across the internal network. Following successful movement, the attacker establishes command-and-control using multi-hop proxies to mask malicious traffic and evade network-based detections."
+      },
+      "severity": "medium",
+      "rationale": "Target all Windows hosts. In large environments, prioritize workstations first, as servers often have legitimate WMI management overhead that requires stricter baselining.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is leveraging WMI for lateral movement to execute shells and then establishing command-and-control communication through multi-hop proxy networks like Tor to bypass traditional egress monitoring.",
+      "parameters": {
+        "proxy_tlds": {
+          "from": {
+            "ref": "Elastic Security Labs 9.5",
+            "kind": "article",
+            "observed": "2024-07-31"
+          },
+          "type": "list[domain]",
+          "default": [
+            "onion",
+            "onion.ca",
+            "onion.cab",
+            "onion.casa",
+            "onion.city",
+            "onion.direct",
+            "hiddenservice.net"
+          ],
+          "description": "Top-level domains or domain fragments associated with multi-hop proxy networks."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-input",
+            "kind": "manual",
+            "observed": "2024-07-31"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to scope the hunt; leave empty for fleet-wide."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2024-07-31"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "suspicious_original_names": {
+          "from": {
+            "ref": "Elastic Security Labs 9.5",
+            "kind": "article",
+            "observed": "2024-07-31"
+          },
+          "type": "list[string]",
+          "default": [
+            "cmd.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "scrcons.exe",
+            "wscript.exe",
+            "cscript.exe",
+            "schtasks.exe",
+            "certutil.exe"
+          ],
+          "description": "Original PE filenames for common shells and admin tools spawned via WMI."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/agentic-soc-alert-triage-alertzero",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/agentic-soc-alert-triage-alertzero",
+          "name": "Elastic Security Labs \u2014 Alert Zero: AI-driven alert triage and attack investigation"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-sysmon-pe-metadata",
+          "risk": "If the endpoint agent does not report process_original_file_name, renamed shells will only be caught by command-line patterns, which are easier to evade.",
+          "owner": "Detection Engineering",
+          "stage": "lateral-movement-wmi",
+          "question": "Are renamed shells being detected by their original name?",
+          "requires": "Sysmon or EDR with PE header parsing",
+          "remediation": "Deploy Sysmon with Event ID 1 enabled on all Windows endpoints."
+        },
+        {
+          "id": "tor-over-http",
+          "risk": "Adversaries using HTTPS proxies to access .onion addresses will not generate hb_dns_activity rows, making them invisible to this hunt's proxy query.",
+          "owner": "Network Security",
+          "stage": "c2-multi-hop-proxy",
+          "question": "Is Tor traffic being routed through Tor2Web or HTTPS gateways?",
+          "requires": "hb_http_activity",
+          "remediation": "Implement URL filtering for common Tor2Web gateways."
+        }
+      ]
+    },
+    "name": "Remote WMI Execution and Multi-hop Proxy C2",
+    "description": "This hunt identifies the transition from internal lateral movement to external command-and-control. It specifically looks for Windows Management Instrumentation (WMI) provider host (wmiprvse.exe) spawning administrative shells or renamed binaries, stack-counted across the fleet to find anomalies. It simultaneously gathers evidence of rare internal connections on RPC/WinRM ports and DNS lookups for known anonymization networks like Tor, using an agent to correlate these independent signals into a unified attack chain."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "lateral-movement-wmi",
+            "steps": [
+              "wmi-child-processes",
+              "anomalous-wmi-pivots"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-multi-hop-proxy",
+            "steps": [
+              "rare-proxy-dns-lookups"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is leveraging WMI for lateral movement to execute shells and then establishing command-and-control communication through multi-hop proxy networks like Tor to bypass traditional egress monitoring.",
+        "blind_spots": [
+          {
+            "id": "no-sysmon-pe-metadata",
+            "risk": "If the endpoint agent does not report process_original_file_name, renamed shells will only be caught by command-line patterns, which are easier to evade.",
+            "owner": "Detection Engineering",
+            "stage": "lateral-movement-wmi",
+            "question": "Are renamed shells being detected by their original name?",
+            "requires": "Sysmon or EDR with PE header parsing",
+            "remediation": "Deploy Sysmon with Event ID 1 enabled on all Windows endpoints."
+          },
+          {
+            "id": "tor-over-http",
+            "risk": "Adversaries using HTTPS proxies to access .onion addresses will not generate hb_dns_activity rows, making them invisible to this hunt's proxy query.",
+            "owner": "Network Security",
+            "stage": "c2-multi-hop-proxy",
+            "question": "Is Tor traffic being routed through Tor2Web or HTTPS gateways?",
+            "requires": "hb_http_activity",
+            "remediation": "Implement URL filtering for common Tor2Web gateways."
+          }
+        ],
+        "scoping_notes": "Target all Windows hosts. In large environments, prioritize workstations first, as servers often have legitimate WMI management overhead that requires stricter baselining.",
+        "beyond_detection": "A simple rule for WMI child processes triggers on every admin login. This hunt adds the context of multi-hop proxy egress and uses prevalence to baseline 'normal' administrative WMI usage, transforming noise into a grounded investigation."
+      }
+    },
+    {
+      "id": "scope-windows-estate",
+      "type": "query",
+      "label": "Scope Windows estate",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT hostname, device_uid, os_name, os_version FROM hb_devices WHERE platform = 'windows' AND lifecycle_state = 'running' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY hostname",
+        "surface": "hb_devices",
+        "description": "Identify active Windows hosts that could be the target of WMI-based lateral movement.",
+        "expected_signal": "A list of Windows hostnames. Silence indicates no active Windows hosts are reporting telemetry."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope Windows estate",
+        "reads": [
+          "hostname",
+          "platform",
+          "lifecycle_state",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname, device_uid, os_name, os_version FROM hb_devices WHERE platform = 'windows' AND lifecycle_state = 'running' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY hostname",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of Windows hostnames. Silence indicates no active Windows hosts are reporting telemetry.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "wmi-child-processes",
+      "type": "query",
+      "label": "Suspicious WMI Child Process Execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%\\\\wmiprvse.exe' AND (instr(',' || '{{suspicious_original_names}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0 OR LOWER(process_name) LIKE '%cmd.exe%' OR LOWER(process_name) LIKE '%powershell.exe%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find WMI-initiated execution of shells or administrative tools by checking PE metadata and parentage.",
+        "expected_signal": "Rows showing shell activity originating from WMI. A mismatch between process_name and original_file_name is a high-confidence signal of binary renaming."
+      },
+      "parents": [
+        {
+          "id": "scope-windows-estate"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Suspicious WMI Child Process Execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_original_file_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%\\\\wmiprvse.exe' AND (instr(',' || '{{suspicious_original_names}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0 OR LOWER(process_name) LIKE '%cmd.exe%' OR LOWER(process_name) LIKE '%powershell.exe%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows showing shell activity originating from WMI. A mismatch between process_name and original_file_name is a high-confidence signal of binary renaming.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-proxy-dns-lookups",
+      "type": "query",
+      "label": "Rare Proxy-Related DNS Activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS total_lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(',' || '{{proxy_tlds}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR LOWER(query_hostname) LIKE '%.onion%' OR LOWER(query_hostname) LIKE '%.hiddenservice.net%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_dns_activity",
+        "description": "Identify resolutions for proxy domains and TLDs, stack-counting to isolate one-off activity from noisy but legitimate software.",
+        "expected_signal": "Hosts resolving domains linked to Tor or other multi-hop proxies. Small host counts (<3) increase the probability of malicious intent."
+      },
+      "parents": [
+        {
+          "id": "wmi-child-processes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Proxy-Related DNS Activity",
+        "reads": [
+          "query_hostname",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS total_lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(',' || '{{proxy_tlds}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR LOWER(query_hostname) LIKE '%.onion%' OR LOWER(query_hostname) LIKE '%.hiddenservice.net%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Hosts resolving domains linked to Tor or other multi-hop proxies. Small host counts (<3) increase the probability of malicious intent.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 4
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "anomalous-wmi-pivots",
+      "type": "query",
+      "label": "Rare Internal WMI/WinRM Pivots",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS source_hosts, MIN(time) AS first_seen FROM hb_network_connection WHERE dst_endpoint_port IN (135, 5985, 5986) AND direction = 'outbound' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING source_hosts <= 5 ORDER BY source_hosts ASC",
+        "surface": "hb_network_connection",
+        "description": "Identify targeted lateral movement by monitoring outbound connections on WMI-related ports (135, 5985, 5986) to rare destination IPs.",
+        "expected_signal": "A list of internal IPs receiving WMI traffic from a limited set of sources. This filters out enterprise-wide management servers."
+      },
+      "parents": [
+        {
+          "id": "wmi-child-processes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Internal WMI/WinRM Pivots",
+        "reads": [
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "device_hostname",
+          "time",
+          "direction"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS source_hosts, MIN(time) AS first_seen FROM hb_network_connection WHERE dst_endpoint_port IN (135, 5985, 5986) AND direction = 'outbound' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING source_hosts <= 5 ORDER BY source_hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of internal IPs receiving WMI traffic from a limited set of sources. This filters out enterprise-wide management servers.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip"
+          ],
+          "rare_below": 6
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage Execution and Network Chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "wmi-child-processes",
+          "rare-proxy-dns-lookups",
+          "anomalous-wmi-pivots"
+        ],
+        "objective": "Determine whether suspicious WMI processes on specific hosts are part of a larger intrusion chain involving rare proxy egress or internal lateral pivots.",
+        "description": "Analyze the results from process, DNS, and network surfaces to identify hosts displaying the full lateral-to-C2 attack chain.",
+        "max_iterations": 6,
+        "expected_signal": "A clear verdict identifying hosts where WMI execution overlaps with rare outbound proxy or internal WMI pivots.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign citing rows from at least two of the three analyzed surfaces."
+      },
+      "parents": [
+        {
+          "id": "rare-proxy-dns-lookups",
+          "kind": "merge"
+        },
+        {
+          "id": "anomalous-wmi-pivots",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host AND that host shows WMI execution and either proxy DNS or a rare WMI pivot.",
+        "condition": "the triage verdict is malicious for at least one host AND that host shows WMI execution and either proxy DNS or a rare WMI pivot.",
+        "blind_spot": "no-sysmon-pe-metadata",
+        "confidence": "high",
+        "description": "Determine whether immediate isolation is required or if a manual review is sufficient.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further lateral movement and C2 heartbeats while forensic evidence is collected.",
+        "instructions": "Isolate the host immediately. Collect any binaries cited by the wmi-child-processes step for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review and Remediation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the findings, check command lines for encoded payloads, and finalize the incident response.",
+        "instructions": "Review the wmi-child-processes command lines for '-enc' or base64 patterns. Verify the DNS lookups against the CISA Tor exit node list. Finalize the triage of suspicious internal pivots."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    }
+  ]
+}

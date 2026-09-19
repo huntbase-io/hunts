@@ -1,0 +1,565 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The shift toward agentic and autonomous cloud management introduces high-privilege persistence vectors that traditional detections miss. This hunt confirms that remote management tools are not being misused via known obfuscation infrastructure."
+      },
+      "name": "Proxy-Obfuscated Cloud Access and Remote Management Misuse",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1090.003",
+        "attack.t1078.004",
+        "attack.t1021.001"
+      ],
+      "related": [
+        {
+          "hunt": "unauthorized-tenant-governance-changes",
+          "reason": "Changes to Entra Tenant Governance configurations themselves require a separate hunt over cloud control-plane logs.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule flags Tor or known VPNs; this hunt pivots from those indicators to identify 'Remote Unattended Support' misuse and stack-counts management traffic to find rare ORB hostnames that blocklists fail to catch.",
+      "coverage": [
+        {
+          "stage": "multi-hop-proxy-obfuscation",
+          "steps": [
+            "obfuscated-cloud-signins",
+            "management-process-outbound-prevalence",
+            "orb-dns-resolutions"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "obfuscated-identity-login",
+          "steps": [
+            "obfuscated-cloud-signins"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remote-management-persistence",
+          "steps": [
+            "management-software-scoping",
+            "management-process-outbound-prevalence"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Multi-hop Proxy C2 Obfuscation",
+            "slug": "multi-hop-proxy-obfuscation",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for onion domains (.onion, .onion.ca, .onion.direct)",
+              "Outbound network connections to known Tor exit nodes",
+              "Traffic to VPS-hosted Operational Relay Box (ORB) infrastructure"
+            ]
+          },
+          {
+            "name": "Cloud Identity Access via Proxy",
+            "slug": "obfuscated-identity-login",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1078.004"
+            ],
+            "observables": [
+              "Sign-in events to Okta, AWS, or M365 originating from known proxy or VPS IP ranges",
+              "Anomalous authentication attempts following cross-tenant configuration changes in Microsoft Entra"
+            ]
+          },
+          {
+            "name": "Remote Support Feature Misuse",
+            "slug": "remote-management-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1021.001"
+            ],
+            "observables": [
+              "Execution of Windows Unattended Support sessions via Microsoft Intune",
+              "Remote sign-in events associated with new Windows Autopilot device associations",
+              "Execution of remote support processes without corresponding user-initiated support tickets"
+            ]
+          }
+        ],
+        "summary": "Adversaries utilize multi-hop proxy networks like Tor or Operational Relay Boxes (ORBs) to disguise their origin while targeting cloud identity providers and management consoles. This obfuscation facilitates unauthorized access to environments (AWS, Okta, M365) and the subsequent misuse of remote management tools, such as Windows Unattended Support, for persistence on endpoints."
+      },
+      "severity": "medium",
+      "rationale": "Start with servers and administrative workstations that have Microsoft Intune or specialized remote support tools installed. The scoping step output should be used to populate the 'scope_hosts' parameter for all subsequent network and DNS queries.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using multi-hop proxies or Operational Relay Box (ORB) networks to mask their origin while misusing cloud-native remote management features (Intune/Autopilot) for persistence and lateral movement.",
+      "parameters": {
+        "orb_domains": {
+          "from": {
+            "ref": "ORB research indicators",
+            "kind": "manual",
+            "observed": "2026-08-27"
+          },
+          "type": "list[domain]",
+          "default": [
+            "hopto.org",
+            "zapto.org",
+            "sytes.net",
+            "ddns.net"
+          ],
+          "description": "Dynamic DNS domains often associated with Operational Relay Box (ORB) traffic."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Output hosts from the scoping step; paste them here to filter subsequent queries."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "proxy_vps_ips": {
+          "from": {
+            "ref": "Common VPS provider ranges",
+            "kind": "manual",
+            "observed": "2026-08-27"
+          },
+          "type": "list[ip]",
+          "default": [
+            "45.33.0.0",
+            "104.196.0.0",
+            "139.162.0.0",
+            "172.104.0.0"
+          ],
+          "description": "Known VPS or proxy egress IPs used for ORB activity."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/08/27/whats-new-in-microsoft-security-august-2026/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/08/27/whats-new-in-microsoft-security-august-2026/",
+          "name": "What\u2019s new in Microsoft Security: August 2026"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-auth-logs",
+          "risk": "A multi-tenant adversary could move laterally through unmonitored tenants, bypassing the hunt entirely.",
+          "owner": "Cloud Infrastructure Team",
+          "stage": "obfuscated-identity-login",
+          "question": "whether the adversary accessed a 'shadow' tenant not currently enrolled in the security monitoring platform",
+          "requires": "Complete hb_auth_signin coverage for all cloud tenants",
+          "remediation": "Enroll all discovered Entra tenants into central logging via Entra Tenant Governance."
+        },
+        {
+          "id": "ephemeral-orb-nodes",
+          "risk": "ORB networks often use residential nodes that rotate faster than static blocklists, leading to false negatives on IP-based detection.",
+          "owner": "Security Engineering",
+          "stage": "multi-hop-proxy-obfuscation",
+          "question": "whether the connection was to a residential IP acting as an ORB node not in the static proxy list",
+          "requires": "High-frequency IP reputation data or netflow to low-reputation ASNs",
+          "remediation": "Integrate a real-time residential proxy feed or implement JA3 fingerprinting for management processes."
+        }
+      ]
+    },
+    "name": "Proxy-Obfuscated Cloud Access and Remote Management Misuse",
+    "description": "This hunt targets the intersection of network obfuscation and cloud-native management misuse. It identifies authentication attempts originating from known VPS and proxy infrastructure, correlates them with the use of 'Windows Unattended Support' and 'Autopilot' features, and baselines outbound network activity from these management processes. By combining identity signals with network prevalence, the hunt identifies cases where remote support tools are being turned into persistent backdoors."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "multi-hop-proxy-obfuscation",
+            "steps": [
+              "obfuscated-cloud-signins",
+              "management-process-outbound-prevalence",
+              "orb-dns-resolutions"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "obfuscated-identity-login",
+            "steps": [
+              "obfuscated-cloud-signins"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remote-management-persistence",
+            "steps": [
+              "management-software-scoping",
+              "management-process-outbound-prevalence"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using multi-hop proxies or Operational Relay Box (ORB) networks to mask their origin while misusing cloud-native remote management features (Intune/Autopilot) for persistence and lateral movement.",
+        "blind_spots": [
+          {
+            "id": "missing-auth-logs",
+            "risk": "A multi-tenant adversary could move laterally through unmonitored tenants, bypassing the hunt entirely.",
+            "owner": "Cloud Infrastructure Team",
+            "stage": "obfuscated-identity-login",
+            "question": "whether the adversary accessed a 'shadow' tenant not currently enrolled in the security monitoring platform",
+            "requires": "Complete hb_auth_signin coverage for all cloud tenants",
+            "remediation": "Enroll all discovered Entra tenants into central logging via Entra Tenant Governance."
+          },
+          {
+            "id": "ephemeral-orb-nodes",
+            "risk": "ORB networks often use residential nodes that rotate faster than static blocklists, leading to false negatives on IP-based detection.",
+            "owner": "Security Engineering",
+            "stage": "multi-hop-proxy-obfuscation",
+            "question": "whether the connection was to a residential IP acting as an ORB node not in the static proxy list",
+            "requires": "High-frequency IP reputation data or netflow to low-reputation ASNs",
+            "remediation": "Integrate a real-time residential proxy feed or implement JA3 fingerprinting for management processes."
+          }
+        ],
+        "scoping_notes": "Start with servers and administrative workstations that have Microsoft Intune or specialized remote support tools installed. The scoping step output should be used to populate the 'scope_hosts' parameter for all subsequent network and DNS queries.",
+        "beyond_detection": "A simple detection rule flags Tor or known VPNs; this hunt pivots from those indicators to identify 'Remote Unattended Support' misuse and stack-counts management traffic to find rare ORB hostnames that blocklists fail to catch."
+      }
+    },
+    {
+      "id": "management-software-scoping",
+      "type": "query",
+      "label": "Identify Hosts with Remote Management Capabilities",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%intune%' OR LOWER(package_name) LIKE '%autopilot%' OR LOWER(package_name) LIKE '%remote%support%')",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts with Intune, Autopilot, or Remote Support tools installed. The resulting hostnames must be used to filter the later outbound prevalence and DNS resolution queries.",
+        "expected_signal": "A list of hosts currently reporting management software. Silence indicates a lack of managed assets or incorrect software inventory reporting."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Hosts with Remote Management Capabilities",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%intune%' OR LOWER(package_name) LIKE '%autopilot%' OR LOWER(package_name) LIKE '%remote%support%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts currently reporting management software. Silence indicates a lack of managed assets or incorrect software inventory reporting.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "obfuscated-cloud-signins",
+      "type": "query",
+      "label": "Cloud Sign-ins from VPS/Proxy IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, provider, dst_endpoint_name, status_id, auth_protocol, time FROM hb_auth_signin WHERE (instr(',' || '{{proxy_vps_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Detect identity access attempts to M365, AWS, or Okta originating from known VPS ranges, potentially indicating multi-hop proxy usage. Includes status and protocol to distinguish stuffing from breaches.",
+        "expected_signal": "Sign-in events from non-residential IP ranges. High signal if success (status_id=1) is followed by remote management interactions."
+      },
+      "parents": [
+        {
+          "id": "management-software-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Cloud Sign-ins from VPS/Proxy IPs",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "provider",
+          "dst_endpoint_name",
+          "status_id",
+          "auth_protocol",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, provider, dst_endpoint_name, status_id, auth_protocol, time FROM hb_auth_signin WHERE (instr(',' || '{{proxy_vps_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Sign-in events from non-residential IP ranges. High signal if success (status_id=1) is followed by remote management interactions.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "management-process-outbound-prevalence",
+      "type": "query",
+      "label": "Prevalence of Outbound Connections from Management Processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT process_name, dst_endpoint_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%remotesupport%' OR LOWER(process_name) LIKE '%intune%' OR LOWER(process_name) LIKE '%autopilot%') AND activity_id IN (1, 6) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, dst_endpoint_hostname HAVING host_count <= 2 ORDER BY host_count ASC",
+        "surface": "hb_network_connection",
+        "description": "Stack-count outbound connections from remote support binaries to identify rare C2 channels. Uses destination hostname to aggregate connections to dynamic ORB infrastructure and filters for established traffic.",
+        "expected_signal": "A management process talking to a hostname that only 1 or 2 hosts in the estate have seen. Rare hostnames suggest dynamic DNS or ORB infrastructure."
+      },
+      "parents": [
+        {
+          "id": "management-software-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Prevalence of Outbound Connections from Management Processes",
+        "reads": [
+          "process_name",
+          "dst_endpoint_hostname",
+          "device_hostname",
+          "activity_id",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT process_name, dst_endpoint_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%remotesupport%' OR LOWER(process_name) LIKE '%intune%' OR LOWER(process_name) LIKE '%autopilot%') AND activity_id IN (1, 6) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, dst_endpoint_hostname HAVING host_count <= 2 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A management process talking to a hostname that only 1 or 2 hosts in the estate have seen. Rare hostnames suggest dynamic DNS or ORB infrastructure.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "dst_endpoint_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "orb-dns-resolutions",
+      "type": "query",
+      "label": "DNS Resolutions for Suspected ORB Domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (instr(',' || '{{orb_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Identify hosts resolving dynamic DNS domains common in ORB infrastructure, restricted to the hosts identified in the scoping step.",
+        "expected_signal": "Resolutions for DDNS providers. Suspicious if paired with management processes like Intune or Remote Support."
+      },
+      "parents": [
+        {
+          "id": "management-software-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS Resolutions for Suspected ORB Domains",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (instr(',' || '{{orb_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Resolutions for DDNS providers. Suspicious if paired with management processes like Intune or Remote Support.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-proxy-misuse",
+      "type": "analytic",
+      "label": "Triage Proxy-Cloud Access and Management Misuse",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "management-software-scoping",
+          "obfuscated-cloud-signins",
+          "management-process-outbound-prevalence",
+          "orb-dns-resolutions"
+        ],
+        "objective": "Determine if any host or user shows signs of using multi-hop proxies to access cloud management features or if management tools are beaconing to ORB nodes.",
+        "description": "Evaluate whether authentication from VPS IPs, rare management-process connections, and ORB DNS activity indicate a coordinated attempt to bypass security controls via remote management features.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host/user verdict identifying malicious activity where proxy-based logins coincide with abnormal management tool usage.",
+        "success_criteria": "A per-host verdict citing specific IPs, users, and process names."
+      },
+      "parents": [
+        {
+          "id": "obfuscated-cloud-signins",
+          "kind": "merge"
+        },
+        {
+          "id": "management-process-outbound-prevalence",
+          "kind": "merge"
+        },
+        {
+          "id": "orb-dns-resolutions",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one user or host showing VPS-based management access",
+        "condition": "the triage verdict is malicious for at least one user or host showing VPS-based management access",
+        "blind_spot": "missing-auth-logs",
+        "confidence": "high",
+        "description": "Determine whether to initiate incident response or refer to an analyst.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-proxy-misuse"
+        }
+      ]
+    },
+    {
+      "id": "isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate Compromised Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Neutralize the beachhead to prevent lateral movement via misused management features.",
+        "instructions": "Isolate the host(s) identified in the triage verdict. Revoke cloud sessions for associated users and investigate Intune/Autopilot audit logs for unauthorized configuration changes.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review-triage",
+      "type": "task",
+      "label": "Analyst Review of Proxy Findings",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final human check of corroborating evidence.",
+        "instructions": "Review the cited IPs and DNS domains. Check internal support tickets to see if the 'Remote Unattended Support' session was authorized. If the scoping step returned many false positives, adjust the software filter."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings.",
+        "instructions": "Record the IPs identified as malicious to the organization's blocklist and note any new management processes observed."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

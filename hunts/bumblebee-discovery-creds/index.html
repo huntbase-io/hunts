@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bumblebee discovery and domain credential harvesting · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder has pivoted from an initial workstation to domain discovery using built-in utilities, creating high-privilege service-style accounts, and staging NTDS.dit or LSASS dumps for credential harvesting.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/bumblebee-discovery-creds/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Bumblebee discovery and domain credential harvesting · Huntbase Hunts">
+  <meta property="og:description" content="An intruder has pivoted from an initial workstation to domain discovery using built-in utilities, creating high-privilege service-style accounts, and staging NTDS.dit or LSASS dumps for credential harvesting.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/bumblebee-discovery-creds/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 3</span>      </div>
+      <h1 class="heading-xl">Bumblebee discovery and domain credential harvesting</h1>
+      <p class="hyp-lead">An intruder has pivoted from an initial workstation to domain discovery using built-in utilities, creating high-privilege service-style accounts, and staging NTDS.dit or LSASS dumps for credential harvesting.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/" rel="noopener">The DFIR Report</a></span>
+<span>2026-09-17</span>        <span>12 steps · 6 queries</span>
+<span class="mono">T1003.001 T1003.003 T1016 T1021.001 T1069.002 T1082 T1087.002 T1136.002 T1572</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=bumblebee-discovery-creds" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">12</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>The transition from initial workstation access to full domain compromise is often the last clear window for defenders to intervene before ransomware deployment. A recent report by The DFIR Report, <a href="https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/" rel="noopener noreferrer">From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira</a>, details how threat actors leveraged Bumblebee and AdaptixC2 to move from a single compromised host to domain-wide credential harvesting.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins by scoping the environment to identify Windows Servers and Domain Controllers. By narrowing the focus to these high-value targets, we reduce noise from standard workstation activity and prioritize surfaces where credential dumping and Active Directory discovery are most impactful.</p>
+<p>Next, we look for noisy discovery commands and suspicious account creations. We specifically monitor for the execution of utilities like <code>nltest.exe</code> or <code>net.exe</code> with flags related to domain administration, alongside the creation of accounts with themes like "backup_ea" or "backup_da." These are frequently used by Akira affiliates to maintain a low-profile administrator presence.</p>
+<p>We then corroborates these leads by looking for evidence of credential harvesting and persistence across three independent telemetry surfaces. This includes searching for <code>wbadmin</code> being used to back up <code>ntds.dit</code>, <code>comsvcs.dll</code> being used to dump LSASS memory, and outbound network connections to known external IPs associated with SSH tunneling. We also inspect script activity for domain enumeration functions like <code>Invoke-ShareFinder</code> that may not appear in process command lines.</p>
+<p>Finally, the hunt baselines the parent processes of common discovery tools. While <code>explorer.exe</code> or management agents might legitimately launch <code>whoami.exe</code>, an AdaptixC2 beacon running from a random alphanumeric binary will stand out as a rare parent. This stack-counting approach helps isolate the C2 engine driving the discovery.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>This hunt relies heavily on command-line visibility. If an adversary uses obfuscated PowerShell or executes discovery purely in-memory without spawning child processes, the initial leads may be missed. Additionally, the network component relies on static IPs from the source report; if the adversary has rotated their tunneling infrastructure, this specific pivot will not yield results.</p>
+<h3>How to Run the Hunt</h3>
+<p>This hunt is provided as a <code>hunt.md</code> playbook. This format allows you to import the logic directly into Huntbase or any other <code>hunt.md</code>-aware runtime. It is designed to be run as a guided investigation where discovery leads are automatically correlated with credential theft activity to provide a host-by-host verdict for analysts. You can find the full playbook in our open repository.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/bumblebee-initial-access-c2-deployment/index.html">Part 1: Bumblebee Initial Access and C2 Deployment</a></li><li><a href="../../hunts/akira-ransomware-exfiltration-impact/index.html">Part 3: Akira Ransomware: Data Exfiltration and Impact</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 8 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">6</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder has pivoted from an initial workstation to domain discovery using built-in utilities, creating high-privilege service-style accounts, and staging NTDS.dit or LSASS dumps for credential harvesting.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Narrows the hunt focus to servers and domain controllers where AD discovery and credential dumping are most impactful.", "expected": "A list of hostnames representing the server estate within the lookback window.", "id": "server-inventory-scope", "label": "Identify Windows Servers", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE LOWER(os_name) LIKE \u0027%server%\u0027 AND lifecycle_state = \u0027active\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Identify hosts running domain discovery tools or creating service-style admin accounts (e.g. backup_EA).", "expected": "Processes like nltest.exe, net.exe, or whoami.exe being run with discovery flags, or net user commands creating \u0027backup_\u0027 accounts. Silence means no such commands were captured.", "id": "discovery-and-account-leads", "label": "Noisy discovery and suspicious account creation", "parents": [{"branch": null, "id": "server-inventory-scope", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE \u0027%/dclist:%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%domain admins%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%/groups%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%/add /dom%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%backup_ea%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%backup_da%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Corroborate discovery with specific credential dumping techniques using wbadmin, comsvcs, or psql.", "expected": "A hit indicates a high-severity attempt to harvest domain or database credentials. Silence means no such command strings were captured.", "id": "credential-harvesting-activity", "label": "Dumping NTDS.dit and LSASS memory", "parents": [{"branch": null, "id": "discovery-and-account-leads", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE ((LOWER(process_cmd_line) LIKE \u0027%wbadmin%\u0027 AND LOWER(process_cmd_line) LIKE \u0027%ntds.dit%\u0027) OR (LOWER(process_cmd_line) LIKE \u0027%comsvcs.dll%\u0027 AND LOWER(process_cmd_line) LIKE \u0027%#+000024%\u0027) OR (LOWER(process_cmd_line) LIKE \u0027%psql%\u0027 AND LOWER(process_cmd_line) LIKE \u0027%veeambackup%\u0027)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_process_activity", "type": "query"}, {"description": "Detect network traffic to external IPs identified in the campaign or unusual SSH patterns.", "expected": "Outbound connections to campaign IPs. Silence means no connections to these specific IPs occurred.", "id": "reverse-tunnel-connections", "label": "Network connections to tunneling infrastructure", "parents": [{"branch": null, "id": "discovery-and-account-leads", "kind": null}], "query": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE instr(\u0027,\u0027 || \u0027{{tunnel_ips}}\u0027 || \u0027,\u0027, \u0027,\u0027 || dst_endpoint_ip || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_network_connection", "type": "query"}, {"description": "Detect script-based discovery (Invoke-ShareFinder) which may not be visible in process command lines.", "expected": "Rows showing domain enumeration scripts. Silence suggests these specific scripts were not executed.", "id": "powershell-discovery-scripts", "label": "Domain discovery script execution", "parents": [{"branch": null, "id": "discovery-and-account-leads", "kind": null}], "query": "SELECT device_hostname, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE \u0027%invoke-sharefinder%\u0027 OR LOWER(script_content) LIKE \u0027%export-dnsserverzone%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_script_activity", "type": "query"}, {"description": "Stack-count the parents of built-in discovery tools to isolate those launched by non-standard processes like Adaptix beacons.", "expected": "Rare parent processes (e.g., a random alphanumeric EXE) launching system discovery tools. Benign parents like explorer.exe or SCCM should count high.", "id": "baseline-discovery-parents", "label": "Prevalence of discovery tool parents", "parents": [{"branch": null, "id": "discovery-and-account-leads", "kind": null}], "query": "SELECT parent_process_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS execs, MIN(time) AS first_seen FROM hb_process_activity WHERE instr(\u0027,\u0027 || \u0027{{discovery_binaries}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY parent_process_name HAVING hosts \u003c= 3 ORDER BY hosts ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "The agent weighs whether the discovery leads, credential activity, and network tunnels represent a cohesive attack progression on any single host.", "expected": "A host-by-host verdict citing specific rows.", "id": "triage-tactic-progression", "label": "Triage tactic progression", "parents": [{"branch": null, "id": "credential-harvesting-activity", "kind": "merge"}, {"branch": null, "id": "reverse-tunnel-connections", "kind": "merge"}, {"branch": null, "id": "powershell-discovery-scripts", "kind": "merge"}, {"branch": null, "id": "baseline-discovery-parents", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Directs the response based on the agent\u0027s findings.", "expected": null, "id": "decision-route", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-tactic-progression", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent further lateral movement or ransomware deployment.", "expected": null, "id": "isolate-compromised-host", "label": "Isolate compromised host", "parents": [{"branch": "on_supports", "id": "decision-route", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Human review of the evidence chain.", "expected": null, "id": "analyst-review", "label": "Analyst review", "parents": [{"branch": "default", "id": "decision-route", "kind": null}, {"branch": "on_unavailable", "id": "decision-route", "kind": null}, {"branch": null, "id": "isolate-compromised-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Record findings and close the hunt.", "expected": null, "id": "close-out", "label": "Close out", "parents": [{"branch": "on_refutes", "id": "decision-route", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-server-inventory-scope">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Windows Servers</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Narrows the hunt focus to servers and domain controllers where AD discovery and credential dumping are most impactful.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE LOWER(os_name) LIKE &#39;%server%&#39; AND lifecycle_state = &#39;active&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames representing the server estate within the lookback window.</p>        </li>
+        <li class="card step" id="step-discovery-and-account-leads">
+          <div class="step-head">
+            <h3 class="heading-sm">Noisy discovery and suspicious account creation</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify hosts running domain discovery tools or creating service-style admin accounts (e.g. backup_EA).</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%/dclist:%&#39; OR LOWER(process_cmd_line) LIKE &#39;%domain admins%&#39; OR LOWER(process_cmd_line) LIKE &#39;%/groups%&#39; OR LOWER(process_cmd_line) LIKE &#39;%/add /dom%&#39; OR LOWER(process_cmd_line) LIKE &#39;%backup_ea%&#39; OR LOWER(process_cmd_line) LIKE &#39;%backup_da%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Processes like nltest.exe, net.exe, or whoami.exe being run with discovery flags, or net user commands creating &#39;backup_&#39; accounts. Silence means no such commands were captured.</p>        </li>
+        <li class="card step" id="step-credential-harvesting-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Dumping NTDS.dit and LSASS memory</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Corroborate discovery with specific credential dumping techniques using wbadmin, comsvcs, or psql.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE ((LOWER(process_cmd_line) LIKE &#39;%wbadmin%&#39; AND LOWER(process_cmd_line) LIKE &#39;%ntds.dit%&#39;) OR (LOWER(process_cmd_line) LIKE &#39;%comsvcs.dll%&#39; AND LOWER(process_cmd_line) LIKE &#39;%#+000024%&#39;) OR (LOWER(process_cmd_line) LIKE &#39;%psql%&#39; AND LOWER(process_cmd_line) LIKE &#39;%veeambackup%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A hit indicates a high-severity attempt to harvest domain or database credentials. Silence means no such command strings were captured.</p>        </li>
+        <li class="card step" id="step-reverse-tunnel-connections">
+          <div class="step-head">
+            <h3 class="heading-sm">Network connections to tunneling infrastructure</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect network traffic to external IPs identified in the campaign or unusual SSH patterns.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE instr(&#39;,&#39; || &#39;{{tunnel_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_ip || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Outbound connections to campaign IPs. Silence means no connections to these specific IPs occurred.</p>        </li>
+        <li class="card step" id="step-powershell-discovery-scripts">
+          <div class="step-head">
+            <h3 class="heading-sm">Domain discovery script execution</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Detect script-based discovery (Invoke-ShareFinder) which may not be visible in process command lines.</p>          <div class="code"><div class="code-head"><span>reads hb_script_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE &#39;%invoke-sharefinder%&#39; OR LOWER(script_content) LIKE &#39;%export-dnsserverzone%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Rows showing domain enumeration scripts. Silence suggests these specific scripts were not executed.</p>        </li>
+        <li class="card step" id="step-baseline-discovery-parents">
+          <div class="step-head">
+            <h3 class="heading-sm">Prevalence of discovery tool parents</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count the parents of built-in discovery tools to isolate those launched by non-standard processes like Adaptix beacons.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT parent_process_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS execs, MIN(time) AS first_seen FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{discovery_binaries}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY parent_process_name HAVING hosts &lt;= 3 ORDER BY hosts ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Rare parent processes (e.g., a random alphanumeric EXE) launching system discovery tools. Benign parents like explorer.exe or SCCM should count high.</p>        </li>
+        <li class="card step" id="step-triage-tactic-progression">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage tactic progression</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>The agent weighs whether the discovery leads, credential activity, and network tunnels represent a cohesive attack progression on any single host.</p>        </li>
+        <li class="card step" id="step-decision-route">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Directs the response based on the agent&#39;s findings.</p>        </li>
+        <li class="card step" id="step-isolate-compromised-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate compromised host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent further lateral movement or ransomware deployment.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Human review of the evidence chain.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Record findings and close the hunt.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Internal Network Discovery<br><span class="mono dim">T1082 · T1016 · T1069.002 · T1087.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>discovery-and-account-leads, powershell-discovery-scripts, baseline-discovery-parents</td></tr>            <tr><td>Persistence and Reverse Tunnelling<br><span class="mono dim">T1136.002 · T1219 · T1572</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>discovery-and-account-leads, reverse-tunnel-connections</td></tr>            <tr><td>Domain Credential Dumping<br><span class="mono dim">T1003.003 · T1003.001 · T1552.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>credential-harvesting-activity</td></tr>            <tr><td>Trojanized Installer via SEO Poisoning<br><span class="mono dim">T1189 · T1566.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Bumblebee Loader Side-loading<br><span class="mono dim">T1574.002 · T1204.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Multi-Stage C2 Establishment<br><span class="mono dim">T1071.001 · T1568.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Data Staging and SFTP Exfiltration<br><span class="mono dim">T1048.003 · T1560.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Akira Ransomware Deployment<br><span class="mono dim">T1486</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_script_activity (PowerShell transcription).</strong> Adversaries using Invoke-ShareFinder in memory would not be caught by process command-line monitoring. <span class="dim">It would answer What obfuscated scripts were run during discovery?.</span> <span class="dim">Remediation: Enable PowerShell Script Block Logging (GPO).</span></li>          <li class="card"><strong>Needs Threat Intel Feed.</strong> A hunt relying only on article IPs will miss infrastructure that rotated after the report. <span class="dim">It would answer Are connections to new, unlisted SSH tunnel IPs occurring?.</span> <span class="dim">Remediation: Integrate a live C2 feed into the tunnel_ips parameter.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>discovery_binaries</code></td><td class="mono dim">list[string]</td><td class="mono">nltest.exe, whoami.exe, net.exe, net1.exe, systeminfo.exe</td><td>Common binaries used for internal discovery.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Narrow to specific hostnames (e.g. Domain Controllers); leave empty for all.</td></tr>            <tr><td><code>tunnel_ips</code></td><td class="mono dim">list[ip]</td><td class="mono">193.242.184.150, 83.229.17.60</td><td>Known external IP addresses used for SSH tunneling in this campaign.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A single rule on &#39;net.exe&#39; or &#39;wbadmin&#39; causes noise; this hunt correlates
+  discovery sequences with rare parent processes and subsequent credential theft activity
+  to confirm an intrusion.
+blind_spots:
+- id: script-transcription-gap
+  owner: Security Operations
+  question: What obfuscated scripts were run during discovery?
+  remediation: Enable PowerShell Script Block Logging (GPO).
+  requires: hb_script_activity (PowerShell transcription)
+  risk: Adversaries using Invoke-ShareFinder in memory would not be caught by process
+    command-line monitoring.
+  stage: discovery-built-in-utilities
+- id: tunnel-ip-rotation
+  owner: Threat Intelligence
+  question: Are connections to new, unlisted SSH tunnel IPs occurring?
+  remediation: Integrate a live C2 feed into the tunnel_ips parameter.
+  requires: Threat Intel Feed
+  risk: A hunt relying only on article IPs will miss infrastructure that rotated after
+    the report.
+  stage: persistence-accounts-and-remote-access
+coverage:
+- stage: discovery-built-in-utilities
+  status: covered
+  steps:
+  - discovery-and-account-leads
+  - powershell-discovery-scripts
+  - baseline-discovery-parents
+- stage: persistence-accounts-and-remote-access
+  status: covered
+  steps:
+  - discovery-and-account-leads
+  - reverse-tunnel-connections
+- stage: credential-access-ntds-and-lsass
+  status: covered
+  steps:
+  - credential-harvesting-activity
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: initial-access-seo-poisoning
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: execution-bumblebee-sideloading
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: c2-bumblebee-and-adaptix
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: collection-and-exfiltration
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: impact-akira-ransomware
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Detecting the pivot from initial access to domain-wide discovery
+    is the highest-value window for preventing ransomware impact. These actions (AD
+    database dumping and enterprise admin account creation) have low false-positive
+    rates for non-admin accounts.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder has pivoted from an initial workstation to domain discovery
+  using built-in utilities, creating high-privilege service-style accounts, and staging
+  NTDS.dit or LSASS dumps for credential harvesting.
+labels:
+- hunt
+- attack.t1003.003
+- attack.t1003.001
+- attack.t1082
+- attack.t1016
+- attack.t1069.002
+- attack.t1087.002
+- attack.t1136.002
+- attack.t1572
+- attack.t1021.001
+name: Bumblebee discovery and domain credential harvesting
+parameters:
+  discovery_binaries:
+    default:
+    - nltest.exe
+    - whoami.exe
+    - net.exe
+    - net1.exe
+    - systeminfo.exe
+    description: Common binaries used for internal discovery.
+    from:
+      kind: manual
+      observed: &#39;2025-08-05&#39;
+      ref: common-living-off-the-land
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Narrow to specific hostnames (e.g. Domain Controllers); leave empty
+      for all.
+    type: list[host]
+  tunnel_ips:
+    default:
+    - 193.242.184.150
+    - 83.229.17.60
+    description: Known external IP addresses used for SSH tunneling in this campaign.
+    from:
+      kind: article
+      observed: &#39;2025-08-05&#39;
+      ref: https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/
+    type: list[ip]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with domain controllers and critical infrastructure servers. If no
+  hits, widen to the entire server estate and workstations using &#39;backup_&#39; in user
+  profiles.
+references:
+- name: &#34;The DFIR Report \u2014 From Bing Search to Ransomware: Bumblebee and AdaptixC2\
+    \ Deliver Akira&#34;
+  url: https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/
+related:
+- hunt: bumblebee-initial-access
+  reason: This hunt picks up after the Bumblebee delivery and sideloading phase.
+  relation: follows
+- hunt: akira-ransomware-impact
+  reason: This hunt aims to stop the intrusion before the Akira locker is deployed.
+  relation: precedes
+- hunt: bumblebee-initial-access-c2-deployment
+  relation: follows
+scenario:
+  stages:
+  - name: Trojanized Installer via SEO Poisoning
+    observables:
+    - opmanager.pro
+    - angryipscanner.org
+    - axiscamerastation.org
+    - ip-scanner.org
+    - ManageEngine-OpManager.msi
+    - Advanced-IP-Scanner.msi
+    slug: initial-access-seo-poisoning
+    tactic: initial-access
+    techniques:
+    - T1189
+    - T1566.002
+  - name: Bumblebee Loader Side-loading
+    observables:
+    - msimg32.dll
+    - consent.exe
+    slug: execution-bumblebee-sideloading
+    tactic: execution
+    techniques:
+    - T1574.002
+    - T1204.002
+  - name: Multi-Stage C2 Establishment
+    observables:
+    - 109.205.195.211
+    - 188.40.187.145
+    - 172.96.137.160
+    - 170.130.55.223
+    - ev2sirbd269o5j.org
+    - 2rxyt9urhq0bgj.org
+    - AdgNsy.exe
+    slug: c2-bumblebee-and-adaptix
+    tactic: command-and-control
+    techniques:
+    - T1071.001
+    - T1568.002
+  - name: Internal Network Discovery
+    observables:
+    - systeminfo
+    - &#39;nltest /dclist:&#39;
+    - whoami /groups
+    - net group &#34;domain admins&#34; /dom
+    - Invoke-ShareFinder
+    - Export-DnsServerZone
+    slug: discovery-built-in-utilities
+    tactic: discovery
+    techniques:
+    - T1082
+    - T1016
+    - T1069.002
+    - T1087.002
+  - name: Persistence and Reverse Tunnelling
+    observables:
+    - backup_DA
+    - backup_EA
+    - RustDesk
+    - ssh.exe -R *:10400 -p22
+    - 193.242.184.150
+    - 83.229.17.60
+    slug: persistence-accounts-and-remote-access
+    tactic: persistence
+    techniques:
+    - T1136.002
+    - T1219
+    - T1572
+  - name: Domain Credential Dumping
+    observables:
+    - wbadmin.exe start backup -backuptarget:\\127.0.0.1\C$\ProgramData\ -include&#34;:C:\windows\NTDS\ntds.dit
+    - &#39;comsvcs.dll, #+000024&#39;
+    - psql.exe -U postgres --csv -d VeeamBackup -c &#34;SELECT user_name,password...&#34;
+    slug: credential-access-ntds-and-lsass
+    tactic: credential-access
+    techniques:
+    - T1003.003
+    - T1003.001
+    - T1552.002
+  - name: Data Staging and SFTP Exfiltration
+    observables:
+    - FileZilla
+    - 185.174.100.203
+    - C:\ProgramData\shares.txt
+    slug: collection-and-exfiltration
+    tactic: exfiltration
+    techniques:
+    - T1048.003
+    - T1560.001
+  - name: Akira Ransomware Deployment
+    observables:
+    - locker.exe
+    - win.exe
+    slug: impact-akira-ransomware
+    tactic: impact
+    techniques:
+    - T1486
+  summary: A threat actor used SEO poisoning on Bing to deliver trojanized IT management
+    installers, leading to Bumblebee and AdaptixC2 infections. The intrusion escalated
+    to a full network compromise where the actor performed credential dumping, established
+    persistent remote access via RustDesk, exfiltrated data, and ultimately deployed
+    Akira ransomware.
+series:
+  index: 2
+  slug: flash-alert-from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira
+  title: &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver
+    Akira&#39;
+  total: 3
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Bumblebee discovery and domain credential harvesting
+
+This hunt focuses on the critical escalation phase of an Akira ransomware intrusion. After gaining access via Bumblebee, threat actors typically perform noisy network discovery and create &#39;backup&#39; themed administrator accounts to maintain access and dump credentials. We look for a sequence of built-in utility executions (nltest, net, whoami) followed by the use of wbadmin to backup the Active Directory database (NTDS.dit) and the use of comsvcs.dll to dump LSASS memory. The hunt also monitors for reverse SSH tunnels used for persistent re-entry and stack-counts the parents of discovery tools to isolate AdaptixC2 beacons.
+
+## server-inventory-scope
+&lt;!-- Identify Windows Servers --&gt;
+Narrows the hunt focus to servers and domain controllers where AD discovery and credential dumping are most impactful.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames representing the server estate within the lookback window.
+reads:
+- hostname
+- os_name
+- lifecycle_state
+- time
+silence: not_evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE LOWER(os_name) LIKE &#39;%server%&#39; AND lifecycle_state = &#39;active&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## discovery-and-account-leads
+&lt;!-- Noisy discovery and suspicious account creation --&gt;
+Identify hosts running domain discovery tools or creating service-style admin accounts (e.g. backup_EA).
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Processes like nltest.exe, net.exe, or whoami.exe being run with discovery
+  flags, or net user commands creating &#39;backup_&#39; accounts. Silence means no such commands
+  were captured.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- parent_process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%/dclist:%&#39; OR LOWER(process_cmd_line) LIKE &#39;%domain admins%&#39; OR LOWER(process_cmd_line) LIKE &#39;%/groups%&#39; OR LOWER(process_cmd_line) LIKE &#39;%/add /dom%&#39; OR LOWER(process_cmd_line) LIKE &#39;%backup_ea%&#39; OR LOWER(process_cmd_line) LIKE &#39;%backup_da%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-corroboration
+&lt;!-- Corroborate with credentials, tunnels, and scripts --&gt;
+parallel:
+- → credential-harvesting-activity
+- → reverse-tunnel-connections
+- → powershell-discovery-scripts
+- → baseline-discovery-parents
+join: → triage-tactic-progression
+
+## credential-harvesting-activity
+&lt;!-- Dumping NTDS.dit and LSASS memory --&gt;
+Corroborate discovery with specific credential dumping techniques using wbadmin, comsvcs, or psql.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days)
+~~~yaml
+expected: A hit indicates a high-severity attempt to harvest domain or database credentials.
+  Silence means no such command strings were captured.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE ((LOWER(process_cmd_line) LIKE &#39;%wbadmin%&#39; AND LOWER(process_cmd_line) LIKE &#39;%ntds.dit%&#39;) OR (LOWER(process_cmd_line) LIKE &#39;%comsvcs.dll%&#39; AND LOWER(process_cmd_line) LIKE &#39;%#+000024%&#39;) OR (LOWER(process_cmd_line) LIKE &#39;%psql%&#39; AND LOWER(process_cmd_line) LIKE &#39;%veeambackup%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## reverse-tunnel-connections
+&lt;!-- Network connections to tunneling infrastructure --&gt;
+Detect network traffic to external IPs identified in the campaign or unusual SSH patterns.
+
+```sqlite target=network role=enrichment params=(lookback_days=lookback_days, tunnel_ips=tunnel_ips)
+~~~yaml
+expected: Outbound connections to campaign IPs. Silence means no connections to these
+  specific IPs occurred.
+reads:
+- device_hostname
+- process_name
+- dst_endpoint_ip
+- dst_endpoint_port
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE instr(&#39;,&#39; || &#39;{{tunnel_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_ip || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## powershell-discovery-scripts
+&lt;!-- Domain discovery script execution --&gt;
+Detect script-based discovery (Invoke-ShareFinder) which may not be visible in process command lines.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days)
+~~~yaml
+expected: Rows showing domain enumeration scripts. Silence suggests these specific
+  scripts were not executed.
+reads:
+- device_hostname
+- script_content
+- time
+silence: not_evidence_of_absence
+source: hb_script_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE &#39;%invoke-sharefinder%&#39; OR LOWER(script_content) LIKE &#39;%export-dnsserverzone%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## baseline-discovery-parents
+&lt;!-- Prevalence of discovery tool parents --&gt;
+Stack-count the parents of built-in discovery tools to isolate those launched by non-standard processes like Adaptix beacons.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days, discovery_binaries=discovery_binaries)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Rare parent processes (e.g., a random alphanumeric EXE) launching system
+  discovery tools. Benign parents like explorer.exe or SCCM should count high.
+prevalence:
+  by: device_hostname
+  key:
+  - parent_process_name
+  rare_below: 3
+reads:
+- parent_process_name
+- device_hostname
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT parent_process_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS execs, MIN(time) AS first_seen FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{discovery_binaries}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY parent_process_name HAVING hosts &lt;= 3 ORDER BY hosts ASC
+```
+
+## triage-tactic-progression
+&lt;!-- Triage tactic progression --&gt;
+```agent target=hunter
+cite: required
+context:
+- discovery-and-account-leads
+- credential-harvesting-activity
+- reverse-tunnel-connections
+- powershell-discovery-scripts
+- baseline-discovery-parents
+max_iterations: 4
+objective: Decide if the observed activity indicates a move from initial access to
+  domain-level compromise by correlating discovery, account creation, and dumping.
+success_criteria: A verdict of malicious | suspicious | benign per host, citing the
+  evidence for each phase.
+tools:
+- endpoint
+- network
+```
+
+## decision-route
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for any host exhibiting discovery followed by account creation or credential dumping.&#34; (confidence: high, judge=hunter)
+then: → isolate-compromised-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: script-transcription-gap)
+else: → close-out
+
+## isolate-compromised-host
+&lt;!-- Isolate compromised host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host via the EDR. Revoke credentials for any identified &#39;backup_&#39; accounts and disable the SSH tunnel process if found.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst review --&gt;
+```manual target=analyst
+Review the triage citations. If verified as an intrusion, initiate the Akira ransomware response playbook. If a false positive by a legit admin, tune the discovery leads query.
+```
+→ end
+
+## close-out
+&lt;!-- Close out --&gt;
+```manual target=analyst
+Log the negative result or benign findings. Note any visibility gaps encountered.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=bumblebee-discovery-creds" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

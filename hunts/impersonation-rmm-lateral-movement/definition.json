@@ -1,0 +1,617 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries are increasingly using legitimate RMM and administrative protocols to blend with IT operations. This hunt validates the security of these intersections by searching for the rare behavioral pivots (portable runtimes in user paths) that distinguish an intrusion from daily management."
+      },
+      "name": "Impersonation-led Remote Support and Lateral Movement",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1059.001",
+        "attack.t1059",
+        "attack.t1087",
+        "attack.t1069",
+        "attack.t1021.006"
+      ],
+      "related": [
+        {
+          "hunt": "external-teams-impersonation-detection",
+          "reason": "Teams-based social engineering is the initial vector before endpoint access.",
+          "relation": "precedes"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "While a rule might alert on RMM installation, this hunt correlates that installation with the staging of portable runtimes and lateral movement attempts over WinRM, providing the full multi-stage context an analyst needs to confirm an active intrusion.",
+      "coverage": [
+        {
+          "stage": "social-engineering-rmm-access",
+          "steps": [
+            "rmm-host-scoping"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "powershell-payload-delivery",
+          "steps": [
+            "powershell-msi-delivery"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "portable-nodejs-c2",
+          "steps": [
+            "rare-processes-in-user-paths"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "active-directory-discovery",
+          "steps": [
+            "ad-discovery-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "winrm-lateral-movement",
+          "steps": [
+            "winrm-movement-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Social Engineering via Remote Support",
+            "slug": "social-engineering-rmm-access",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Microsoft Teams impersonation",
+              "remote-support software (AnyDesk, ScreenConnect, TeamViewer)",
+              "legitimate IT support tools"
+            ]
+          },
+          {
+            "name": "PowerShell Payload Delivery",
+            "slug": "powershell-payload-delivery",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "powershell.exe",
+              "malicious Windows Installer (MSI) package",
+              "msiexec.exe",
+              "download of external artifacts"
+            ]
+          },
+          {
+            "name": "Portable Node.js Persistence and C2",
+            "slug": "portable-nodejs-c2",
+            "tactic": "c2",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "portable node.exe runtime",
+              "outbound network connections from Node.js process",
+              "staged runtime in user-writable directories"
+            ]
+          },
+          {
+            "name": "Active Directory Mapping",
+            "slug": "active-directory-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1087",
+              "T1069"
+            ],
+            "observables": [
+              "Active Directory mapping",
+              "net.exe",
+              "nltest.exe",
+              "enumeration of domain controllers",
+              "enumeration of certificate authorities"
+            ]
+          },
+          {
+            "name": "Lateral Movement via WinRM",
+            "slug": "winrm-lateral-movement",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1021.006"
+            ],
+            "observables": [
+              "WinRM (Windows Remote Management)",
+              "wsmprovhost.exe",
+              "winrshost.exe",
+              "connections to port 5985",
+              "connections to port 5986"
+            ]
+          }
+        ],
+        "summary": "Attackers impersonate IT support via Microsoft Teams to deploy remote support software, using it as a bridge to execute PowerShell scripts that install a portable Node.js runtime for persistent C2. The operator then maps Active Directory and attempts lateral movement via WinRM to reach high-value targets including Domain Controllers and Certificate Authorities."
+      },
+      "severity": "high",
+      "rationale": "Focus on endpoints where RMM tools like AnyDesk or ScreenConnect are present but not part of standard IT policy. Narrowing to specific hosts via the `scope_hosts` parameter after the initial inventory query is recommended to reduce noise.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has used social engineering to gain access via Remote Monitoring and Management (RMM) software, followed by staging a portable Node.js runtime for C2 and attempting internal discovery and WinRM lateral movement.",
+      "parameters": {
+        "rmm_tools": {
+          "type": "list[string]",
+          "default": [
+            "anydesk",
+            "screenconnect",
+            "teamviewer",
+            "logmein",
+            "atera",
+            "splashtop",
+            "connectwise"
+          ],
+          "description": "Common RMM tool names or substrings used for initial access."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to scope the hunt; empty for entire estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "discovery_binaries": {
+          "type": "list[string]",
+          "default": [
+            "net.exe",
+            "nltest.exe",
+            "dsquery.exe",
+            "adfind.exe",
+            "net1.exe"
+          ],
+          "description": "Native binaries used for Active Directory and domain discovery."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/09/17/from-guidance-to-action-security-fundamentals-that-materially-reduce-risk/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/09/17/from-guidance-to-action-security-fundamentals-that-materially-reduce-risk/",
+          "name": "MSRC \u2014 From guidance to action: Security fundamentals that materially reduce risk"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-endpoint-telemetry",
+          "risk": "A negative result only covers the enrolled estate; unmanaged servers or BYOD devices could host the runtime invisibly.",
+          "question": "Are unmanaged systems running Node.js runtimes?",
+          "requires": "Endpoint agent coverage on all systems"
+        },
+        {
+          "id": "obfuscated-script-blocks",
+          "risk": "The query for MSI delivery relies on cleartext strings; obfuscated downloaders may bypass this step.",
+          "stage": "powershell-payload-delivery",
+          "question": "What MSI was downloaded if the PowerShell script content was heavily obfuscated?",
+          "requires": "De-obfuscation or network traffic matching"
+        }
+      ]
+    },
+    "name": "Impersonation-led Remote Support and Lateral Movement",
+    "description": "This hunt targets tradecraft observed in the CaptiveCrunch and Storm-2945 campaigns, where attackers impersonate support staff to deploy RMM tools. It follows the attack chain from RMM installation to the staging of portable Node.js runtimes in user-writable paths and subsequent lateral movement attempts using WinRM. By correlating software inventory, rare process behavior in user profiles, and native protocol activity, we identify intrusions that blend with legitimate administrative operations."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "social-engineering-rmm-access",
+            "steps": [
+              "rmm-host-scoping"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "powershell-payload-delivery",
+            "steps": [
+              "powershell-msi-delivery"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "portable-nodejs-c2",
+            "steps": [
+              "rare-processes-in-user-paths"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "active-directory-discovery",
+            "steps": [
+              "ad-discovery-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "winrm-lateral-movement",
+            "steps": [
+              "winrm-movement-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has used social engineering to gain access via Remote Monitoring and Management (RMM) software, followed by staging a portable Node.js runtime for C2 and attempting internal discovery and WinRM lateral movement.",
+        "blind_spots": [
+          {
+            "id": "no-endpoint-telemetry",
+            "risk": "A negative result only covers the enrolled estate; unmanaged servers or BYOD devices could host the runtime invisibly.",
+            "question": "Are unmanaged systems running Node.js runtimes?",
+            "requires": "Endpoint agent coverage on all systems"
+          },
+          {
+            "id": "obfuscated-script-blocks",
+            "risk": "The query for MSI delivery relies on cleartext strings; obfuscated downloaders may bypass this step.",
+            "stage": "powershell-payload-delivery",
+            "question": "What MSI was downloaded if the PowerShell script content was heavily obfuscated?",
+            "requires": "De-obfuscation or network traffic matching"
+          }
+        ],
+        "scoping_notes": "Focus on endpoints where RMM tools like AnyDesk or ScreenConnect are present but not part of standard IT policy. Narrowing to specific hosts via the `scope_hosts` parameter after the initial inventory query is recommended to reduce noise.",
+        "beyond_detection": "While a rule might alert on RMM installation, this hunt correlates that installation with the staging of portable runtimes and lateral movement attempts over WinRM, providing the full multi-stage context an analyst needs to confirm an active intrusion."
+      }
+    },
+    {
+      "id": "rmm-host-scoping",
+      "type": "query",
+      "label": "Identify Hosts with RMM Software",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (instr(',' || '{{rmm_tools}}' || ',', ',' || LOWER(package_name) || ',') > 0 OR instr(',' || '{{rmm_tools}}' || ',', ',' || LOWER(vendor_name) || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Scope the hunt to hosts that have Remote Monitoring and Management (RMM) software installed, which may have been the initial entry point via impersonation.",
+        "expected_signal": "A list of hosts with RMM tools. This helps focus behavioral queries on high-probability beachheads."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Hosts with RMM Software",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (instr(',' || '{{rmm_tools}}' || ',', ',' || LOWER(package_name) || ',') > 0 OR instr(',' || '{{rmm_tools}}' || ',', ',' || LOWER(vendor_name) || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts with RMM tools. This helps focus behavioral queries on high-probability beachheads.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "rare-processes-in-user-paths",
+      "type": "query",
+      "label": "Rare Binaries Running from User Profile Paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, process_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_path) LIKE '%\\users\\%' OR LOWER(process_path) LIKE '%\\appdata\\%' OR LOWER(process_path) LIKE '%\\users\\public\\%') AND (LOWER(process_name) = 'node.exe' OR LOWER(process_name) = 'msiexec.exe' OR LOWER(process_name) LIKE '%.exe') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, process_path HAVING host_count < 5 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Find rare processes, specifically targeting Node.js runtimes or MSI installers, running from user-writable directories which are typical for portable/staged runtimes.",
+        "expected_signal": "Rare binaries (like node.exe) running from non-standard user-profile paths across very few hosts."
+      },
+      "parents": [
+        {
+          "id": "rmm-host-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Binaries Running from User Profile Paths",
+        "reads": [
+          "process_name",
+          "process_path",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, process_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_path) LIKE '%\\users\\%' OR LOWER(process_path) LIKE '%\\appdata\\%' OR LOWER(process_path) LIKE '%\\users\\public\\%') AND (LOWER(process_name) = 'node.exe' OR LOWER(process_name) = 'msiexec.exe' OR LOWER(process_name) LIKE '%.exe') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, process_path HAVING host_count < 5 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare binaries (like node.exe) running from non-standard user-profile paths across very few hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_path",
+            "process_name"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "powershell-msi-delivery",
+      "type": "query",
+      "label": "PowerShell Downloads of MSI Packages",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%webclient%' OR LOWER(script_content) LIKE '%downloadstring%' OR LOWER(script_content) LIKE '%curl%' OR LOWER(script_content) LIKE '%wget%') AND LOWER(script_content) LIKE '%.msi%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Corroborate the presence of rare installers by identifying PowerShell script activity that downloads and installs MSI packages.",
+        "expected_signal": "Script blocks containing download logic paired with MSI file extensions. Silence may indicate obfuscation or the use of other download methods."
+      },
+      "parents": [
+        {
+          "id": "rare-processes-in-user-paths"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "PowerShell Downloads of MSI Packages",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%webclient%' OR LOWER(script_content) LIKE '%downloadstring%' OR LOWER(script_content) LIKE '%curl%' OR LOWER(script_content) LIKE '%wget%') AND LOWER(script_content) LIKE '%.msi%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks containing download logic paired with MSI file extensions. Silence may indicate obfuscation or the use of other download methods.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "ad-discovery-activity",
+      "type": "query",
+      "label": "Active Directory Infrastructure Discovery",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(',' || '{{discovery_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%domain%' OR LOWER(process_cmd_line) LIKE '%trust%' OR LOWER(process_cmd_line) LIKE '%dclist%' OR LOWER(process_cmd_line) LIKE '%group%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify the use of discovery tools to map domain controllers or certificate authorities following the initial breach.",
+        "expected_signal": "Native discovery tools executed with domain-specific arguments on hosts that also show rare profile-path binaries."
+      },
+      "parents": [
+        {
+          "id": "powershell-msi-delivery"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Active Directory Infrastructure Discovery",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(',' || '{{discovery_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%domain%' OR LOWER(process_cmd_line) LIKE '%trust%' OR LOWER(process_cmd_line) LIKE '%dclist%' OR LOWER(process_cmd_line) LIKE '%group%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Native discovery tools executed with domain-specific arguments on hosts that also show rare profile-path binaries.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "winrm-movement-activity",
+      "type": "query",
+      "label": "Lateral Movement via WinRM",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE (dst_endpoint_port IN (5985, 5986) OR LOWER(process_name) IN ('wsmprovhost.exe', 'winrshost.exe')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Search for network connections and processes associated with WinRM lateral movement attempts.",
+        "expected_signal": "Connections to WinRM ports or execution of WinRM host processes, particularly from systems already identified as suspicious in earlier steps."
+      },
+      "parents": [
+        {
+          "id": "powershell-msi-delivery"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Lateral Movement via WinRM",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE (dst_endpoint_port IN (5985, 5986) OR LOWER(process_name) IN ('wsmprovhost.exe', 'winrshost.exe')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Connections to WinRM ports or execution of WinRM host processes, particularly from systems already identified as suspicious in earlier steps.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "triage-adversary-path",
+      "type": "analytic",
+      "label": "Triage Incident Path",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "rmm-host-scoping",
+          "rare-processes-in-user-paths",
+          "powershell-msi-delivery",
+          "ad-discovery-activity",
+          "winrm-movement-activity"
+        ],
+        "objective": "Determine whether the combination of RMM tool presence, rare node.exe/portable binaries in user paths, MSI download activity, and WinRM network attempts indicates a coordinated impersonation-led intrusion.",
+        "description": "Weigh the evidence across the RMM installation, rare runtime staging, and follow-on discovery/lateral movement to determine if a unified campaign is in progress.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict linking the disparate telemetry points into a single attack scenario.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host with citations to the specific process, script, and network rows."
+      },
+      "parents": [
+        {
+          "id": "ad-discovery-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "winrm-movement-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on Triage Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for at least one host involving rare runtimes and WinRM attempts.",
+        "condition": "The triage verdict is malicious for at least one host involving rare runtimes and WinRM attempts.",
+        "blind_spot": "no-endpoint-telemetry",
+        "confidence": "high",
+        "description": "Direct the response based on the agent's verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-adversary-path"
+        }
+      ]
+    },
+    {
+      "id": "isolate-hosts",
+      "type": "action",
+      "label": "Isolate Compromised Hosts",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the breach by isolating confirmed compromised systems.",
+        "instructions": "Isolate the hosts identified as malicious and revoke active sessions for the involved users. Preserve the binaries found in user profile paths for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Triage Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final validation of hunt results and creation of persistent detections.",
+        "instructions": "Review the agent's triage report and host isolation status. Verify the origin of the RMM tools and portable binaries. Document any new C2 IP addresses found in network telemetry and promote the Node.js path query to a permanent detection rule if appropriate."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-hosts"
+        }
+      ]
+    }
+  ]
+}

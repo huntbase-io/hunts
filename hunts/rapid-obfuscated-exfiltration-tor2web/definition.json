@@ -1,0 +1,515 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Intrusions now move from breakout to exfiltration in under 30 minutes. Correlating obfuscated proxy DNS queries with volumetric network data is the only way to detect these high-speed attacks before they conclude."
+      },
+      "name": "Rapid Obfuscated Exfiltration via Tor2Web",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1041",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "standard-tor-client-usage",
+          "reason": "This hunt targets gateway-based evasion (Tor2Web) which uses standard browser processes, rather than the dedicated Tor binary.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "azure-ad": {
+          "name": "azure_ad",
+          "category": "siem",
+          "huntbase": {
+            "product": "azure-ad"
+          }
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "While a detection rule can alert on the Tor2Web domains, this hunt calculates the data volume and identity risk context simultaneously to confirm an incident rather than just a connection.",
+      "coverage": [
+        {
+          "stage": "c2-proxy-obfuscation",
+          "steps": [
+            "gateway-dns-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "rapid-data-exfiltration",
+          "steps": [
+            "volumetric-exfil"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Multi-hop Proxy C2",
+            "slug": "c2-proxy-obfuscation",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion domains",
+              "Connections to known Tor relay nodes",
+              "Usage of onion.direct or hidden service gateways",
+              "Persistent outbound connections to multi-hop proxy infrastructure"
+            ]
+          },
+          {
+            "name": "Exfiltration via C2 Channel",
+            "slug": "rapid-data-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "High volume outbound traffic_bytes on established C2 sockets",
+              "Frequent HTTP POST requests to remote C2 endpoints",
+              "Data transfer initiated within 4-30 minutes of initial breakout",
+              "Outbound exfiltration to non-standard ports used for C2"
+            ]
+          }
+        ],
+        "summary": "A campaign involving rapid post-compromise activity where exfiltration begins within minutes of initial access, leveraging multi-hop proxies and onion routing for command-and-control obfuscation. The attack highlights the criticality of low-latency telemetry as data is moved out of the environment faster than many batch-based security exports can report."
+      },
+      "severity": "medium",
+      "rationale": "Focus on server workloads and developer machines where Tor-like behavior is unexpected. Use the lookback_days parameter to match the reported breakout window.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is leveraging public Tor2Web gateways to proxy command-and-control traffic and exfiltrate data, bypassing binary-based Tor detection while initiating high-volume transfers within minutes of a breakout.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the hunt on."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "onion_gateways": {
+          "from": {
+            "ref": "Common Tor2Web gateways",
+            "kind": "manual",
+            "observed": "2026-09-04"
+          },
+          "type": "list[domain]",
+          "default": [
+            "onion.direct",
+            "tor2web.org",
+            "onion.link",
+            "onion.sh",
+            "onion.pet",
+            "onion.ws",
+            "tor2web.info"
+          ],
+          "description": "Public Tor2Web gateways used to access .onion services via HTTP."
+        },
+        "exfil_threshold_bytes": {
+          "type": "number",
+          "default": "104857600",
+          "description": "Outbound traffic threshold (100MB) for a single process."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/siem-data-export-comparison",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/siem-data-export-comparison",
+          "name": "Data access: the hidden cost of security vendor lock-in (Elastic)"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-network-flow-data",
+          "risk": "Some EDR configurations log the connection attempt but not the byte count, making it difficult to distinguish exfiltration from simple C2 heartbeats.",
+          "stage": "rapid-data-exfiltration",
+          "question": "Can we measure the volume of data moved?",
+          "requires": "hb_network_connection (log) with traffic_bytes"
+        },
+        {
+          "id": "azure-ad-delay",
+          "risk": "As described in the article, if Azure logs are batched, a risky sign-in might not appear until after the data has been exfiltrated.",
+          "question": "Is the identity signal current?",
+          "requires": "azuread_sign_in_report real-time streaming"
+        }
+      ]
+    },
+    "name": "Rapid Obfuscated Exfiltration via Tor2Web",
+    "description": "This hunt identifies the gap between initial access and data exfiltration described in recent research, where 'breakout' happens in under 30 minutes. By monitoring for DNS resolutions to known Tor2Web gateways and correlating them with massive outbound data spikes and risky identity signals from Azure AD, we catch obfuscated exfiltration that traditional EDR alerts might miss."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "c2-proxy-obfuscation",
+            "steps": [
+              "gateway-dns-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "rapid-data-exfiltration",
+            "steps": [
+              "volumetric-exfil"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is leveraging public Tor2Web gateways to proxy command-and-control traffic and exfiltrate data, bypassing binary-based Tor detection while initiating high-volume transfers within minutes of a breakout.",
+        "blind_spots": [
+          {
+            "id": "no-network-flow-data",
+            "risk": "Some EDR configurations log the connection attempt but not the byte count, making it difficult to distinguish exfiltration from simple C2 heartbeats.",
+            "stage": "rapid-data-exfiltration",
+            "question": "Can we measure the volume of data moved?",
+            "requires": "hb_network_connection (log) with traffic_bytes"
+          },
+          {
+            "id": "azure-ad-delay",
+            "risk": "As described in the article, if Azure logs are batched, a risky sign-in might not appear until after the data has been exfiltrated.",
+            "question": "Is the identity signal current?",
+            "requires": "azuread_sign_in_report real-time streaming"
+          }
+        ],
+        "scoping_notes": "Focus on server workloads and developer machines where Tor-like behavior is unexpected. Use the lookback_days parameter to match the reported breakout window.",
+        "beyond_detection": "While a detection rule can alert on the Tor2Web domains, this hunt calculates the data volume and identity risk context simultaneously to confirm an incident rather than just a connection."
+      }
+    },
+    {
+      "id": "scoping-active-hosts",
+      "type": "query",
+      "label": "Identify active hosts in scope",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT hostname, device_uid, os_name, lifecycle_state FROM hb_devices WHERE time >= datetime('now', '-{{lookback_days}} days') AND lifecycle_state = 'active'",
+        "surface": "hb_devices",
+        "description": "Establish the list of systems currently reporting telemetry to ensure the hunt targets live assets.",
+        "expected_signal": "A list of active hosts. Silence means no systems are currently reporting health to the platform."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify active hosts in scope",
+        "reads": [
+          "hostname",
+          "device_uid",
+          "os_name",
+          "lifecycle_state",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname, device_uid, os_name, lifecycle_state FROM hb_devices WHERE time >= datetime('now', '-{{lookback_days}} days') AND lifecycle_state = 'active'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of active hosts. Silence means no systems are currently reporting health to the platform.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "gateway-dns-lead",
+      "type": "query",
+      "label": "Detect Tor2Web gateway resolutions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{onion_gateways}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR query_hostname LIKE '%.onion.%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_dns_activity",
+        "description": "Find evidence of processes resolving domains used to proxy traffic into the Tor network.",
+        "expected_signal": "A hostname and process resolving a gateway. This identifies the obfuscation channel."
+      },
+      "parents": [
+        {
+          "id": "scoping-active-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect Tor2Web gateway resolutions",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{onion_gateways}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR query_hostname LIKE '%.onion.%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A hostname and process resolving a gateway. This identifies the obfuscation channel.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "volumetric-exfil",
+      "type": "query",
+      "label": "High-volume outbound connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, SUM(traffic_bytes) as total_bytes, MIN(time) as first_seen FROM hb_network_connection WHERE direction = 'outbound' AND state_kind = 'log' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, process_name HAVING total_bytes > {{exfil_threshold_bytes}}",
+        "surface": "hb_network_connection",
+        "description": "Identify massive data transfers occurring within the same time window as the gateway lead.",
+        "expected_signal": "An outbound flow exceeding the threshold. Silence proves no large-scale exfiltration occurred through logged sockets."
+      },
+      "parents": [
+        {
+          "id": "gateway-dns-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "High-volume outbound connections",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "traffic_bytes",
+          "direction",
+          "state_kind",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, SUM(traffic_bytes) as total_bytes, MIN(time) as first_seen FROM hb_network_connection WHERE direction = 'outbound' AND state_kind = 'log' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, process_name HAVING total_bytes > {{exfil_threshold_bytes}}",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "An outbound flow exceeding the threshold. Silence proves no large-scale exfiltration occurred through logged sockets.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-17"
+      }
+    },
+    {
+      "id": "azure-identity-risk",
+      "type": "query",
+      "label": "Risky Azure AD authentication",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "azure-ad",
+        "content": "SELECT created_date_time, ip_address, user_principal_name, risk_level_during_sign_in, risk_state FROM azuread_sign_in_report WHERE risk_level_during_sign_in IN ('medium', 'high') AND created_date_time >= datetime('now', '-{{lookback_days}} days')",
+        "product": "azure-ad",
+        "surface": "azuread_sign_in_report",
+        "extension": "azure-ad",
+        "description": "Enrich the hunt with identity-level risk signals from Azure AD sign-in reports.",
+        "expected_signal": "A list of risky sign-ins. This corroborates if the exfiltration followed a compromised identity."
+      },
+      "parents": [
+        {
+          "id": "gateway-dns-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Risky Azure AD authentication",
+        "reads": [
+          "created_date_time",
+          "ip_address",
+          "user_principal_name",
+          "risk_level_during_sign_in",
+          "risk_state"
+        ],
+        "source": "azuread_sign_in_report",
+        "target": "azure-ad",
+        "content": "SELECT created_date_time, ip_address, user_principal_name, risk_level_during_sign_in, risk_state FROM azuread_sign_in_report WHERE risk_level_during_sign_in IN ('medium', 'high') AND created_date_time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of risky sign-ins. This corroborates if the exfiltration followed a compromised identity.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-17",
+        "target_extension": "azure-ad"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Analyze exfiltration pattern",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "azure-ad",
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "gateway-dns-lead",
+          "volumetric-exfil",
+          "azure-identity-risk"
+        ],
+        "objective": "Determine if the gateway DNS resolutions (gateway-dns-lead) and high-volume network transfers (volumetric-exfil) occur on the same host within a 1-hour window, and check for overlapping risky logins (azure-identity-risk).",
+        "description": "Determine if a specific host demonstrates the full sequence of proxy resolution, high data transfer, and identity risk.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict of malicious, suspicious, or benign with citations of the specific processes and volumes.",
+        "success_criteria": "A per-host verdict citing row indices for DNS and Network events."
+      },
+      "parents": [
+        {
+          "id": "volumetric-exfil",
+          "kind": "merge"
+        },
+        {
+          "id": "azure-identity-risk",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on triage findings",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host involving high-volume data transfer through a gateway",
+        "condition": "the triage verdict is malicious for at least one host involving high-volume data transfer through a gateway",
+        "blind_spot": "no-network-flow-data",
+        "confidence": "high",
+        "description": "Action the results based on the severity of the corroborated evidence.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop active exfiltration by severing the host's network connectivity.",
+        "instructions": "Isolate the host and revoke all active O365/Azure sessions for the users identified in the risky sign-in report.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Manual impact assessment",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review file activity on the isolated host to determine exactly what data was staged or accessed.",
+        "instructions": "Review hb_file_activity for the process identified in the network step. Look for directory traversal or archiver (zip/7z) usage prior to the exfiltration timestamp."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close hunt and archive",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document results and false positives for future tuning.",
+        "instructions": "Note any benign use of Tor2Web gateways (e.g., security research) to tune the onion_gateways parameter."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

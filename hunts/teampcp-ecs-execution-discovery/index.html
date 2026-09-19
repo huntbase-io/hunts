@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TeamPCP: ECS Execution and Container Discovery · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is leveraging stolen cloud credentials to gain interactive container access via the AWS SSM Agent (ECS Exec) to perform discovery and exfiltrate secrets.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/teampcp-ecs-execution-discovery/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="TeamPCP: ECS Execution and Container Discovery · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is leveraging stolen cloud credentials to gain interactive container access via the AWS SSM Agent (ECS Exec) to perform discovery and exfiltrate secrets.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/teampcp-ecs-execution-discovery/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">TeamPCP: ECS Execution and Container Discovery</h1>
+      <p class="hyp-lead">An adversary is leveraging stolen cloud credentials to gain interactive container access via the AWS SSM Agent (ECS Exec) to perform discovery and exfiltrate secrets.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.wiz.io/blog/tracking-teampcp-investigating-post-compromise-attacks-seen-in-the-wild" rel="noopener">Wiz</a></span>
+<span>2026-09-17</span>        <span>10 steps · 4 queries</span>
+<span class="mono">T1059.004 T1059.006 T1078.004 T1610</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=teampcp-ecs-execution-discovery" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Recent research by Wiz, titled <a href="https://www.wiz.io/blog/tracking-teampcp-investigating-post-compromise-attacks-seen-in-the-wild" rel="noopener noreferrer">Tracking TeamPCP: post-compromise attacks seen in the wild</a>, details a threat actor specializing in leveraging stolen cloud credentials to gain a foothold in containerized environments. Once inside, TeamPCP often pivots from static credentials to interactive runtime control using the AWS Systems Manager (SSM) Agent, a feature known as ECS Exec. We have designed this hunt to identify these interactive sessions and the subsequent discovery activity.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins by establishing a scope using the <code>hb_software_inventory</code> surface. We identify all container hosts where the <code>amazon-ssm-agent</code> or <code>ssm-agent-worker</code> is present. This narrows our search to only those assets capable of supporting ECS Exec, reducing the noise from standard container workloads that do not use these management features.</p>
+<p>Next, we pivot to <code>hb_process_activity</code> to find child processes spawned by these agents. We specifically look for shells and Python interpreters. While ECS Exec is a common tool for developers, an interactive session triggered by an adversary often leaves distinct traces in the process tree that differ from automated management scripts or health checks.</p>
+<p>To separate legitimate activity from the "bold" manual sessions typical of TeamPCP, we perform a prevalence check on the command lines. By baselining the entire fleet, we isolate commands that appear on only one or two hosts. This highlights manual, one-off execution that deviates from standard DevOps workflows, such as the specific script names reported in recent attacks.</p>
+<p>Finally, we enrich the findings using <code>hb_script_activity</code>. We search for script blocks containing AWS-specific reconnaissance patterns, such as <code>get-caller-identity</code>, <code>list-secrets</code>, or the use of the <code>boto3</code> library. This allows us to see the intent behind the session, confirming if the SSM-spawned shell was used to interrogate the cloud environment.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>This hunt has two primary limitations. First, if Linux script logging (via Auditd or eBPF) is not enabled, the <code>hb_script_activity</code> surface will be empty. In such cases, we must rely entirely on command-line arguments, which can be easily obfuscated or truncated. Second, while we can see what happened inside the container, endpoint logs do not reveal which external IAM identity initiated the session. Correlating these results with AWS CloudTrail <code>ExecuteCommand</code> events is necessary to identify the source of the compromise.</p>
+<h3>Why This is a Hunt</h3>
+<p>A simple detection rule might flag any instance of the SSM Agent spawning a shell, but in many environments, this creates too much fatigue for SOC analysts. This is a hunt because it uses fleet-wide baselining to find outliers and correlates process behavior with actual script content. It is designed to find the human-in-the-loop activity that automated tools often overlook.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/anomalous-cloud-identity-api-abuse-teampcp/index.html">Part 1: Anomalous Cloud Identity and API Abuse (TeamPCP)</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 1 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is leveraging stolen cloud credentials to gain interactive container access via the AWS SSM Agent (ECS Exec) to perform discovery and exfiltrate secrets.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify container hosts capable of supporting ECS Exec, providing a scope for the runtime hunt.", "expected": "A list of hosts where the SSM agent is present. This narrows the search to potential targets for TeamPCP\u0027s interactive container execution.", "id": "identify-ssm-agent-inventory", "label": "Identify hosts with SSM Agent installed", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE LOWER(package_name) LIKE \u0027%ssm-agent%\u0027", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Detect the core mechanism of ECS Exec: the agent spawning a shell or interpreter for an interactive session.", "expected": "Interactive shells or Python processes running under the SSM agent\u0027s context. This indicates an ECS Exec session is or was active.", "id": "ssm-child-processes", "label": "Interpreters spawned by the SSM Agent", "parents": [{"branch": null, "id": "identify-ssm-agent-inventory", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE instr(\u0027,\u0027 || \u0027{{ssm_agent_patterns}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(parent_process_name) || \u0027,\u0027) \u003e 0 AND (LOWER(process_name) IN (\u0027bash\u0027, \u0027sh\u0027, \u0027python\u0027, \u0027python3\u0027) OR LOWER(process_cmd_line) LIKE \u0027%python%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Highlight manual, one-off execution that deviates from standard automated management scripts.", "expected": "One-off commands like \u0027pawn\u0027 or \u0027massive-exfil\u0027 as reported for TeamPCP, appearing on only a few hosts.", "id": "rare-ssm-commands", "label": "Rare command lines from SSM Agent", "parents": [{"branch": null, "id": "ssm-child-processes", "kind": null}], "query": "SELECT LOWER(process_cmd_line) AS cmd, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE instr(\u0027,\u0027 || \u0027{{ssm_agent_patterns}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(parent_process_name) || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY cmd HAVING host_count \u003c= 2 ORDER BY host_count ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Analyze the text of scripts running inside containers to confirm discovery and exfiltration tradecraft.", "expected": "Script blocks performing cloud discovery. This confirms the \u0027why\u0027 behind the SSM session.", "id": "script-recon-patterns", "label": "Script content recon and exfiltration", "parents": [{"branch": null, "id": "ssm-child-processes", "kind": null}], "query": "SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE \u0027%get-caller-identity%\u0027 OR LOWER(script_content) LIKE \u0027%list-secrets%\u0027 OR LOWER(script_content) LIKE \u0027%boto3%\u0027 OR LOWER(script_content) LIKE \u0027%describe-instances%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_script_activity", "type": "query"}, {"description": "Correlate the SSM-spawned processes with the rare command lines and script content to identify malicious sessions.", "expected": "A per-host verdict citing specific rows of suspicious execution.", "id": "triage-execution", "label": "Triage Container Execution", "parents": [{"branch": null, "id": "rare-ssm-commands", "kind": "merge"}, {"branch": null, "id": "script-recon-patterns", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the response based on the triage agent\u0027s findings.", "expected": null, "id": "route-on-verdict", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-execution", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Sever connectivity to prevent further exfiltration from the compromised container environment.", "expected": null, "id": "isolate-container", "label": "Isolate Host/Container", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Final manual review of the hunt\u0027s context and findings.", "expected": null, "id": "analyst-review", "label": "Analyst Review", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-container", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Record findings and lessons for future hunts.", "expected": null, "id": "close-out", "label": "Close out", "parents": [{"branch": null, "id": "analyst-review", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-identify-ssm-agent-inventory">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify hosts with SSM Agent installed</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify container hosts capable of supporting ECS Exec, providing a scope for the runtime hunt.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE LOWER(package_name) LIKE &#39;%ssm-agent%&#39;</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts where the SSM agent is present. This narrows the search to potential targets for TeamPCP&#39;s interactive container execution.</p>        </li>
+        <li class="card step" id="step-ssm-child-processes">
+          <div class="step-head">
+            <h3 class="heading-sm">Interpreters spawned by the SSM Agent</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect the core mechanism of ECS Exec: the agent spawning a shell or interpreter for an interactive session.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{ssm_agent_patterns}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(parent_process_name) || &#39;,&#39;) &gt; 0 AND (LOWER(process_name) IN (&#39;bash&#39;, &#39;sh&#39;, &#39;python&#39;, &#39;python3&#39;) OR LOWER(process_cmd_line) LIKE &#39;%python%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Interactive shells or Python processes running under the SSM agent&#39;s context. This indicates an ECS Exec session is or was active.</p>        </li>
+        <li class="card step" id="step-rare-ssm-commands">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare command lines from SSM Agent</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Highlight manual, one-off execution that deviates from standard automated management scripts.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT LOWER(process_cmd_line) AS cmd, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{ssm_agent_patterns}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(parent_process_name) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY cmd HAVING host_count &lt;= 2 ORDER BY host_count ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> One-off commands like &#39;pawn&#39; or &#39;massive-exfil&#39; as reported for TeamPCP, appearing on only a few hosts.</p>        </li>
+        <li class="card step" id="step-script-recon-patterns">
+          <div class="step-head">
+            <h3 class="heading-sm">Script content recon and exfiltration</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Analyze the text of scripts running inside containers to confirm discovery and exfiltration tradecraft.</p>          <div class="code"><div class="code-head"><span>reads hb_script_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE &#39;%get-caller-identity%&#39; OR LOWER(script_content) LIKE &#39;%list-secrets%&#39; OR LOWER(script_content) LIKE &#39;%boto3%&#39; OR LOWER(script_content) LIKE &#39;%describe-instances%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Script blocks performing cloud discovery. This confirms the &#39;why&#39; behind the SSM session.</p>        </li>
+        <li class="card step" id="step-triage-execution">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage Container Execution</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate the SSM-spawned processes with the rare command lines and script content to identify malicious sessions.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the response based on the triage agent&#39;s findings.</p>        </li>
+        <li class="card step" id="step-isolate-container">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Host/Container</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Sever connectivity to prevent further exfiltration from the compromised container environment.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final manual review of the hunt&#39;s context and findings.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Record findings and lessons for future hunts.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Interactive container access<br><span class="mono dim">T1610 · T1059</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>ssm-child-processes, rare-ssm-commands, script-recon-patterns</td></tr>            <tr><td>Supply chain compromise<br><span class="mono dim">T1195</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Tracking TeamPCP: post-compromise attacks seen in the wild&#39; series.</td></tr>            <tr><td>Secret validation via TruffleHog<br><span class="mono dim">T1078 · T1526</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Tracking TeamPCP: post-compromise attacks seen in the wild&#39; series.</td></tr>            <tr><td>AWS environment enumeration<br><span class="mono dim">T1526 · T1087</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Tracking TeamPCP: post-compromise attacks seen in the wild&#39; series.</td></tr>            <tr><td>Abuse of GitHub Workflows<br><span class="mono dim">T1078 · T1195</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Tracking TeamPCP: post-compromise attacks seen in the wild&#39; series.</td></tr>            <tr><td>Bulk data exfiltration<br><span class="mono dim">T1041 · T1567</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Tracking TeamPCP: post-compromise attacks seen in the wild&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_script_activity from Linux (Auditd/eBPF).</strong> Without script content, we rely on command lines, which may be truncated or just show &#39;bash&#39;. <span class="dim">It would answer What specifically ran inside the shell scripts?.</span></li>          <li class="card"><strong>Needs AWS CloudTrail (ExecuteCommand).</strong> Endpoint logs show the agent&#39;s work, but not the identity of the person controlling it from outside. <span class="dim">It would answer Which AWS IAM identity commanded the container?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to narrow the search; leave empty for the full estate.</td></tr>            <tr><td><code>ssm_agent_patterns</code></td><td class="mono dim">list[string]</td><td class="mono">amazon-ssm-agent, ssm-agent-worker</td><td>Process names associated with the AWS SSM Agent used for ECS Exec.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple detection rule flags the SSM Agent spawning bash; this hunt adds
+  prevalence across the fleet and correlates with script content analysis to distinguish
+  legitimate management from &#39;bold&#39; manual adversary sessions.
+blind_spots:
+- id: linux-script-logging-missing
+  question: What specifically ran inside the shell scripts?
+  requires: hb_script_activity from Linux (Auditd/eBPF)
+  risk: Without script content, we rely on command lines, which may be truncated or
+    just show &#39;bash&#39;.
+  stage: remote-execution-ecs-exec
+- id: ssm-identity-blind-spot
+  question: Which AWS IAM identity commanded the container?
+  requires: AWS CloudTrail (ExecuteCommand)
+  risk: Endpoint logs show the agent&#39;s work, but not the identity of the person controlling
+    it from outside.
+  stage: remote-execution-ecs-exec
+coverage:
+- stage: remote-execution-ecs-exec
+  status: covered
+  steps:
+  - ssm-child-processes
+  - rare-ssm-commands
+  - script-recon-patterns
+- reason: &#39;Belongs to another part of the &#39;&#39;Tracking TeamPCP: post-compromise attacks
+    seen in the wild&#39;&#39; series.&#39;
+  stage: initial-access-supply-chain-injection
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Tracking TeamPCP: post-compromise attacks
+    seen in the wild&#39;&#39; series.&#39;
+  stage: credential-validation-trufflehog
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Tracking TeamPCP: post-compromise attacks
+    seen in the wild&#39;&#39; series.&#39;
+  stage: cloud-discovery-enumeration
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Tracking TeamPCP: post-compromise attacks
+    seen in the wild&#39;&#39; series.&#39;
+  stage: lateral-movement-github-workflows
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Tracking TeamPCP: post-compromise attacks
+    seen in the wild&#39;&#39; series.&#39;
+  stage: exfiltration-mass-data-retrieval
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: TeamPCP uses ECS Exec to pivot from static credentials to runtime
+    control. This hunt covers the last stage of the attack chain before exfiltration,
+    providing a negative result for active interactive exploitation.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is leveraging stolen cloud credentials to gain interactive
+  container access via the AWS SSM Agent (ECS Exec) to perform discovery and exfiltrate
+  secrets.
+labels:
+- hunt
+- attack.t1610
+- attack.t1059.004
+- attack.t1059.006
+- attack.t1078.004
+name: &#39;TeamPCP: ECS Execution and Container Discovery&#39;
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    from:
+      kind: manual
+      observed: &#39;2024-03-27&#39;
+      ref: Standard hunt window
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to narrow the search; leave empty for
+      the full estate.
+    type: list[host]
+  ssm_agent_patterns:
+    default:
+    - amazon-ssm-agent
+    - ssm-agent-worker
+    description: Process names associated with the AWS SSM Agent used for ECS Exec.
+    from:
+      kind: article
+      observed: &#39;2024-03-27&#39;
+      ref: AWS SSM Agent Documentation
+    type: list[string]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.wiz.io/blog/tracking-teampcp-investigating-post-compromise-attacks-seen-in-the-wild
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on AWS accounts with high-traffic ECS clusters or those where Trivy/KICS
+  are integrated into CI/CD pipelines.
+references:
+- name: &#39;Tracking TeamPCP: post-compromise attacks seen in the wild&#39;
+  url: https://www.wiz.io/blog/tracking-teampcp-investigating-post-compromise-attacks-seen-in-the-wild
+related:
+- hunt: teampcp-cloud-credential-recon
+  reason: This hunt focuses on runtime/container execution; the sibling hunt targets
+    the cloud-level API reconnaissance.
+  relation: out-of-scope-alternative
+- hunt: anomalous-cloud-identity-api-abuse-teampcp
+  relation: follows
+scenario:
+  stages:
+  - name: Supply chain compromise
+    observables:
+    - Trivy binary
+    - KICS GitHub Action
+    - LiteLLM PyPI package
+    - Telnyx Python package
+    slug: initial-access-supply-chain-injection
+    tactic: initial-access
+    techniques:
+    - T1195
+  - name: Secret validation via TruffleHog
+    observables:
+    - &#39;User-Agent: Trufflehog&#39;
+    - &#39;API call: sts:GetCallerIdentity&#39;
+    - &#39;IP: 105.245.181.120&#39;
+    - &#39;IP: 185.77.218.4&#39;
+    - &#39;IP: 209.159.147.239&#39;
+    - &#39;IP: 23.234.107.104&#39;
+    - &#39;IP: 34.205.27.48&#39;
+    slug: credential-validation-trufflehog
+    tactic: discovery
+    techniques:
+    - T1078
+    - T1526
+  - name: AWS environment enumeration
+    observables:
+    - &#39;IAM: ListUsers&#39;
+    - &#39;IAM: ListRoles&#39;
+    - &#39;EC2: DescribeInstances&#39;
+    - &#39;Lambda: ListFunctions&#39;
+    - &#39;S3: ListBuckets&#39;
+    - &#39;ECS: ListClusters&#39;
+    - &#39;User-Agent: Boto3/1.42.73 (Kali Linux)&#39;
+    - &#39;IP: 154.47.29.12&#39;
+    - &#39;IP: 170.62.100.245&#39;
+    slug: cloud-discovery-enumeration
+    tactic: discovery
+    techniques:
+    - T1526
+    - T1087
+  - name: Abuse of GitHub Workflows
+    observables:
+    - &#39;Tool: Nord Stream&#39;
+    - &#39;Branch: dev_remote_ea5Eu/test/v1&#39;
+    - &#39;Action: Workflow log deletion&#39;
+    - &#39;IP: 138.199.15.172&#39;
+    - &#39;IP: 163.245.223.12&#39;
+    slug: lateral-movement-github-workflows
+    tactic: lateral-movement
+    techniques:
+    - T1078
+    - T1195
+  - name: Interactive container access
+    observables:
+    - ECS Exec (SSM Agent)
+    - Bash commands on containers
+    - Python scripts on containers
+    - SSMSession context tag
+    slug: remote-execution-ecs-exec
+    tactic: execution
+    techniques:
+    - T1610
+    - T1059
+  - name: Bulk data exfiltration
+    observables:
+    - git clone
+    - &#39;User-Agent: git/2.43.0&#39;
+    - &#39;Domain: git.clone&#39;
+    - &#39;S3: GetObject&#39;
+    - &#39;SecretsManager: GetSecretValue&#39;
+    - &#39;IP: 193.32.126.157&#39;
+    slug: exfiltration-mass-data-retrieval
+    tactic: exfiltration
+    techniques:
+    - T1041
+    - T1567
+  summary: The TeamPCP campaign involves supply chain attacks on open-source projects
+    like Trivy and LiteLLM to harvest cloud and CI/CD credentials. Stolen secrets
+    are validated with TruffleHog and used for extensive cloud discovery, lateral
+    movement via GitHub workflows, and data exfiltration from S3 and private repositories.
+series:
+  index: 2
+  slug: tracking-teampcp-post-compromise-attacks-seen-in-the-wild
+  title: &#39;Tracking TeamPCP: post-compromise attacks seen in the wild&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# TeamPCP: ECS Execution and Container Discovery
+
+This hunt targets the runtime behavior of the TeamPCP threat actor within ECS container environments. After obtaining cloud credentials through supply chain compromises, the group utilizes the Amazon SSM Agent (&#39;ECS Exec&#39;) to spawn shells directly on containers. This hunt identifies the SSM agent presence, detects unusual shell and Python processes spawned by the agent, and analyzes script execution patterns for characteristic reconnaissance commands and exfiltration scripts reported in recent attacks.
+
+## identify-ssm-agent-inventory
+&lt;!-- Identify hosts with SSM Agent installed --&gt;
+Identify container hosts capable of supporting ECS Exec, providing a scope for the runtime hunt.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts where the SSM agent is present. This narrows the search
+  to potential targets for TeamPCP&#39;s interactive container execution.
+reads:
+- device_hostname
+- package_name
+- package_version
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE LOWER(package_name) LIKE &#39;%ssm-agent%&#39;
+```
+
+## ssm-child-processes
+&lt;!-- Interpreters spawned by the SSM Agent --&gt;
+Detect the core mechanism of ECS Exec: the agent spawning a shell or interpreter for an interactive session.
+
+```sqlite target=endpoint role=detection-candidate params=(ssm_agent_patterns=ssm_agent_patterns, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Interactive shells or Python processes running under the SSM agent&#39;s context.
+  This indicates an ECS Exec session is or was active.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- parent_process_name
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{ssm_agent_patterns}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(parent_process_name) || &#39;,&#39;) &gt; 0 AND (LOWER(process_name) IN (&#39;bash&#39;, &#39;sh&#39;, &#39;python&#39;, &#39;python3&#39;) OR LOWER(process_cmd_line) LIKE &#39;%python%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-corroboration
+&lt;!-- Parallel Evidence Gathering --&gt;
+parallel:
+- → rare-ssm-commands
+- → script-recon-patterns
+join: → triage-execution
+
+## rare-ssm-commands
+&lt;!-- Rare command lines from SSM Agent --&gt;
+Highlight manual, one-off execution that deviates from standard automated management scripts.
+
+```sqlite target=endpoint role=baseline params=(ssm_agent_patterns=ssm_agent_patterns, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: One-off commands like &#39;pawn&#39; or &#39;massive-exfil&#39; as reported for TeamPCP,
+  appearing on only a few hosts.
+prevalence:
+  by: device_hostname
+  key:
+  - process_cmd_line
+  rare_below: 3
+reads:
+- process_cmd_line
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT LOWER(process_cmd_line) AS cmd, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{ssm_agent_patterns}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(parent_process_name) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY cmd HAVING host_count &lt;= 2 ORDER BY host_count ASC
+```
+
+## script-recon-patterns
+&lt;!-- Script content recon and exfiltration --&gt;
+Analyze the text of scripts running inside containers to confirm discovery and exfiltration tradecraft.
+
+```sqlite target=endpoint role=enrichment params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Script blocks performing cloud discovery. This confirms the &#39;why&#39; behind
+  the SSM session.
+reads:
+- device_hostname
+- script_content
+- script_type
+- time
+silence: not_evidence_of_absence
+source: hb_script_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE &#39;%get-caller-identity%&#39; OR LOWER(script_content) LIKE &#39;%list-secrets%&#39; OR LOWER(script_content) LIKE &#39;%boto3%&#39; OR LOWER(script_content) LIKE &#39;%describe-instances%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-execution
+&lt;!-- Triage Container Execution --&gt;
+```agent target=hunter
+cite: required
+context:
+- ssm-child-processes
+- rare-ssm-commands
+- script-recon-patterns
+max_iterations: 4
+objective: Determine if the SSM activity on the identified hosts indicates an interactive
+  session by TeamPCP. Look for AWS discovery commands, Python boto3 reconnaissance,
+  and command lines that deviate from standard automated DevOps workflows.
+success_criteria: A clear verdict of malicious, suspicious, or benign per host.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on verdict --&gt;
+if~: &#34;The triage verdict is malicious for at least one host.&#34; (confidence: high, judge=hunter)
+then: → isolate-container
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: linux-script-logging-missing)
+else: → analyst-review
+
+## isolate-container
+&lt;!-- Isolate Host/Container --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately. Terminate any active SSM sessions and revoke the IAM credentials associated with the container&#39;s execution role.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review --&gt;
+```manual target=analyst
+Review the cited rows for the malicious verdict. Cross-reference with AWS CloudTrail to identify the authenticated identity that initiated the SSM session.
+```
+→ close-out
+
+## close-out
+&lt;!-- Close out --&gt;
+```manual target=analyst
+Document the affected containers and any discovered secrets. Update detection rules with any new unique command-line patterns found.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=teampcp-ecs-execution-discovery" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

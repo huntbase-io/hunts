@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SDLC Supply Chain: Build &amp; Run Compromise · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An attacker has compromised an upstream dependency or build tool to execute malicious code during the CI/CD process, leveraging lifecycle hooks to steal OIDC tokens and developer credentials.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/sdlc-supply-chain-build-run-compromise/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="SDLC Supply Chain: Build &amp; Run Compromise · Huntbase Hunts">
+  <meta property="og:description" content="An attacker has compromised an upstream dependency or build tool to execute malicious code during the CI/CD process, leveraging lifecycle hooks to steal OIDC tokens and developer credentials.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/sdlc-supply-chain-build-run-compromise/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">SDLC Supply Chain: Build &amp; Run Compromise</h1>
+      <p class="hyp-lead">An attacker has compromised an upstream dependency or build tool to execute malicious code during the CI/CD process, leveraging lifecycle hooks to steal OIDC tokens and developer credentials.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://unit42.paloaltonetworks.com/sdlc-supply-chain/" rel="noopener">Unit 42</a></span>
+<span>2026-09-17</span>        <span>10 steps · 5 queries</span>
+<span class="mono">T1003 T1059.007 T1105 T1195.002 T1204.002 T1552 T1584.005</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=sdlc-supply-chain-build-run-compromise" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Recent research from Unit 42, <a href="https://unit42.paloaltonetworks.com/sdlc-supply-chain/" rel="noopener noreferrer">Connecting the Dots: Securing the Overlooked Corners of the SDLC Supply Chain</a>, highlights a shift in attacker focus. Rather than targeting production code directly, adversaries are increasingly compromising the digital factory—the CI/CD pipelines and developer environments that build and deploy software. The discovery of the XZ Utils backdoor (CVE-2024-3094) and the emergence of the ChainDrop worm demonstrate that build-time hooks provide a stealthy path for initial access and credential harvesting.</p>
+<p>Our hypothesis for this hunt assumes an attacker has compromised an upstream dependency or a local build tool. This adversary leverages lifecycle hooks (like npm's preinstall) to execute malicious code during the build process, specifically aiming to scrape memory for OIDC tokens or read developer credentials from local stores like <code>.git-credentials</code> or <code>.npmrc</code>.</p>
+<p>The hunt begins with a scoping phase using software inventory and vulnerability scanner data. We look specifically for assets hosting known compromised versions of the XZ library. While the presence of a vulnerable package is not evidence of compromise, it defines the high-priority surface for the subsequent behavioral checks.</p>
+<p>In the second phase, we analyze process activity for anomalous lineage. We look for instances where standard package managers—such as npm, pip, or cargo—spawn unexpected runtimes like Bun, standalone Python, or shell environments. This pattern is characteristic of malicious preinstall hooks that move beyond the expected ecosystem to execute secondary payloads. We specifically baseline these relationships to identify rare occurrences on build runners and developer machines.</p>
+<p>In the final phase, we pivot to script content and file activity to confirm intent and impact. We search for script blocks containing markers of memory-scraping logic, such as references to <code>ctypes</code>, <code>ptrace</code>, or <code>/proc/self/mem</code>. Simultaneously, we monitor for these same suspicious runtimes accessing sensitive local configuration files. This correlation helps distinguish legitimate build automation from automated credential theft.</p>
+<p>There are inherent blind spots in this design. Short-lived CI/CD runners pose a significant telemetry challenge; if an ephemeral host is destroyed before its logs are ingested, the activity remains invisible. Additionally, sophisticated worms may split their payloads into many small script fragments to avoid detection by simple keyword matching on individual blocks. Persistent log streaming and block reconstruction are necessary to fully mitigate these risks.</p>
+<p>This is a hunt rather than a simple detection because the individual components—vulnerable packages, unusual process parents, and script keywords—are often too noisy to alert on in isolation within a busy development environment. By correlating these signals across the SDLC lifecycle, we can surface high-confidence indicators of a compromised supply chain.</p>
+<p>This hunt is published as a <code>hunt.md</code> playbook. It can be imported into Huntbase or any other hunt.md-aware runtime to begin investigating your build environments.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/sdlc-persistence-c2-propagation/index.html">Part 2: SDLC Persistence and Automated C2 Propagation</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>CVEs</span></p>
+          <p class="mono dim">CVE-2024-3094</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An attacker has compromised an upstream dependency or build tool to execute malicious code during the CI/CD process, leveraging lifecycle hooks to steal OIDC tokens and developer credentials.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify hosts where the vulnerable XZ Utils or liblzma packages are installed based on the research.", "expected": "A list of hostnames potentially at risk. No rows means these specific versions aren\u0027t detected in inventory.", "id": "scope-vulnerable-packages", "label": "Scope by vulnerable package versions", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) IN (\u0027xz\u0027, \u0027liblzma\u0027) AND instr(\u0027,\u0027 || \u0027{{vulnerable_versions}}\u0027 || \u0027,\u0027, \u0027,\u0027 || package_version || \u0027,\u0027) \u003e 0", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Cross-reference inventory with official vulnerability scanner findings for the target CVE to see where it has already been flagged.", "expected": "Specific resource IDs (like container images or instances) flagged for the supply chain CVE.", "id": "enrich-with-cve-findings", "label": "Enrich with scanner CVE findings", "parents": [{"branch": null, "id": "scope-vulnerable-packages", "kind": null}], "query": "SELECT resource_uid, cve_uid, severity, status FROM hb_vulnerability_finding WHERE instr(\u0027,\u0027 || \u0027{{target_cve}}\u0027 || \u0027,\u0027, \u0027,\u0027 || cve_uid || \u0027,\u0027) \u003e 0", "role": "enrichment", "source": "hb_vulnerability_finding", "type": "query"}, {"description": "Identify instances where a package manager spawns an unexpected runtime, which is a common pattern for \u0027preinstall\u0027 hook exploitation.", "expected": "A rare parent-\u003echild relationship on a build runner or dev machine. Legitimate installs are common; rare \u0027bun\u0027 or \u0027python\u0027 launches from \u0027npm\u0027 are suspicious.", "id": "suspicious-hook-execution", "label": "Suspicious package manager child processes", "parents": [{"branch": null, "id": "enrich-with-cve-findings", "kind": null}], "query": "SELECT device_hostname, parent_process_name, process_name, process_cmd_line, COUNT(*) as exec_count, MIN(time) as first_seen FROM hb_process_activity WHERE instr(\u0027,\u0027 || \u0027{{package_managers}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(parent_process_name) || \u0027,\u0027) \u003e 0 AND (instr(\u0027,\u0027 || \u0027{{suspicious_runtimes}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 OR LOWER(process_cmd_line) LIKE \u0027%preinstall%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY 1, 2, 3, 4 HAVING exec_count \u003c= 5", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Detect script blocks containing indicators of memory scraping or OIDC token theft, as seen in the ChainDrop worm.", "expected": "Script blocks containing Python \u0027ctypes\u0027 logic or OIDC keywords. Silence means no such scripts were executed within the window.", "id": "script-memory-markers", "label": "Script content with memory markers", "parents": [{"branch": null, "id": "enrich-with-cve-findings", "kind": null}], "query": "SELECT device_hostname, actor_user_name, script_path, script_content, time FROM hb_script_activity WHERE ( (instr(LOWER(script_content), \u0027ctypes\u0027) \u003e 0 AND instr(\u0027{{memory_markers}}\u0027, \u0027ctypes\u0027) \u003e 0) OR (instr(LOWER(script_content), \u0027ptrace\u0027) \u003e 0 AND instr(\u0027{{memory_markers}}\u0027, \u0027ptrace\u0027) \u003e 0) OR (instr(LOWER(script_content), \u0027oidc\u0027) \u003e 0 AND instr(\u0027{{memory_markers}}\u0027, \u0027oidc\u0027) \u003e 0) OR (instr(LOWER(script_content), \u0027/proc/self/mem\u0027) \u003e 0 AND instr(\u0027{{memory_markers}}\u0027, \u0027/proc/self/mem\u0027) \u003e 0) ) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "baseline", "source": "hb_script_activity", "type": "query"}, {"description": "Identify suspicious runtimes reading local Git or NPM credentials during the build window.", "expected": "A suspicious runtime (e.g. Bun or standalone Python) reading a developer\u0027s secret file.", "id": "credential-file-access", "label": "Access to sensitive SDLC credentials", "parents": [{"branch": null, "id": "enrich-with-cve-findings", "kind": null}], "query": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE \u0027%.git-credentials%\u0027 OR LOWER(file_path) LIKE \u0027%.npmrc%\u0027 OR LOWER(file_path) LIKE \u0027%.env%\u0027) AND activity_name IN (\u0027Read\u0027, \u0027Open\u0027) AND instr(\u0027,\u0027 || \u0027{{suspicious_runtimes}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Evaluate whether the combination of vulnerable packages, anomalous hooks, and memory-scraping markers indicates a supply chain compromise.", "expected": "A per-host verdict on the likelihood of a supply chain worm or backdoor.", "id": "triage-agent", "label": "Triage SDLC activity", "parents": [{"branch": null, "id": "suspicious-hook-execution", "kind": "merge"}, {"branch": null, "id": "script-memory-markers", "kind": "merge"}, {"branch": null, "id": "credential-file-access", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Branch the hunt based on the triage agent\u0027s findings.", "expected": null, "id": "route-on-verdict", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-agent", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Isolate the host to prevent token misuse and further lateral movement.", "expected": null, "id": "contain-compromised-host", "label": "Isolate compromised host", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Final confirmation of findings and tuning for future detection.", "expected": null, "id": "analyst-close-out", "label": "Analyst review and close-out", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "contain-compromised-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-vulnerable-packages">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope by vulnerable package versions</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify hosts where the vulnerable XZ Utils or liblzma packages are installed based on the research.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) IN (&#39;xz&#39;, &#39;liblzma&#39;) AND instr(&#39;,&#39; || &#39;{{vulnerable_versions}}&#39; || &#39;,&#39;, &#39;,&#39; || package_version || &#39;,&#39;) &gt; 0</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames potentially at risk. No rows means these specific versions aren&#39;t detected in inventory.</p>        </li>
+        <li class="card step" id="step-enrich-with-cve-findings">
+          <div class="step-head">
+            <h3 class="heading-sm">Enrich with scanner CVE findings</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Cross-reference inventory with official vulnerability scanner findings for the target CVE to see where it has already been flagged.</p>          <div class="code"><div class="code-head"><span>reads hb_vulnerability_finding</span><span>sql</span></div><pre><code>SELECT resource_uid, cve_uid, severity, status FROM hb_vulnerability_finding WHERE instr(&#39;,&#39; || &#39;{{target_cve}}&#39; || &#39;,&#39;, &#39;,&#39; || cve_uid || &#39;,&#39;) &gt; 0</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Specific resource IDs (like container images or instances) flagged for the supply chain CVE.</p>        </li>
+        <li class="card step" id="step-suspicious-hook-execution">
+          <div class="step-head">
+            <h3 class="heading-sm">Suspicious package manager child processes</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify instances where a package manager spawns an unexpected runtime, which is a common pattern for &#39;preinstall&#39; hook exploitation.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, parent_process_name, process_name, process_cmd_line, COUNT(*) as exec_count, MIN(time) as first_seen FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{package_managers}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(parent_process_name) || &#39;,&#39;) &gt; 0 AND (instr(&#39;,&#39; || &#39;{{suspicious_runtimes}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_cmd_line) LIKE &#39;%preinstall%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3, 4 HAVING exec_count &lt;= 5</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A rare parent-&gt;child relationship on a build runner or dev machine. Legitimate installs are common; rare &#39;bun&#39; or &#39;python&#39; launches from &#39;npm&#39; are suspicious.</p>        </li>
+        <li class="card step" id="step-script-memory-markers">
+          <div class="step-head">
+            <h3 class="heading-sm">Script content with memory markers</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Detect script blocks containing indicators of memory scraping or OIDC token theft, as seen in the ChainDrop worm.</p>          <div class="code"><div class="code-head"><span>reads hb_script_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, actor_user_name, script_path, script_content, time FROM hb_script_activity WHERE ( (instr(LOWER(script_content), &#39;ctypes&#39;) &gt; 0 AND instr(&#39;{{memory_markers}}&#39;, &#39;ctypes&#39;) &gt; 0) OR (instr(LOWER(script_content), &#39;ptrace&#39;) &gt; 0 AND instr(&#39;{{memory_markers}}&#39;, &#39;ptrace&#39;) &gt; 0) OR (instr(LOWER(script_content), &#39;oidc&#39;) &gt; 0 AND instr(&#39;{{memory_markers}}&#39;, &#39;oidc&#39;) &gt; 0) OR (instr(LOWER(script_content), &#39;/proc/self/mem&#39;) &gt; 0 AND instr(&#39;{{memory_markers}}&#39;, &#39;/proc/self/mem&#39;) &gt; 0) ) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Script blocks containing Python &#39;ctypes&#39; logic or OIDC keywords. Silence means no such scripts were executed within the window.</p>        </li>
+        <li class="card step" id="step-credential-file-access">
+          <div class="step-head">
+            <h3 class="heading-sm">Access to sensitive SDLC credentials</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify suspicious runtimes reading local Git or NPM credentials during the build window.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE &#39;%.git-credentials%&#39; OR LOWER(file_path) LIKE &#39;%.npmrc%&#39; OR LOWER(file_path) LIKE &#39;%.env%&#39;) AND activity_name IN (&#39;Read&#39;, &#39;Open&#39;) AND instr(&#39;,&#39; || &#39;{{suspicious_runtimes}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A suspicious runtime (e.g. Bun or standalone Python) reading a developer&#39;s secret file.</p>        </li>
+        <li class="card step" id="step-triage-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage SDLC activity</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Evaluate whether the combination of vulnerable packages, anomalous hooks, and memory-scraping markers indicates a supply chain compromise.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Branch the hunt based on the triage agent&#39;s findings.</p>        </li>
+        <li class="card step" id="step-contain-compromised-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate compromised host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Isolate the host to prevent token misuse and further lateral movement.</p>        </li>
+        <li class="card step" id="step-analyst-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst review and close-out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final confirmation of findings and tuning for future detection.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Malicious Upstream Contribution<br><span class="mono dim">T1195.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>scope-vulnerable-packages, enrich-with-cve-findings</td></tr>            <tr><td>Malicious Package Hook Execution<br><span class="mono dim">T1584.005 · T1059.007 · T1204.002 · T1105</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>suspicious-hook-execution</td></tr>            <tr><td>CI/CD Runner Memory Scraping<br><span class="mono dim">T1003 · T1552</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>script-memory-markers, credential-file-access</td></tr>            <tr><td>Developer Tool Persistence<br><span class="mono dim">T1543 · T1505</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Connecting the Dots: Securing the Overlooked Corners of the Software Development Lifecycle (SDLC) Supply Chain&#39; series.</td></tr>            <tr><td>Automated Propagation and C2<br><span class="mono dim">T1102 · T1078</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Connecting the Dots: Securing the Overlooked Corners of the Software Development Lifecycle (SDLC) Supply Chain&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs Persistent logging for ephemeral CI/CD runners.</strong> Attackers can perform credential theft in seconds; if the host is destroyed before telemetry is ingested, the activity is invisible. <span class="dim">It would answer Are we missing telemetry from runners that are destroyed immediately after a build?.</span> <span class="dim">Remediation: Enforce log streaming to a central store before runner termination.</span></li>          <li class="card"><strong>Needs hb_script_activity reconstruction.</strong> A worm that splits its payload into many small fragments may avoid detection by substring matching on individual blocks. <span class="dim">It would answer Can we detect markers if the malicious logic is split across many script blocks?.</span> <span class="dim">Remediation: Implement block-reconstruction logic for PowerShell/Shell scripts.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>memory_markers</code></td><td class="mono dim">list[string]</td><td class="mono">ctypes, ptrace, /proc/self/mem, oidc</td><td>Keywords in scripts indicative of memory scraping or token theft.</td></tr>            <tr><td><code>package_managers</code></td><td class="mono dim">list[string]</td><td class="mono">npm, pip, cargo, mvn, go</td><td>Common package manager processes.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to focus the hunt.</td></tr>            <tr><td><code>suspicious_runtimes</code></td><td class="mono dim">list[string]</td><td class="mono">bun, python, node, sh, bash</td><td>Processes often used in malicious hooks.</td></tr>            <tr><td><code>target_cve</code></td><td class="mono dim">list[string]</td><td class="mono">CVE-2024-3094</td><td>Target CVE IDs associated with supply chain vulnerabilities.</td></tr>            <tr><td><code>vulnerable_versions</code></td><td class="mono dim">list[string]</td><td class="mono">5.6.0, 5.6.1</td><td>Known compromised versions of xz/liblzma.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: &#39;While a rule can flag a specific package version, this hunt pivots from
+  the vulnerability to the behavior: asking if a package manager spawned a foreign
+  runtime, and if that runtime then performed memory-scraping operations. This context
+  is too complex for a single detection rule without high false positives.&#39;
+blind_spots:
+- id: short-lived-telemetry
+  owner: Cloud Security
+  question: Are we missing telemetry from runners that are destroyed immediately after
+    a build?
+  remediation: Enforce log streaming to a central store before runner termination.
+  requires: Persistent logging for ephemeral CI/CD runners
+  risk: Attackers can perform credential theft in seconds; if the host is destroyed
+    before telemetry is ingested, the activity is invisible.
+  stage: malicious-package-execution
+- id: script-fragmentation
+  owner: Endpoint Engineering
+  question: Can we detect markers if the malicious logic is split across many script
+    blocks?
+  remediation: Implement block-reconstruction logic for PowerShell/Shell scripts.
+  requires: hb_script_activity reconstruction
+  risk: A worm that splits its payload into many small fragments may avoid detection
+    by substring matching on individual blocks.
+  stage: runner-memory-credential-theft
+coverage:
+- stage: vulnerable-upstream-contribution
+  status: covered
+  steps:
+  - scope-vulnerable-packages
+  - enrich-with-cve-findings
+- stage: malicious-package-execution
+  status: covered
+  steps:
+  - suspicious-hook-execution
+- stage: runner-memory-credential-theft
+  status: covered
+  steps:
+  - script-memory-markers
+  - credential-file-access
+- reason: &#39;Belongs to another part of the &#39;&#39;Connecting the Dots: Securing the Overlooked
+    Corners of the Software Development Lifecycle (SDLC) Supply Chain&#39;&#39; series.&#39;
+  stage: ide-tool-config-persistence
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Connecting the Dots: Securing the Overlooked
+    Corners of the Software Development Lifecycle (SDLC) Supply Chain&#39;&#39; series.&#39;
+  stage: automated-propagation-and-c2
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: SDLC supply chain attacks execute during the build phase where traditional
+    production security controls are absent. A hunt that correlates software inventory
+    with build-time behavior is essential to stop downstream propagation.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An attacker has compromised an upstream dependency or build tool to execute
+  malicious code during the CI/CD process, leveraging lifecycle hooks to steal OIDC
+  tokens and developer credentials.
+labels:
+- hunt
+- attack.t1195.002
+- attack.t1584.005
+- attack.t1059.007
+- attack.t1204.002
+- attack.t1105
+- attack.t1003
+- attack.t1552
+name: &#39;SDLC Supply Chain: Build &amp; Run Compromise&#39;
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  memory_markers:
+    default:
+    - ctypes
+    - ptrace
+    - /proc/self/mem
+    - oidc
+    description: Keywords in scripts indicative of memory scraping or token theft.
+    from:
+      kind: article
+      observed: &#39;2026-08-21&#39;
+      ref: unit42-sdlc-supply-chain
+    type: list[string]
+  package_managers:
+    default:
+    - npm
+    - pip
+    - cargo
+    - mvn
+    - go
+    description: Common package manager processes.
+    type: list[string]
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to focus the hunt.
+    type: list[host]
+  suspicious_runtimes:
+    default:
+    - bun
+    - python
+    - node
+    - sh
+    - bash
+    description: Processes often used in malicious hooks.
+    type: list[string]
+  target_cve:
+    default:
+    - CVE-2024-3094
+    description: Target CVE IDs associated with supply chain vulnerabilities.
+    from:
+      kind: article
+      observed: &#39;2024-03-29&#39;
+      ref: unit42-sdlc-supply-chain
+    type: list[string]
+  vulnerable_versions:
+    default:
+    - 5.6.0
+    - 5.6.1
+    description: Known compromised versions of xz/liblzma.
+    from:
+      kind: article
+      observed: &#39;2024-03-29&#39;
+      ref: unit42-sdlc-supply-chain
+    type: list[string]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://unit42.paloaltonetworks.com/sdlc-supply-chain/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with hosts identified as having vulnerable xz versions. Prioritize
+  assets with names containing &#39;runner&#39;, &#39;build&#39;, or &#39;dev&#39;.
+references:
+- name: &#34;Unit 42 \u2014 Securing the Overlooked Corners of the SDLC Supply Chain&#34;
+  url: https://unit42.paloaltonetworks.com/sdlc-supply-chain/
+related:
+- hunt: ide-tool-config-persistence
+  reason: Persistence in IDE configs (VS Code tasks.json) occurs after initial build
+    compromise and is handled in a separate hunt.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: Malicious Upstream Contribution
+    observables:
+    - liblzma version 5.6.0
+    - liblzma version 5.6.1
+    - CVE-2024-3094
+    - malicious tarballs
+    - OpenSSL zero-day
+    slug: vulnerable-upstream-contribution
+    tactic: initial-access
+    techniques:
+    - T1195.002
+  - name: Malicious Package Hook Execution
+    observables:
+    - npm install
+    - package.json preinstall script
+    - Bun runtime download
+    - 727 KB obfuscated payload
+    slug: malicious-package-execution
+    tactic: execution
+    techniques:
+    - T1584.005
+    - T1059.007
+    - T1204.002
+    - T1105
+  - name: CI/CD Runner Memory Scraping
+    observables:
+    - Python script reading process memory
+    - GitHub Actions runners
+    - OpenID Connect (OIDC) tokens
+    - .git-credentials
+    slug: runner-memory-credential-theft
+    tactic: credential-access
+    techniques:
+    - T1003
+    - T1552
+  - name: Developer Tool Persistence
+    observables:
+    - .vscode/tasks.json
+    - Claude Code configuration
+    - VS Code extensions
+    slug: ide-tool-config-persistence
+    tactic: persistence
+    techniques:
+    - T1543
+    - T1505
+  - name: Automated Propagation and C2
+    observables:
+    - Ethereum blockchain transactions
+    - GitHub API calls
+    - npm token usage
+    - rogue code repositories
+    slug: automated-propagation-and-c2
+    tactic: c2
+    techniques:
+    - T1102
+    - T1078
+  summary: Attackers are targeting the software supply chain by embedding backdoors
+    in foundational libraries and deploying autonomous worms like ChainDrop that hijack
+    npm preinstall hooks. These attacks exploit the high privileges of developer tools
+    to steal OIDC tokens from CI/CD runner memory, establish persistent backdoors
+    in IDE configurations, and propagate via stolen credentials using blockchain-based
+    command and control.
+series:
+  index: 1
+  slug: connecting-the-dots-securing-the-overlooked-corners-of-the-software-development-lifecycle-sdlc-s
+  title: &#39;Connecting the Dots: Securing the Overlooked Corners of the Software Development
+    Lifecycle (SDLC) Supply Chain&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# SDLC Supply Chain: Build &amp; Run Compromise
+
+Supply chain attacks are increasingly targeting the &#39;digital factory&#39;—the CI/CD pipelines and developer environments—rather than the production application code. This hunt investigates the transition from vulnerable software (like the XZ Utils backdoor CVE-2024-3094) to active execution and credential harvesting.
+
+We start by identifying assets with vulnerable package versions or known supply chain CVEs. We then look for anomalous process behavior, specifically package managers spawning out-of-ecosystem runtimes (like Bun or standalone Python) which is characteristic of the ChainDrop worm. Finally, we corroborate this by searching for memory-scraping logic in script blocks and unauthorized access to local credential stores (.git-credentials, .npmrc), which are prime targets for automated propagation.
+
+## scope-vulnerable-packages
+&lt;!-- Scope by vulnerable package versions --&gt;
+Identify hosts where the vulnerable XZ Utils or liblzma packages are installed based on the research.
+
+```sqlite target=endpoint role=scoping params=(vulnerable_versions=vulnerable_versions)
+~~~yaml
+expected: A list of hostnames potentially at risk. No rows means these specific versions
+  aren&#39;t detected in inventory.
+reads:
+- device_hostname
+- package_name
+- package_version
+- install_path
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) IN (&#39;xz&#39;, &#39;liblzma&#39;) AND instr(&#39;,&#39; || &#39;{{vulnerable_versions}}&#39; || &#39;,&#39;, &#39;,&#39; || package_version || &#39;,&#39;) &gt; 0
+```
+
+## enrich-with-cve-findings
+&lt;!-- Enrich with scanner CVE findings --&gt;
+Cross-reference inventory with official vulnerability scanner findings for the target CVE to see where it has already been flagged.
+
+```sqlite target=endpoint role=enrichment params=(target_cve=target_cve)
+~~~yaml
+expected: Specific resource IDs (like container images or instances) flagged for the
+  supply chain CVE.
+reads:
+- resource_uid
+- cve_uid
+- severity
+- status
+silence: not_evidence_of_absence
+source: hb_vulnerability_finding
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT resource_uid, cve_uid, severity, status FROM hb_vulnerability_finding WHERE instr(&#39;,&#39; || &#39;{{target_cve}}&#39; || &#39;,&#39;, &#39;,&#39; || cve_uid || &#39;,&#39;) &gt; 0
+```
+
+## parallel-behavior-check
+&lt;!-- Analyze behavior for compromise indicators --&gt;
+parallel:
+- → suspicious-hook-execution
+- → script-memory-markers
+- → credential-file-access
+join: → triage-agent
+
+## suspicious-hook-execution
+&lt;!-- Suspicious package manager child processes --&gt;
+Identify instances where a package manager spawns an unexpected runtime, which is a common pattern for &#39;preinstall&#39; hook exploitation.
+
+```sqlite target=endpoint role=detection-candidate params=(package_managers=package_managers, suspicious_runtimes=suspicious_runtimes, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A rare parent-&gt;child relationship on a build runner or dev machine. Legitimate
+  installs are common; rare &#39;bun&#39; or &#39;python&#39; launches from &#39;npm&#39; are suspicious.
+prevalence:
+  by: device_hostname
+  key:
+  - parent_process_name
+  - process_name
+  rare_below: 3
+reads:
+- device_hostname
+- parent_process_name
+- process_name
+- process_cmd_line
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, parent_process_name, process_name, process_cmd_line, COUNT(*) as exec_count, MIN(time) as first_seen FROM hb_process_activity WHERE instr(&#39;,&#39; || &#39;{{package_managers}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(parent_process_name) || &#39;,&#39;) &gt; 0 AND (instr(&#39;,&#39; || &#39;{{suspicious_runtimes}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_cmd_line) LIKE &#39;%preinstall%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3, 4 HAVING exec_count &lt;= 5
+```
+
+## script-memory-markers
+&lt;!-- Script content with memory markers --&gt;
+Detect script blocks containing indicators of memory scraping or OIDC token theft, as seen in the ChainDrop worm.
+
+```sqlite target=endpoint role=baseline params=(memory_markers=memory_markers, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Script blocks containing Python &#39;ctypes&#39; logic or OIDC keywords. Silence
+  means no such scripts were executed within the window.
+reads:
+- device_hostname
+- actor_user_name
+- script_path
+- script_content
+- time
+silence: evidence_of_absence
+source: hb_script_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, actor_user_name, script_path, script_content, time FROM hb_script_activity WHERE ( (instr(LOWER(script_content), &#39;ctypes&#39;) &gt; 0 AND instr(&#39;{{memory_markers}}&#39;, &#39;ctypes&#39;) &gt; 0) OR (instr(LOWER(script_content), &#39;ptrace&#39;) &gt; 0 AND instr(&#39;{{memory_markers}}&#39;, &#39;ptrace&#39;) &gt; 0) OR (instr(LOWER(script_content), &#39;oidc&#39;) &gt; 0 AND instr(&#39;{{memory_markers}}&#39;, &#39;oidc&#39;) &gt; 0) OR (instr(LOWER(script_content), &#39;/proc/self/mem&#39;) &gt; 0 AND instr(&#39;{{memory_markers}}&#39;, &#39;/proc/self/mem&#39;) &gt; 0) ) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## credential-file-access
+&lt;!-- Access to sensitive SDLC credentials --&gt;
+Identify suspicious runtimes reading local Git or NPM credentials during the build window.
+
+```sqlite target=endpoint role=enrichment params=(suspicious_runtimes=suspicious_runtimes, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A suspicious runtime (e.g. Bun or standalone Python) reading a developer&#39;s
+  secret file.
+reads:
+- device_hostname
+- process_name
+- file_path
+- activity_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE &#39;%.git-credentials%&#39; OR LOWER(file_path) LIKE &#39;%.npmrc%&#39; OR LOWER(file_path) LIKE &#39;%.env%&#39;) AND activity_name IN (&#39;Read&#39;, &#39;Open&#39;) AND instr(&#39;,&#39; || &#39;{{suspicious_runtimes}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-agent
+&lt;!-- Triage SDLC activity --&gt;
+```agent target=hunter
+cite: required
+context:
+- scope-vulnerable-packages
+- enrich-with-cve-findings
+- suspicious-hook-execution
+- script-memory-markers
+- credential-file-access
+max_iterations: 5
+objective: Determine if a package installation or build process has been subverted
+  on any host by analyzing process lineage, script content, and file access patterns.
+success_criteria: A verdict of malicious | suspicious | benign per host, citing the
+  rare process chains or script markers found.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one build host or runner&#34; (confidence: high, judge=hunter)
+then: → contain-compromised-host
+indeterminate: → analyst-close-out
+unavailable: → analyst-close-out (blind_spot: short-lived-telemetry)
+else: → analyst-close-out
+
+## contain-compromised-host
+&lt;!-- Isolate compromised host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host, revoke all OIDC tokens issued to this runner, and rotate any .git-credentials or .npmrc secrets found on the machine.
+```
+→ analyst-close-out
+
+## analyst-close-out
+&lt;!-- Analyst review and close-out --&gt;
+```manual target=analyst
+Review the cited rows. If the activity is part of a legitimate but unusual build utility, record the command line or script hash for tuning the suspicious-hook detection rule.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=sdlc-supply-chain-build-run-compromise" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

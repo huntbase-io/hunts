@@ -1,0 +1,603 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Gamaredon (UAC-0010) is a highly active FSB-operated intrusion set. Detecting their intermediate loaders (GammaLoad) is critical for disrupting their access before they deploy credential-stealing final payloads (GammaSteel)."
+      },
+      "name": "Gamaredon GammaLoad VBScript & Registry Interaction",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1041",
+        "attack.t1090.003",
+        "attack.t1059.001",
+        "attack.t1053.005",
+        "attack.t1555"
+      ],
+      "series": {
+        "slug": "fsb-matryoshka-gamaredon-gammaload",
+        "index": 1,
+        "title": "FSB Matryoshka: Gamaredon GammaLoad",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "gammaload-persistence-ads-scheduled-task",
+          "reason": "This hunt focuses on the initial registry/C2 interaction; persistence via ADS and Scheduled Tasks is handled in the next part of the series.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          },
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule on specific registry keys is easily bypassed by rotation. This hunt uses a prevalence-based approach to find rare keys in the Console hive and corroborates them with in-memory script behavior and DNS patterns, which a static rule cannot do.",
+      "coverage": [
+        {
+          "stage": "c2-registry-caching-and-fingerprinting",
+          "steps": [
+            "registry-c2-caching",
+            "prevalence-registry-value-names",
+            "dns-to-ddr-domains"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "in-memory-vbscript-execution",
+          "steps": [
+            "vbscript-in-memory-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-via-ads-and-scheduled-task",
+          "reason": "Belongs to another part of the 'FSB Matryoshka: Gamaredon GammaLoad' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "obfuscated-powershell-memory-load",
+          "reason": "Belongs to another part of the 'FSB Matryoshka: Gamaredon GammaLoad' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "C2 Registry Caching and Host Fingerprinting",
+            "slug": "c2-registry-caching-and-fingerprinting",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1041",
+              "T1090.003"
+            ],
+            "observables": [
+              "Registry keys: HKCU\\Console\\HistoryURL, HKCU\\Console\\WindowsResponby, HKCU\\Console\\CloudURL, HKCU\\Console\\IpURL",
+              "DDR domains: te.legra.ph, telegram.me, check-host.net",
+              "User-Agent fingerprint separators: ##, !!, ??, ==, ::, _, @, #, =, %, ?",
+              "HTTP GET requests with anomalous Content-Length: 2114",
+              "Fingerprint: %COMPUTERNAME% and system drive serial number"
+            ]
+          },
+          {
+            "name": "In-Memory VBScript Execution",
+            "slug": "in-memory-vbscript-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "VBScript ExecuteGlobal() function calls",
+              "Base64 obfuscated scripts with '&&' markers inserted every 54 characters"
+            ]
+          },
+          {
+            "name": "Persistence via ADS and Scheduled Task",
+            "slug": "persistence-via-ads-and-scheduled-task",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.005"
+            ],
+            "observables": [
+              "Alternate Data Stream (ADS) file: %TEMP%\\:divedz0f",
+              "Scheduled Task name: \\Windows\\ApplicationData\\DsSvcCleanup",
+              "Scheduled Task interval: every 11 minutes",
+              "Task action executing VBScript from ADS"
+            ]
+          },
+          {
+            "name": "Obfuscated PowerShell Memory Load",
+            "slug": "obfuscated-powershell-memory-load",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "Process command line: powershell.exe -nol -nop -encodedcommand",
+              "PowerShell disabling SSL validation: [System.Net.ServicePointManager]::ServerCertificateValidationCallback={$true}",
+              "PowerShell XOR-decryption and IEX execution of downloaded strings"
+            ]
+          }
+        ],
+        "summary": "Gamaredon uses a multi-stage infection chain known as GammaLoad to maintain persistent access and deploy stealers. The chain leverages VBScript loaders that use Dead Drop Resolvers and registry caching for C2 resiliency, ultimately persisting via scheduled tasks that execute payloads hidden in Alternate Data Streams (ADS)."
+      },
+      "severity": "high",
+      "rationale": "The hunt scopes to Windows hosts using software inventory. It prioritizes the HKCU registry hive, which requires active endpoint telemetry (e.g., Sysmon or osquery) for full visibility.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder is maintaining stealthy persistence by using VBScript-based loaders (GammaLoad) to cache C2 addresses within the unusual HKCU\\Console registry hive and exfiltrating host fingerprints through crafted User-Agent strings.",
+      "parameters": {
+        "ddr_domains": {
+          "from": {
+            "ref": "blog.sekoia.io",
+            "kind": "article",
+            "observed": "2026-01-23"
+          },
+          "type": "list[domain]",
+          "default": [
+            "te.legra.ph",
+            "telegram.me",
+            "check-host.net",
+            "trycloudflare.com",
+            "workers.dev",
+            "huaweicloud.com",
+            "selltosell.ru"
+          ],
+          "description": "Legitimate domains used as Dead Drop Resolvers (DDR) by GammaLoad."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "gammaload_registry_keys": {
+          "from": {
+            "ref": "blog.sekoia.io",
+            "kind": "article",
+            "observed": "2026-01-23"
+          },
+          "type": "list[string]",
+          "default": [
+            "HistoryURL",
+            "WindowsResponby",
+            "CloudURL",
+            "IpURL"
+          ],
+          "description": "Registry value names used by GammaLoad for C2 caching in HKCU\\Console."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.sekoia.io/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.sekoia.io/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload/",
+          "name": "Sekoia.io \u2014 FSB\u2019s Matryoshka: Gamaredon GammaLoad"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-endpoint-telemetry",
+          "risk": "Registry-based C2 caching would be missed if the agent only monitors HKLM or system-wide keys.",
+          "stage": "c2-registry-caching-and-fingerprinting",
+          "question": "Can we see modifications to HKCU\\Console in real-time?",
+          "requires": "Endpoint telemetry reporting HKCU registry modifications."
+        },
+        {
+          "id": "amsi-script-visibility",
+          "risk": "Without content-level script telemetry, the loader's execution inside legitimate script hosts remains invisible.",
+          "stage": "in-memory-vbscript-execution",
+          "question": "Are in-memory VBScript executions using ExecuteGlobal visible?",
+          "requires": "hb_script_activity (AMSI-sourced telemetry)."
+        }
+      ]
+    },
+    "name": "Gamaredon GammaLoad VBScript & Registry Interaction",
+    "description": "This hunt targets the 'GammaLoad' stage of Gamaredon (FSB-linked) operations, focusing on their unique method of using the Windows Console registry hive (HKCU\\Console) to persist C2 configurations. It identifies hosts where these specific registry values are created, uses prevalence to highlight rare registry entries, and corroborates the findings against in-memory VBScript execution patterns and network activity targeting legitimate Dead Drop Resolvers (DDR)."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "fsb-matryoshka-gamaredon-gammaload",
+          "index": 1,
+          "title": "FSB Matryoshka: Gamaredon GammaLoad",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "c2-registry-caching-and-fingerprinting",
+            "steps": [
+              "registry-c2-caching",
+              "prevalence-registry-value-names",
+              "dns-to-ddr-domains"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "in-memory-vbscript-execution",
+            "steps": [
+              "vbscript-in-memory-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-via-ads-and-scheduled-task",
+            "reason": "Belongs to another part of the 'FSB Matryoshka: Gamaredon GammaLoad' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "obfuscated-powershell-memory-load",
+            "reason": "Belongs to another part of the 'FSB Matryoshka: Gamaredon GammaLoad' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder is maintaining stealthy persistence by using VBScript-based loaders (GammaLoad) to cache C2 addresses within the unusual HKCU\\Console registry hive and exfiltrating host fingerprints through crafted User-Agent strings.",
+        "blind_spots": [
+          {
+            "id": "no-endpoint-telemetry",
+            "risk": "Registry-based C2 caching would be missed if the agent only monitors HKLM or system-wide keys.",
+            "stage": "c2-registry-caching-and-fingerprinting",
+            "question": "Can we see modifications to HKCU\\Console in real-time?",
+            "requires": "Endpoint telemetry reporting HKCU registry modifications."
+          },
+          {
+            "id": "amsi-script-visibility",
+            "risk": "Without content-level script telemetry, the loader's execution inside legitimate script hosts remains invisible.",
+            "stage": "in-memory-vbscript-execution",
+            "question": "Are in-memory VBScript executions using ExecuteGlobal visible?",
+            "requires": "hb_script_activity (AMSI-sourced telemetry)."
+          }
+        ],
+        "scoping_notes": "The hunt scopes to Windows hosts using software inventory. It prioritizes the HKCU registry hive, which requires active endpoint telemetry (e.g., Sysmon or osquery) for full visibility.",
+        "beyond_detection": "A simple detection rule on specific registry keys is easily bypassed by rotation. This hunt uses a prevalence-based approach to find rare keys in the Console hive and corroborates them with in-memory script behavior and DNS patterns, which a static rule cannot do."
+      }
+    },
+    {
+      "id": "scope-to-windows-hosts",
+      "type": "query",
+      "label": "Scope to Windows hosts with PowerShell",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%powershell%' OR LOWER(vendor_name) LIKE '%microsoft%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify potential targets by finding Windows systems that have PowerShell installed, as the loaders heavily utilize script-based execution.",
+        "expected_signal": "A list of hostnames representing the Windows fleet. Silence means no systems matching the OS/software inventory criteria were found."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to Windows hosts with PowerShell",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%powershell%' OR LOWER(vendor_name) LIKE '%microsoft%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames representing the Windows fleet. Silence means no systems matching the OS/software inventory criteria were found.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "registry-c2-caching",
+      "type": "query",
+      "label": "C2 URL Caching in Console Registry",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\\\console\\\\%' AND (instr(',' || '{{gammaload_registry_keys}}' || ',', ',' || reg_value_name || ',') > 0 OR LOWER(reg_value_data) LIKE 'http%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_registry_activity",
+        "description": "Find registry modifications where the HKCU\\Console hive is used to store URL-like data in GammaLoad-specific keys.",
+        "expected_signal": "Value names like 'HistoryURL' or 'CloudURL' appearing under the Console key, containing URLs. This is a strong behavioral match for GammaLoad."
+      },
+      "parents": [
+        {
+          "id": "scope-to-windows-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "C2 URL Caching in Console Registry",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "reg_target",
+          "reg_value_data",
+          "reg_value_name",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\\\console\\\\%' AND (instr(',' || '{{gammaload_registry_keys}}' || ',', ',' || reg_value_name || ',') > 0 OR LOWER(reg_value_data) LIKE 'http%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Value names like 'HistoryURL' or 'CloudURL' appearing under the Console key, containing URLs. This is a strong behavioral match for GammaLoad.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "prevalence-registry-value-names",
+      "type": "query",
+      "label": "Rare Registry Value Names under Console",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT reg_value_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\\\console\\\\%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY reg_value_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_registry_activity",
+        "description": "Stack-count the value names created in the HKCU\\Console path across the fleet to highlight unique persistence keys.",
+        "expected_signal": "A list of registry value names appearing on only a handful of hosts. Genuine terminal settings will appear fleet-wide."
+      },
+      "parents": [
+        {
+          "id": "registry-c2-caching"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Registry Value Names under Console",
+        "reads": [
+          "reg_value_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT reg_value_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\\\console\\\\%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY reg_value_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of registry value names appearing on only a handful of hosts. Genuine terminal settings will appear fleet-wide.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "reg_value_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "vbscript-in-memory-execution",
+      "type": "query",
+      "label": "In-Memory VBScript with Gamaredon Markers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%executeglobal%' AND (LOWER(script_content) LIKE '%&&%' OR LOWER(script_content) LIKE '%console%')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Identify VBScript blocks using ExecuteGlobal() with GammaLoad-specific obfuscation ('&&' every 54 characters).",
+        "expected_signal": "Script blocks containing ExecuteGlobal and the '&&' pattern or references to Console registry keys."
+      },
+      "parents": [
+        {
+          "id": "prevalence-registry-value-names"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "In-Memory VBScript with Gamaredon Markers",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%executeglobal%' AND (LOWER(script_content) LIKE '%&&%' OR LOWER(script_content) LIKE '%console%')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks containing ExecuteGlobal and the '&&' pattern or references to Console registry keys.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "dns-to-ddr-domains",
+      "type": "query",
+      "label": "DNS Traffic to Dead Drop Resolvers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS count, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{ddr_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Confirm if the hosts identified in the registry or script steps are communicating with known Gamaredon DDR services.",
+        "expected_signal": "DNS queries for Telegraph, Telegram API, or cloudflare workers occurring on the same hosts as registry anomalies."
+      },
+      "parents": [
+        {
+          "id": "prevalence-registry-value-names"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS Traffic to Dead Drop Resolvers",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS count, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{ddr_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS queries for Telegraph, Telegram API, or cloudflare workers occurring on the same hosts as registry anomalies.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-09"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "GammaLoad Correlation Agent",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "registry-c2-caching",
+          "prevalence-registry-value-names",
+          "vbscript-in-memory-execution",
+          "dns-to-ddr-domains"
+        ],
+        "objective": "Determine if the observed HKCU\\Console registry activity, obfuscated VBScript execution, and DDR-related DNS queries represent a unified GammaLoad infection pattern.",
+        "description": "Correlate the registry, script, and DNS findings to assess whether a host is infected by the GammaLoad loader.",
+        "max_iterations": 6,
+        "expected_signal": "A detailed triage assessment per host citing specific rows from each surface.",
+        "success_criteria": "A per-host verdict (Malicious | Suspicious | Benign) with specific citations for the registry keys used and the scripts executed."
+      },
+      "parents": [
+        {
+          "id": "vbscript-in-memory-execution",
+          "kind": "merge"
+        },
+        {
+          "id": "dns-to-ddr-domains",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "no-endpoint-telemetry",
+        "confidence": "high",
+        "description": "Direct the workflow based on the agent's findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately contain the host to prevent the delivery of downstream payloads like GammaSteel.",
+        "instructions": "Isolate the host and remove the malicious HKCU\\Console registry keys identified by the triage agent.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's findings and look for evidence of the subsequent 'GammaSteel' stealer phase.",
+        "instructions": "Review the correlated registry, script, and DNS telemetry. Check for file creations in %TEMP% (specifically ADS) which might indicate the next stage (GammaSteel)."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the negative result and document the search criteria for future reference.",
+        "instructions": "No indicators of GammaLoad were found. Document the lookback period and domains examined."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

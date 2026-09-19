@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScreenConnect Registry Persistence and Malicious C2 · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary has established long-term persistence via a &#39;WindowsServiceHost&#39; registry run key and is communicating with dynamic DNS C2 infrastructure after a rogue ScreenConnect installation.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/registry-persistence-malicious-c2-rmm/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="ScreenConnect Registry Persistence and Malicious C2 · Huntbase Hunts">
+  <meta property="og:description" content="An adversary has established long-term persistence via a &#39;WindowsServiceHost&#39; registry run key and is communicating with dynamic DNS C2 infrastructure after a rogue ScreenConnect installation.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/registry-persistence-malicious-c2-rmm/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">ScreenConnect Registry Persistence and Malicious C2</h1>
+      <p class="hyp-lead">An adversary has established long-term persistence via a &#39;WindowsServiceHost&#39; registry run key and is communicating with dynamic DNS C2 infrastructure after a rogue ScreenConnect installation.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.huntress.com/blog/rogue-screenconnect-installations" rel="noopener">Huntress</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1090.003 T1547.001 T1572</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=registry-persistence-malicious-c2-rmm" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why Now</h3>
+<p>Recent reporting from Huntress in <a href="https://www.huntress.com/blog/rogue-screenconnect-installations" rel="noopener noreferrer">Rogue ScreenConnect Installations Across Unrelated Hosts</a> highlights a trend where adversaries install legitimate Remote Monitoring and Management (RMM) tools to establish persistence. These installations often use VBScript-based loaders and specific registry modifications to ensure survival across reboots, occasionally displaying worm-like behavior to spread across unrelated environments.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins by scoping the environment for process execution related to common RMM tools. While many organizations use these legitimately, identifying the specific hosts where ScreenConnect or UltraViewer have run provides a focused starting point for telemetry analysis across registry and network surfaces.</p>
+<p>Next, we pivot to registry telemetry to look for the <code>WindowsServiceHost</code> run key. The hunt specifically looks for entries where this key contains a <code>.vbs</code> file path. Because an attacker might rename this key, we also perform a prevalence stack-count on all VBScripts registered in the <code>CurrentVersion\Run</code> hive. By filtering for scripts that appear on very few hosts, we can isolate unique malicious loaders from standard enterprise scripts.</p>
+<p>Finally, the hunt correlates these persistence indicators with network activity. We look for connections to specific IP addresses and DNS queries for dynamic DNS providers like <code>anondns.net</code> or <code>opik.net</code>. The goal is to see if a process—specifically <code>wscript.exe</code> or an RMM binary—is actively reaching out to the infrastructure identified in the campaign. The presence of both the specific registry key and the network traffic constitutes a high-confidence indicator of compromise.</p>
+<h3>What the Hunt Cannot See</h3>
+<p>This hunt has two primary blind spots. First, if your endpoint telemetry relies on periodic snapshots rather than continuous logging of registry modifications, you may miss ephemeral persistence where a key is created, used to trigger a payload, and then immediately deleted. Second, because much of the command-and-control traffic uses legitimate services like Dropbox, this hunt may not see the specific file transfers if network telemetry is limited to destination IPs and DNS without deep packet inspection or HTTP-level logs.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/rogue-screenconnect-vbs-loader/index.html">Part 1: Rogue ScreenConnect and VBScript Loader Chain</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary has established long-term persistence via a \u0027WindowsServiceHost\u0027 registry run key and is communicating with dynamic DNS C2 infrastructure after a rogue ScreenConnect installation.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Filter the hunt to hosts where ScreenConnect or UltraViewer processes have executed, identifying potential beachheads.", "expected": "A list of hostnames. Silence suggests no RMM activity, but rogue installations may be renamed or use different binaries.", "id": "rmm-host-scoping", "label": "Identify Hosts with ScreenConnect Activity", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname FROM hb_process_activity WHERE (LOWER(process_name) LIKE \u0027%screenconnect%\u0027 OR LOWER(process_name) LIKE \u0027%ultraviewer%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_process_activity", "type": "query"}, {"description": "Identify the creation of the specific \u0027WindowsServiceHost\u0027 run key observed in this campaign.", "expected": "Registry set operations for the malicious key name pointing to a VBScript. This is the primary persistence indicator.", "id": "behaviour-run-key", "label": "Detect \u0027WindowsServiceHost\u0027 Persistence", "parents": [{"branch": null, "id": "rmm-host-scoping", "kind": null}], "query": "SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE \u0027%\\\\software\\\\microsoft\\\\windows\\\\currentversion\\\\run%\u0027 AND reg_value_name = \u0027WindowsServiceHost\u0027 AND LOWER(reg_value_data) LIKE \u0027%.vbs%\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_registry_activity", "type": "query"}, {"description": "Find rare VBS scripts executed via Run keys that might use different names than the known campaign indicator.", "expected": "A list of VBScript paths appearing on very few hosts. Fleet-wide RMM scripts would be filtered out by the count.", "id": "prevalence-vbs-runkeys", "label": "Stack-count Rare VBS Run Keys", "parents": [{"branch": null, "id": "behaviour-run-key", "kind": null}], "query": "SELECT LOWER(reg_value_data) AS persistent_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE \u0027%\\\\software\\\\microsoft\\\\windows\\\\currentversion\\\\run%\u0027 AND LOWER(reg_value_data) LIKE \u0027%.vbs%\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY persistent_path HAVING host_count \u003c= 3 ORDER BY host_count ASC", "role": "baseline", "source": "hb_registry_activity", "type": "query"}, {"description": "Find network traffic to specific IPs identified as ScreenConnect or UltraViewer C2 points.", "expected": "Connections originating from ScreenConnect.exe or wscript.exe to the campaign IPs.", "id": "c2-ip-connections", "label": "Identify Connections to Campaign IPs", "parents": [{"branch": null, "id": "prevalence-vbs-runkeys", "kind": null}], "query": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE instr(\u0027,\u0027 || \u0027{{c2_ips}}\u0027 || \u0027,\u0027, \u0027,\u0027 || dst_endpoint_ip || \u0027,\u0027) \u003e 0 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_network_connection", "type": "query"}, {"description": "Detect resolution of the dynamic DNS domains used for ScreenConnect client redirection.", "expected": "Lookups for tele-sync.opik.net or anondns subdomains. Silence may occur if domains have rotated.", "id": "c2-dns-activity", "label": "Identify DNS Queries for Campaign Domains", "parents": [{"branch": null, "id": "prevalence-vbs-runkeys", "kind": null}], "query": "SELECT device_hostname, process_name, query_hostname, answers, time FROM hb_dns_activity WHERE (instr(\u0027,\u0027 || \u0027{{c2_domains}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(query_hostname) || \u0027,\u0027) \u003e 0 OR query_hostname LIKE \u0027%anondns.net\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_dns_activity", "type": "query"}, {"description": "Correlate registry persistence indicators with the presence of RMM processes and network C2 traffic to determine compromise.", "expected": "A host-by-host assessment identifying whether the \u0027WindowsServiceHost\u0027 key correlates with rogue RMM traffic.", "id": "agent-triage", "label": "Weigh Evidence of Persistence and C2", "parents": [{"branch": null, "id": "c2-ip-connections", "kind": "merge"}, {"branch": null, "id": "c2-dns-activity", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct high-confidence malicious findings to containment and others to manual review.", "expected": null, "id": "route-verdict", "label": "Route on Triage Results", "parents": [{"branch": null, "id": "agent-triage", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Isolate the endpoint to stop C2 communication and potential worm-like lateral movement.", "expected": null, "id": "isolate-host", "label": "Isolate Malicious Host", "parents": [{"branch": "on_supports", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Final validation of findings and identification of any missed propagation steps.", "expected": null, "id": "manual-analyst-review", "label": "Manual Analyst Review", "parents": [{"branch": "default", "id": "route-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Documentation of negative results.", "expected": null, "id": "close-hunt", "label": "Close Hunt", "parents": [{"branch": "on_refutes", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-rmm-host-scoping">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Hosts with ScreenConnect Activity</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Filter the hunt to hosts where ScreenConnect or UltraViewer processes have executed, identifying potential beachheads.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname FROM hb_process_activity WHERE (LOWER(process_name) LIKE &#39;%screenconnect%&#39; OR LOWER(process_name) LIKE &#39;%ultraviewer%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames. Silence suggests no RMM activity, but rogue installations may be renamed or use different binaries.</p>        </li>
+        <li class="card step" id="step-behaviour-run-key">
+          <div class="step-head">
+            <h3 class="heading-sm">Detect &#39;WindowsServiceHost&#39; Persistence</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify the creation of the specific &#39;WindowsServiceHost&#39; run key observed in this campaign.</p>          <div class="code"><div class="code-head"><span>reads hb_registry_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE &#39;%\\software\\microsoft\\windows\\currentversion\\run%&#39; AND reg_value_name = &#39;WindowsServiceHost&#39; AND LOWER(reg_value_data) LIKE &#39;%.vbs%&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Registry set operations for the malicious key name pointing to a VBScript. This is the primary persistence indicator.</p>        </li>
+        <li class="card step" id="step-prevalence-vbs-runkeys">
+          <div class="step-head">
+            <h3 class="heading-sm">Stack-count Rare VBS Run Keys</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Find rare VBS scripts executed via Run keys that might use different names than the known campaign indicator.</p>          <div class="code"><div class="code-head"><span>reads hb_registry_activity</span><span>sql</span></div><pre><code>SELECT LOWER(reg_value_data) AS persistent_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE &#39;%\\software\\microsoft\\windows\\currentversion\\run%&#39; AND LOWER(reg_value_data) LIKE &#39;%.vbs%&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY persistent_path HAVING host_count &lt;= 3 ORDER BY host_count ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of VBScript paths appearing on very few hosts. Fleet-wide RMM scripts would be filtered out by the count.</p>        </li>
+        <li class="card step" id="step-c2-ip-connections">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Connections to Campaign IPs</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Find network traffic to specific IPs identified as ScreenConnect or UltraViewer C2 points.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE instr(&#39;,&#39; || &#39;{{c2_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_ip || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Connections originating from ScreenConnect.exe or wscript.exe to the campaign IPs.</p>        </li>
+        <li class="card step" id="step-c2-dns-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify DNS Queries for Campaign Domains</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect resolution of the dynamic DNS domains used for ScreenConnect client redirection.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, query_hostname, answers, time FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{c2_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 OR query_hostname LIKE &#39;%anondns.net&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Lookups for tele-sync.opik.net or anondns subdomains. Silence may occur if domains have rotated.</p>        </li>
+        <li class="card step" id="step-agent-triage">
+          <div class="step-head">
+            <h3 class="heading-sm">Weigh Evidence of Persistence and C2</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate registry persistence indicators with the presence of RMM processes and network C2 traffic to determine compromise.</p>        </li>
+        <li class="card step" id="step-route-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Triage Results</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct high-confidence malicious findings to containment and others to manual review.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Malicious Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Isolate the endpoint to stop C2 communication and potential worm-like lateral movement.</p>        </li>
+        <li class="card step" id="step-manual-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Manual Analyst Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final validation of findings and identification of any missed propagation steps.</p>        </li>
+        <li class="card step" id="step-close-hunt">
+          <div class="step-head">
+            <h3 class="heading-sm">Close Hunt</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Documentation of negative results.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Registry Run Key Persistence<br><span class="mono dim">T1547.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>behaviour-run-key, prevalence-vbs-runkeys</td></tr>            <tr><td>Malicious Infrastructure C2<br><span class="mono dim">T1090.003 · T1572</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>c2-ip-connections, c2-dns-activity</td></tr>            <tr><td>Social Engineering and Phishing<br><span class="mono dim">T1566</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like Activity&#39; series.</td></tr>            <tr><td>Rogue RMM Deployment<br><span class="mono dim">T1059.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like Activity&#39; series.</td></tr>            <tr><td>Staged VBScript Chain<br><span class="mono dim">T1059.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like Activity&#39; series.</td></tr>            <tr><td>ScreenConnect Internal Propagation<br><span class="mono dim">T1021.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like Activity&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_http_activity.</strong> If network telemetry is limited to IPs, the download of map.txt via a legitimate service like Dropbox may be missed or look like normal usage. <span class="dim">It would answer Can we observe the specific Dropbox URI and file transfer activity?.</span></li>          <li class="card"><strong>Needs hb_registry_activity (log mode).</strong> If using snapshot-based osquery only, an ephemeral persistence mechanism (set, use, delete) will not be visible. <span class="dim">It would answer Was the registry key created and then immediately removed?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>c2_domains</code></td><td class="mono dim">list[domain]</td><td class="mono">tele-sync.opik.net, borertors92.anondns.net</td><td>Dynamic DNS and staging domains.</td></tr>            <tr><td><code>c2_ips</code></td><td class="mono dim">list[ip]</td><td class="mono">45.13.237.190, 131.123.40.98, 15.204.185.204, 146.59.55.107, 45.32.192.150</td><td>IP addresses identified as C2 or staging infrastructure.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to narrow the search.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A standard rule might fire on the Run key name, but this hunt correlates
+  that key with rare VBS paths, RMM process presence, and known-malicious dynamic
+  DNS activity to provide a definitive compromise assessment.
+blind_spots:
+- id: limited-net-telemetry
+  question: Can we observe the specific Dropbox URI and file transfer activity?
+  requires: hb_http_activity
+  risk: If network telemetry is limited to IPs, the download of map.txt via a legitimate
+    service like Dropbox may be missed or look like normal usage.
+  stage: command-and-control-network
+- id: registry-retention
+  question: Was the registry key created and then immediately removed?
+  requires: hb_registry_activity (log mode)
+  risk: If using snapshot-based osquery only, an ephemeral persistence mechanism (set,
+    use, delete) will not be visible.
+  stage: persistence-registry-run-key
+coverage:
+- stage: persistence-registry-run-key
+  status: covered
+  steps:
+  - behaviour-run-key
+  - prevalence-vbs-runkeys
+- stage: command-and-control-network
+  status: covered
+  steps:
+  - c2-ip-connections
+  - c2-dns-activity
+- reason: Belongs to another part of the &#39;Rogue ScreenConnect Installations Across
+    Unrelated Hosts Suggest Worm-Like Activity&#39; series.
+  stage: initial-access-social-engineering
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Rogue ScreenConnect Installations Across
+    Unrelated Hosts Suggest Worm-Like Activity&#39; series.
+  stage: rogue-rmm-deployment
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Rogue ScreenConnect Installations Across
+    Unrelated Hosts Suggest Worm-Like Activity&#39; series.
+  stage: vbs-loader-chain
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Rogue ScreenConnect Installations Across
+    Unrelated Hosts Suggest Worm-Like Activity&#39; series.
+  stage: worm-like-propagation
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: RMM-based worming is a high-risk activity that bypasses traditional
+    access controls. A negative result provides assurance that these specific campaign
+    indicators are not present in the estate.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary has established long-term persistence via a &#39;WindowsServiceHost&#39;
+  registry run key and is communicating with dynamic DNS C2 infrastructure after a
+  rogue ScreenConnect installation.
+labels:
+- hunt
+- attack.t1547.001
+- attack.t1090.003
+- attack.t1572
+name: ScreenConnect Registry Persistence and Malicious C2
+parameters:
+  c2_domains:
+    default:
+    - tele-sync.opik.net
+    - borertors92.anondns.net
+    description: Dynamic DNS and staging domains.
+    from:
+      kind: article
+      observed: &#39;2026-09-03&#39;
+      ref: huntress-screenconnect-vbs
+    type: list[domain]
+  c2_ips:
+    default:
+    - 45.13.237.190
+    - 131.123.40.98
+    - 15.204.185.204
+    - 146.59.55.107
+    - 45.32.192.150
+    description: IP addresses identified as C2 or staging infrastructure.
+    from:
+      kind: article
+      observed: &#39;2026-09-03&#39;
+      ref: huntress-screenconnect-vbs
+    type: list[ip]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to narrow the search.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.huntress.com/blog/rogue-screenconnect-installations
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Workstations are the primary target due to the social engineering vector.
+  If RMM activity is found, pivot to all servers to ensure no worm-like propagation
+  occurred.
+references:
+- name: &#34;Huntress \u2014 Rogue ScreenConnect Installations Across Unrelated Hosts&#34;
+  url: https://www.huntress.com/blog/rogue-screenconnect-installations
+related:
+- hunt: vbs-staged-loader-chain
+  reason: This hunt focuses on C2 and persistence; the actual execution of the 1-4.vbs
+    scripts requires deep script-block logging analysis (hb_script_activity).
+  relation: out-of-scope-alternative
+- hunt: rogue-screenconnect-vbs-loader
+  relation: follows
+scenario:
+  stages:
+  - name: Social Engineering and Phishing
+    observables:
+    - Execution of Quick Assist (remote support tool)
+    - Downloading ScreenConnect.ClientSetup.msi via Microsoft Edge
+    - Execution of ScreenConnect.Client.exe following &#39;Geek Squad refund&#39; searches
+    slug: initial-access-social-engineering
+    tactic: initial-access
+    techniques:
+    - T1566
+  - name: Rogue RMM Deployment
+    observables:
+    - ScreenConnect.WindowsClient.exe spawning wscript.exe
+    - Installation of UltraViewer remote desktop software
+    - Execution of ScreenConnect.ClientSetup.msi from download directories
+    slug: rogue-rmm-deployment
+    tactic: execution
+    techniques:
+    - T1059.001
+  - name: Staged VBScript Chain
+    observables:
+    - wscript.exe executing 1.vbs, 2.vbs, 3.vbs, and 4.vbs
+    - Creation of %TEMP%\value.txt (system profiling results)
+    - Creation of %TEMP%\map.txt (XOR-encoded payload map)
+    - Creation of %TEMP%\out.enc (encrypted AES payload)
+    - Creation of %TEMP%\runner.ps1 (payload decryptor)
+    slug: vbs-loader-chain
+    tactic: execution
+    techniques:
+    - T1059.001
+  - name: Registry Run Key Persistence
+    observables:
+    - Registry value &#39;WindowsServiceHost&#39; in User Run Key
+    - WindowsServiceHost.vbs located in AppData directory
+    - WindowsServiceHost.bat execution
+    slug: persistence-registry-run-key
+    tactic: persistence
+    techniques:
+    - T1547.001
+  - name: Malicious Infrastructure C2
+    observables:
+    - Connections to 45.13.237.190, 131.123.40.98, 15.204.185.204
+    - Connections to 146.59.55.107, 45.32.192.150 (UltraViewer)
+    - Domain tele-sync.opik.net
+    - Domain borertors92.anondns.net
+    - Requests to Dropbox for map.txt downloads
+    slug: command-and-control-network
+    tactic: command-and-control
+    techniques:
+    - T1090.003
+    - T1572
+  - name: ScreenConnect Internal Propagation
+    observables:
+    - ScreenConnect client pushing VBScript chain to connected endpoints
+    - Execution of 1.vbs through 4.vbs on newly connected hosts
+    slug: worm-like-propagation
+    tactic: lateral-movement
+    techniques:
+    - T1021.001
+  summary: &#34;Threat actors are using social engineering and phishing to deploy rogue\
+    \ ScreenConnect instances, which \u0633\u067E\u0633 execute a multi-stage VBScript\
+    \ chain to profile hosts and deliver encrypted payloads. The campaign exhibits\
+    \ worm-like propagation by utilizing the ScreenConnect client to push these malicious\
+    \ scripts to newly connected systems, establishing persistence through registry\
+    \ run keys.&#34;
+series:
+  index: 2
+  slug: rogue-screenconnect-installations-across-unrelated-hosts-suggest-worm-like-activity
+  title: Rogue ScreenConnect Installations Across Unrelated Hosts Suggest Worm-Like
+    Activity
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# ScreenConnect Registry Persistence and Malicious C2
+
+This hunt targets the persistence and command-and-control phases of recent rogue ScreenConnect campaigns. It identifies the creation of specific Windows Registry Run keys used to execute VBScript payloads from user AppData directories and correlates this with network telemetry pointing to known-malicious dynamic DNS domains and IP infrastructure used for staging and control.
+
+## rmm-host-scoping
+&lt;!-- Identify Hosts with ScreenConnect Activity --&gt;
+Filter the hunt to hosts where ScreenConnect or UltraViewer processes have executed, identifying potential beachheads.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames. Silence suggests no RMM activity, but rogue installations
+  may be renamed or use different binaries.
+reads:
+- device_hostname
+- process_name
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname FROM hb_process_activity WHERE (LOWER(process_name) LIKE &#39;%screenconnect%&#39; OR LOWER(process_name) LIKE &#39;%ultraviewer%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## behaviour-run-key
+&lt;!-- Detect &#39;WindowsServiceHost&#39; Persistence --&gt;
+Identify the creation of the specific &#39;WindowsServiceHost&#39; run key observed in this campaign.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Registry set operations for the malicious key name pointing to a VBScript.
+  This is the primary persistence indicator.
+reads:
+- device_hostname
+- reg_target
+- reg_value_name
+- reg_value_data
+- time
+silence: not_evidence_of_absence
+source: hb_registry_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE &#39;%\\software\\microsoft\\windows\\currentversion\\run%&#39; AND reg_value_name = &#39;WindowsServiceHost&#39; AND LOWER(reg_value_data) LIKE &#39;%.vbs%&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## prevalence-vbs-runkeys
+&lt;!-- Stack-count Rare VBS Run Keys --&gt;
+Find rare VBS scripts executed via Run keys that might use different names than the known campaign indicator.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A list of VBScript paths appearing on very few hosts. Fleet-wide RMM scripts
+  would be filtered out by the count.
+prevalence:
+  by: device_hostname
+  key:
+  - persistent_path
+  rare_below: 3
+reads:
+- reg_value_data
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_registry_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT LOWER(reg_value_data) AS persistent_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE &#39;%\\software\\microsoft\\windows\\currentversion\\run%&#39; AND LOWER(reg_value_data) LIKE &#39;%.vbs%&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY persistent_path HAVING host_count &lt;= 3 ORDER BY host_count ASC
+```
+
+## c2-corroboration
+&lt;!-- Corroborate with C2 Network Telemetry --&gt;
+parallel:
+- → c2-ip-connections
+- → c2-dns-activity
+join: → agent-triage
+
+## c2-ip-connections
+&lt;!-- Identify Connections to Campaign IPs --&gt;
+Find network traffic to specific IPs identified as ScreenConnect or UltraViewer C2 points.
+
+```sqlite target=network role=enrichment params=(lookback_days=lookback_days, c2_ips=c2_ips, scope_hosts=scope_hosts)
+~~~yaml
+expected: Connections originating from ScreenConnect.exe or wscript.exe to the campaign
+  IPs.
+reads:
+- device_hostname
+- process_name
+- dst_endpoint_ip
+- dst_endpoint_port
+- direction
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE instr(&#39;,&#39; || &#39;{{c2_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_ip || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## c2-dns-activity
+&lt;!-- Identify DNS Queries for Campaign Domains --&gt;
+Detect resolution of the dynamic DNS domains used for ScreenConnect client redirection.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, c2_domains=c2_domains, scope_hosts=scope_hosts)
+~~~yaml
+expected: Lookups for tele-sync.opik.net or anondns subdomains. Silence may occur
+  if domains have rotated.
+reads:
+- device_hostname
+- process_name
+- query_hostname
+- answers
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, query_hostname, answers, time FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{c2_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 OR query_hostname LIKE &#39;%anondns.net&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## agent-triage
+&lt;!-- Weigh Evidence of Persistence and C2 --&gt;
+```agent target=hunter
+cite: required
+context:
+- behaviour-run-key
+- prevalence-vbs-runkeys
+- c2-ip-connections
+- c2-dns-activity
+max_iterations: 4
+objective: Determine if any host exhibits both the &#39;WindowsServiceHost&#39; persistence
+  and network traffic to identified campaign infrastructure.
+success_criteria: A per-host verdict of Malicious (both present), Suspicious (only
+  one present), or Benign.
+tools:
+- endpoint
+- network
+```
+
+## route-verdict
+&lt;!-- Route on Triage Results --&gt;
+if~: &#34;the triage verdict is malicious for at least one host&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → manual-analyst-review
+unavailable: → manual-analyst-review (blind_spot: limited-net-telemetry)
+else: → close-hunt
+
+## isolate-host
+&lt;!-- Isolate Malicious Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host via the EDR. Proceed to collect the .vbs scripts and registry hive for forensic analysis.
+```
+→ manual-analyst-review
+
+## manual-analyst-review
+&lt;!-- Manual Analyst Review --&gt;
+```manual target=analyst
+Review the agent&#39;s triage and cited network/registry rows. Confirm whether ScreenConnect was used legitimately or as a rogue tool. Look for &#39;WindowsServiceHost.bat&#39; or &#39;runner.ps1&#39; in Temp folders.
+```
+→ end
+
+## close-hunt
+&lt;!-- Close Hunt --&gt;
+```manual target=analyst
+No indicators of rogue ScreenConnect persistence or C2 were found. Record the scope and time window searched.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=registry-persistence-malicious-c2-rmm" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

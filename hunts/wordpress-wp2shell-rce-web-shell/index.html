@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WordPress wp2shell Pre-Auth RCE and Web Shell Execution · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder has exploited the WordPress batch route confusion vulnerability (CVE-2026-63030) to achieve pre-authentication RCE, resulting in PHP file drops and shell execution by web server processes.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/wordpress-wp2shell-rce-web-shell/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="WordPress wp2shell Pre-Auth RCE and Web Shell Execution · Huntbase Hunts">
+  <meta property="og:description" content="An intruder has exploited the WordPress batch route confusion vulnerability (CVE-2026-63030) to achieve pre-authentication RCE, resulting in PHP file drops and shell execution by web server processes.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/wordpress-wp2shell-rce-web-shell/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+      </div>
+      <h1 class="heading-xl">WordPress wp2shell Pre-Auth RCE and Web Shell Execution</h1>
+      <p class="hyp-lead">An intruder has exploited the WordPress batch route confusion vulnerability (CVE-2026-63030) to achieve pre-authentication RCE, resulting in PHP file drops and shell execution by web server processes.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.elastic.co/security-labs/blog/wp2shell-wordpress-rce-detection-elastic-defend" rel="noopener">Elastic Security Labs</a></span>
+<span>2026-09-17</span>        <span>10 steps · 4 queries</span>
+<span class="mono">T1059 T1070 T1190 T1505.003</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=wordpress-wp2shell-rce-web-shell" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">10</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>The recent analysis by Elastic Security Labs in <a href="https://www.elastic.co/security-labs/blog/wp2shell-wordpress-rce-detection-elastic-defend" rel="noopener noreferrer">wp2shell hits WordPress: detecting pre-auth RCE from plugin drop to command execution</a> details a critical pre-authentication RCE chain. The exploit leverages CVE-2026-63030, a batch route confusion vulnerability in WordPress, to achieve code execution. Our team has drafted a hunt.md playbook to help practitioners find evidence of this chain in their environments.</p>
+<h3>The Hunt Flow</h3>
+<p>The hunt begins by identifying the attack surface. We use software inventory telemetry to scope the environment to hosts running vulnerable versions of WordPress. This step is critical for narrowing the data volume in large fleets, though it depends on how WordPress was originally installed.</p>
+<p>Once scoped, the hunt moves into a parallel corroboration phase across three distinct surfaces. First, we examine HTTP activity for the <code>author__not_in</code> SQL injection primitive targeting the batch REST API endpoint. This is a primary indicator of the initial exploit attempt, though it may be obscured if the payload is passed within a POST body rather than a query string.</p>
+<p>Simultaneously, we monitor for rare shell spawns. By baselining the child processes of web servers like Apache, Nginx, or PHP-FPM across the entire fleet, we can identify anomalous executions of <code>sh</code> or <code>bash</code>. This behavioral approach is often more resilient than signature-based detection because it focuses on the outcome of the exploit rather than the specific payload delivery.</p>
+<p>Finally, we look for persistence markers. The hunt inspects file activity for new PHP files created by web server processes within sensitive directories like <code>/wp-content/plugins/</code> or <code>/wp-content/uploads/</code>. Finding a file creation event that aligns in time with a rare shell process and a suspicious HTTP request provides high-fidelity evidence of a successful compromise.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>There are several areas where this hunt may not see the full picture. If WordPress was installed via a zip archive or git clone rather than a system package manager, it may not appear in standard software inventory tables. We recommend augmenting the scoping phase with a search for <code>wp-config.php</code> if inventory is incomplete.</p>
+<p>Additionally, if your logging does not include the inspection of HTTP POST bodies, the initial SQL injection marker may be missed. In these cases, the hunt relies heavily on the endpoint behavioral evidence (rare shells and file drops) to identify the activity. Finally, without an endpoint agent on the WordPress host, we can see the network traffic but cannot confirm if the execution was successful.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="gap"></i></div>
+          <a href="#coverage">3 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Web server / proxy logs</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>CVEs</span></p>
+          <p class="mono dim">CVE-2026-60137 CVE-2026-63030</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder has exploited the WordPress batch route confusion vulnerability (CVE-2026-63030) to achieve pre-authentication RCE, resulting in PHP file drops and shell execution by web server processes.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify hosts running WordPress versions vulnerable to the pre-auth RCE chain to focus the hunt.", "expected": "A list of hosts running vulnerable WordPress versions. Silence suggests the estate is patched or inventory is not captured by package managers.", "id": "vulnerable-wordpress-inventory", "label": "Identify Vulnerable WordPress Installations", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%wordpress%\u0027) AND (instr(\u0027,\u0027 || \u0027{{vulnerable_versions}}\u0027 || \u0027,\u0027, \u0027,\u0027 || package_version || \u0027,\u0027) \u003e 0) AND asset_scope = \u0027endpoint\u0027", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Identify HTTP requests targeting the vulnerable batch endpoint with the fundamental author__not_in SQL injection parameter.", "expected": "HTTP requests targeting the batch endpoint with SQL injection parameters. Silence may occur if the payload was passed in the POST body.", "id": "wp-json-batch-activity", "label": "WP REST API Batch Activity", "parents": [{"branch": null, "id": "vulnerable-wordpress-inventory", "kind": null}], "query": "SELECT device_hostname, url_path, url_query, user_agent, src_endpoint_ip, time FROM hb_http_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (url_path LIKE \u0027%/wp-json/batch/v1%\u0027 OR url_query LIKE \u0027%rest_route=/batch/v1%\u0027) AND (url_query LIKE \u0027%author__not_in%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_http_activity", "type": "query"}, {"description": "Identify instances where a web server process spawned a shell, baselined against the fleet to highlight anomalous behavior.", "expected": "A shell process running under a web server parent that is rare across the fleet. High fidelity indicator of payload execution.", "id": "rare-web-server-shell-children", "label": "Rare Shell Spawn from Web Servers", "parents": [{"branch": null, "id": "vulnerable-wordpress-inventory", "kind": null}], "query": "SELECT parent_process_name, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS runs, MIN(time) AS first_seen FROM hb_process_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (instr(\u0027,\u0027 || \u0027{{web_server_parents}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(parent_process_name) || \u0027,\u0027) \u003e 0) AND (LOWER(process_name) IN (\u0027sh\u0027, \u0027dash\u0027, \u0027bash\u0027, \u0027zsh\u0027) OR process_cmd_line LIKE \u0027%sh -c%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY parent_process_name, process_name, process_cmd_line HAVING hosts \u003c= 3 ORDER BY hosts, runs", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Detect generalized PHP file creation by web server processes in plugin, upload, or cache directories.", "expected": "Creation of PHP files in sensitive WordPress directories by the web server process itself. Evidence of persistence.", "id": "wp-content-php-drops", "label": "Suspicious PHP drops in WordPress Directories", "parents": [{"branch": null, "id": "vulnerable-wordpress-inventory", "kind": null}], "query": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (instr(\u0027,\u0027 || \u0027{{web_server_parents}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0) AND (LOWER(file_path) LIKE \u0027%.php\u0027) AND (LOWER(file_path) LIKE \u0027%/wp-content/plugins/%\u0027 OR LOWER(file_path) LIKE \u0027%/wp-content/uploads/%\u0027 OR LOWER(file_path) LIKE \u0027%/wp-content/cache/%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Analyze the combined evidence of vulnerable versions, HTTP request markers, and endpoint process/file activity to confirm compromise.", "expected": "A per-host verdict linking the vulnerable WordPress instance to exploit traffic and subsequent shell execution.", "id": "triage-wp2shell", "label": "Triage wp2shell Chain Evidence", "parents": [{"branch": null, "id": "wp-json-batch-activity", "kind": "merge"}, {"branch": null, "id": "rare-web-server-shell-children", "kind": "merge"}, {"branch": null, "id": "wp-content-php-drops", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Route confirmed malicious activity to isolation and others to manual review.", "expected": null, "id": "route-verdict", "label": "Route Based on Verdict", "parents": [{"branch": null, "id": "triage-wp2shell", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Immediately contain the host while preserving forensic evidence.", "expected": null, "id": "isolate-host", "label": "Isolate Compromised Server", "parents": [{"branch": "on_supports", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Manually review suspicious activity or cases where automated telemetry was incomplete.", "expected": null, "id": "analyst-review", "label": "Analyst Triage Review", "parents": [{"branch": "default", "id": "route-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Record the hunt findings and the status of the WordPress estate.", "expected": null, "id": "analyst-close-out", "label": "Close-out and Summary", "parents": [{"branch": "on_refutes", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-vulnerable-wordpress-inventory">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Vulnerable WordPress Installations</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify hosts running WordPress versions vulnerable to the pre-auth RCE chain to focus the hunt.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%wordpress%&#39;) AND (instr(&#39;,&#39; || &#39;{{vulnerable_versions}}&#39; || &#39;,&#39;, &#39;,&#39; || package_version || &#39;,&#39;) &gt; 0) AND asset_scope = &#39;endpoint&#39;</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts running vulnerable WordPress versions. Silence suggests the estate is patched or inventory is not captured by package managers.</p>        </li>
+        <li class="card step" id="step-wp-json-batch-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">WP REST API Batch Activity</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify HTTP requests targeting the vulnerable batch endpoint with the fundamental author__not_in SQL injection parameter.</p>          <div class="code"><div class="code-head"><span>reads hb_http_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, url_path, url_query, user_agent, src_endpoint_ip, time FROM hb_http_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (url_path LIKE &#39;%/wp-json/batch/v1%&#39; OR url_query LIKE &#39;%rest_route=/batch/v1%&#39;) AND (url_query LIKE &#39;%author__not_in%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> HTTP requests targeting the batch endpoint with SQL injection parameters. Silence may occur if the payload was passed in the POST body.</p>        </li>
+        <li class="card step" id="step-rare-web-server-shell-children">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare Shell Spawn from Web Servers</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify instances where a web server process spawned a shell, baselined against the fleet to highlight anomalous behavior.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT parent_process_name, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS runs, MIN(time) AS first_seen FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (instr(&#39;,&#39; || &#39;{{web_server_parents}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(parent_process_name) || &#39;,&#39;) &gt; 0) AND (LOWER(process_name) IN (&#39;sh&#39;, &#39;dash&#39;, &#39;bash&#39;, &#39;zsh&#39;) OR process_cmd_line LIKE &#39;%sh -c%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY parent_process_name, process_name, process_cmd_line HAVING hosts &lt;= 3 ORDER BY hosts, runs</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A shell process running under a web server parent that is rare across the fleet. High fidelity indicator of payload execution.</p>        </li>
+        <li class="card step" id="step-wp-content-php-drops">
+          <div class="step-head">
+            <h3 class="heading-sm">Suspicious PHP drops in WordPress Directories</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect generalized PHP file creation by web server processes in plugin, upload, or cache directories.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (instr(&#39;,&#39; || &#39;{{web_server_parents}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0) AND (LOWER(file_path) LIKE &#39;%.php&#39;) AND (LOWER(file_path) LIKE &#39;%/wp-content/plugins/%&#39; OR LOWER(file_path) LIKE &#39;%/wp-content/uploads/%&#39; OR LOWER(file_path) LIKE &#39;%/wp-content/cache/%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Creation of PHP files in sensitive WordPress directories by the web server process itself. Evidence of persistence.</p>        </li>
+        <li class="card step" id="step-triage-wp2shell">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage wp2shell Chain Evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Analyze the combined evidence of vulnerable versions, HTTP request markers, and endpoint process/file activity to confirm compromise.</p>        </li>
+        <li class="card step" id="step-route-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route Based on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Route confirmed malicious activity to isolation and others to manual review.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Compromised Server</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Immediately contain the host while preserving forensic evidence.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Triage Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Manually review suspicious activity or cases where automated telemetry was incomplete.</p>        </li>
+        <li class="card step" id="step-analyst-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close-out and Summary</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Record the hunt findings and the status of the WordPress estate.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>WordPress REST API Route Confusion<br><span class="mono dim">T1190</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>vulnerable-wordpress-inventory, wp-json-batch-activity</td></tr>            <tr><td>Webshell or Malicious Plugin Installation<br><span class="mono dim">T1505.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>wp-content-php-drops</td></tr>            <tr><td>Web Server Payload Execution<br><span class="mono dim">T1059</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-web-server-shell-children</td></tr>            <tr><td>Post-Exploitation Discovery<br><span class="mono dim">T1059</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-web-server-shell-children</td></tr>            <tr><td>Automated Exploit Cleanup<br><span class="mono dim">T1070</span></td>
+            <td><span class="no">Existing rule</span></td>
+            <td>The Icex0 self-cleanup script is stopped by the Payload Execution by Web Server rule when it tries to run rm.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_software_inventory via file-system scanning.</strong> WordPress is often installed via zip or git; hb_software_inventory frequently misses applications not managed by deb/rpm. <span class="dim">It would answer Are there WordPress installations not managed by system package managers?.</span> <span class="dim">Remediation: Augment inventory with a hunt that searches for wp-config.php across the fleet.</span></li>          <li class="card"><strong>Needs hb_http_activity with body_content or WAF logs.</strong> If the attacker passes parameters inside a JSON body rather than the query string, hb_http_activity will show the request but not the indicator. <span class="dim">It would answer Was the SQLi parameter author__not_in passed in the POST body?.</span> <span class="dim">Remediation: Ingest WAF or API Gateway logs that capture request bodies.</span></li>          <li class="card"><strong>Needs Endpoint agent on all WordPress hosts.</strong> Without an agent, the only evidence is the HTTP request; we cannot confirm if a shell was actually spawned. <span class="dim">It would answer Are all web servers reporting process and file events?.</span> <span class="dim">Remediation: Cross-reference asset management lists with enrolled agent lists.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Hosts to narrow the search; if empty, the entire estate is checked.</td></tr>            <tr><td><code>vulnerable_versions</code></td><td class="mono dim">list[string]</td><td class="mono">6.9.0, 6.9.1, 6.9.2, 6.9.3, 6.9.4, 7.0.0, 7.0.1</td><td>Affected WordPress versions vulnerable to the full RCE chain.</td></tr>            <tr><td><code>web_server_parents</code></td><td class="mono dim">list[string]</td><td class="mono">apache2, httpd, php-fpm, php-cgi, php-fcgi, php-cgi.cagefs, nginx</td><td>Web server and PHP runtime process names to monitor.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Web server / proxy logs</td><td class="dim">siem</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: This hunt goes beyond a single rule by correlating the structural SQLi marker
+  in web logs with a fleet-wide baseline of shell execution to highlight anomalous
+  compromise behavior over legitimate maintenance.
+blind_spots:
+- id: missing-source-installs
+  question: Are there WordPress installations not managed by system package managers?
+  remediation: Augment inventory with a hunt that searches for wp-config.php across
+    the fleet.
+  requires: hb_software_inventory via file-system scanning
+  risk: WordPress is often installed via zip or git; hb_software_inventory frequently
+    misses applications not managed by deb/rpm.
+  stage: initial-access-batch-route-confusion
+- id: http-post-inspection
+  question: Was the SQLi parameter author__not_in passed in the POST body?
+  remediation: Ingest WAF or API Gateway logs that capture request bodies.
+  requires: hb_http_activity with body_content or WAF logs
+  risk: If the attacker passes parameters inside a JSON body rather than the query
+    string, hb_http_activity will show the request but not the indicator.
+  stage: initial-access-batch-route-confusion
+- id: incomplete-linux-telemetry
+  question: Are all web servers reporting process and file events?
+  remediation: Cross-reference asset management lists with enrolled agent lists.
+  requires: Endpoint agent on all WordPress hosts
+  risk: Without an agent, the only evidence is the HTTP request; we cannot confirm
+    if a shell was actually spawned.
+coverage:
+- stage: initial-access-batch-route-confusion
+  status: covered
+  steps:
+  - vulnerable-wordpress-inventory
+  - wp-json-batch-activity
+- stage: persistence-plugin-webshell-drop
+  status: covered
+  steps:
+  - wp-content-php-drops
+- stage: execution-web-server-shell-spawn
+  status: covered
+  steps:
+  - rare-web-server-shell-children
+- stage: discovery-reconnaissance-commands
+  status: covered
+  steps:
+  - rare-web-server-shell-children
+- reason: The Icex0 self-cleanup script is stopped by the Payload Execution by Web
+    Server rule when it tries to run rm.
+  stage: defense-evasion-self-cleanup
+  status: existing_rule
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: wp2shell is a critical, pre-authentication RCE chain. A negative
+    result provides assurance against broad exposure, and early identification of
+    shell execution allows for containment before lateral movement.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder has exploited the WordPress batch route confusion vulnerability
+  (CVE-2026-63030) to achieve pre-authentication RCE, resulting in PHP file drops
+  and shell execution by web server processes.
+labels:
+- hunt
+- attack.t1190
+- attack.t1505.003
+- attack.t1059
+- attack.t1070
+name: WordPress wp2shell Pre-Auth RCE and Web Shell Execution
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Hosts to narrow the search; if empty, the entire estate is checked.
+    type: list[host]
+  vulnerable_versions:
+    default:
+    - 6.9.0
+    - 6.9.1
+    - 6.9.2
+    - 6.9.3
+    - 6.9.4
+    - 7.0.0
+    - 7.0.1
+    description: Affected WordPress versions vulnerable to the full RCE chain.
+    from:
+      kind: article
+      observed: &#39;2026-07-23&#39;
+      ref: Elastic Labs wp2shell advisory
+    type: list[string]
+  web_server_parents:
+    default:
+    - apache2
+    - httpd
+    - php-fpm
+    - php-cgi
+    - php-fcgi
+    - php-cgi.cagefs
+    - nginx
+    description: Web server and PHP runtime process names to monitor.
+    type: list[string]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.elastic.co/security-labs/blog/wp2shell-wordpress-rce-detection-elastic-defend
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on internet-facing Linux hosts. If hb_software_inventory results
+  are low, widen the hunt to all hosts running the processes in the web_server_parents
+  parameter.
+references:
+- name: &#34;Elastic Security Labs \u2014 wp2shell WordPress RCE detection&#34;
+  url: https://www.elastic.co/security-labs/blog/wp2shell-wordpress-rce-detection-elastic-defend
+related:
+- hunt: sql-injection-generic-web-application
+  reason: The author__not_in primitive is a specific SQL injection that fits into
+    a broader class of web application security hunts.
+  relation: sibling
+scenario:
+  stages:
+  - name: WordPress REST API Route Confusion
+    observables:
+    - &#39;url_path: /wp-json/batch/v1&#39;
+    - &#39;url_query: ?rest_route=/batch/v1&#39;
+    - &#39;url_query: author__not_in&#39;
+    - &#39;user_agent: wp2shell&#39;
+    - CVE-2026-63030
+    - CVE-2026-60137
+    slug: initial-access-batch-route-confusion
+    tactic: initial-access
+    techniques:
+    - T1190
+  - name: Webshell or Malicious Plugin Installation
+    observables:
+    - &#39;file_path: */wp-content/plugins/wp2shell_*&#39;
+    - &#39;file_path: */wp-content/uploads/wp2shell_*.zip&#39;
+    - &#39;file_path: */wp-content/temp-write-test-*&#39;
+    - &#39;file_path: /tmp/php*&#39;
+    - &#39;file_path: */wp-content/cache/*.php&#39;
+    slug: persistence-plugin-webshell-drop
+    tactic: persistence
+    techniques:
+    - T1505.003
+  - name: Web Server Payload Execution
+    observables:
+    - &#39;parent_process_name: apache2&#39;
+    - &#39;parent_process_name: httpd&#39;
+    - &#39;parent_process_name: php-fpm&#39;
+    - &#39;parent_process_name: php-cgi&#39;
+    - &#39;parent_process_name: php-cgi.cagefs&#39;
+    - &#39;process_name: dash&#39;
+    - &#39;process_name: sh&#39;
+    - &#39;process_name: bash&#39;
+    slug: execution-web-server-shell-spawn
+    tactic: execution
+    techniques:
+    - T1059
+  - name: Post-Exploitation Discovery
+    observables:
+    - &#39;process_cmd_line: id&#39;
+    - &#39;process_cmd_line: whoami&#39;
+    - &#39;process_cmd_line: hostname&#39;
+    - &#39;process_cmd_line: uname&#39;
+    - &#39;process_cmd_line: cat /etc/passwd&#39;
+    - &#39;process_cmd_line: find / -perm -u=s -type f&#39;
+    slug: discovery-reconnaissance-commands
+    tactic: discovery
+    techniques:
+    - T1059
+  - name: Automated Exploit Cleanup
+    observables:
+    - &#39;process_cmd_line: rm -rf */wp-content/plugins/wp2shell_*&#39;
+    - &#39;process_cmd_line: cd / &amp;&amp; rm -rf &#34;$d&#34;&#39;
+    slug: defense-evasion-self-cleanup
+    tactic: defense-evasion
+    techniques:
+    - T1070
+  summary: The wp2shell attack exploits a route confusion vulnerability in the WordPress
+    REST batch API to achieve pre-authentication remote code execution. Attackers
+    use SQL injection to escalate privileges or drop a webshell, subsequently spawning
+    a shell from the web server process to execute discovery and reconnaissance commands.
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  web:
+    category: siem
+    name: Web server / proxy logs
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# WordPress wp2shell Pre-Auth RCE and Web Shell Execution
+
+This hunt targets the end-to-end exploit chain of wp2shell. It begins by scoping vulnerable WordPress installations, then simultaneously examines web logs for the structural SQL injection primitive (author__not_in), endpoint file activity for suspicious PHP drops in plugin/upload directories, and behavioral process evidence of web servers spawning rare shell processes. This multi-surface approach ensures detection even if attackers use custom plugin names or self-cleaning payloads.
+
+## vulnerable-wordpress-inventory
+&lt;!-- Identify Vulnerable WordPress Installations --&gt;
+Identify hosts running WordPress versions vulnerable to the pre-auth RCE chain to focus the hunt.
+
+```sqlite target=endpoint role=scoping params=(vulnerable_versions=vulnerable_versions)
+~~~yaml
+expected: A list of hosts running vulnerable WordPress versions. Silence suggests
+  the estate is patched or inventory is not captured by package managers.
+reads:
+- device_hostname
+- package_name
+- package_version
+- asset_scope
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%wordpress%&#39;) AND (instr(&#39;,&#39; || &#39;{{vulnerable_versions}}&#39; || &#39;,&#39;, &#39;,&#39; || package_version || &#39;,&#39;) &gt; 0) AND asset_scope = &#39;endpoint&#39;
+```
+
+## corroborate-activity
+&lt;!-- Corroborate Multi-Surface Evidence --&gt;
+parallel:
+- → wp-json-batch-activity
+- → rare-web-server-shell-children
+- → wp-content-php-drops
+join: → triage-wp2shell
+
+## wp-json-batch-activity
+&lt;!-- WP REST API Batch Activity --&gt;
+Identify HTTP requests targeting the vulnerable batch endpoint with the fundamental author__not_in SQL injection parameter.
+
+```sqlite target=web role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: HTTP requests targeting the batch endpoint with SQL injection parameters.
+  Silence may occur if the payload was passed in the POST body.
+reads:
+- device_hostname
+- url_path
+- url_query
+- user_agent
+- src_endpoint_ip
+- time
+silence: not_evidence_of_absence
+source: hb_http_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, url_path, url_query, user_agent, src_endpoint_ip, time FROM hb_http_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (url_path LIKE &#39;%/wp-json/batch/v1%&#39; OR url_query LIKE &#39;%rest_route=/batch/v1%&#39;) AND (url_query LIKE &#39;%author__not_in%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-web-server-shell-children
+&lt;!-- Rare Shell Spawn from Web Servers --&gt;
+Identify instances where a web server process spawned a shell, baselined against the fleet to highlight anomalous behavior.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts, web_server_parents=web_server_parents)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A shell process running under a web server parent that is rare across the
+  fleet. High fidelity indicator of payload execution.
+prevalence:
+  by: device_hostname
+  key:
+  - parent_process_name
+  - process_name
+  - process_cmd_line
+  rare_below: 3
+reads:
+- device_hostname
+- parent_process_name
+- process_name
+- process_cmd_line
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT parent_process_name, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS runs, MIN(time) AS first_seen FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (instr(&#39;,&#39; || &#39;{{web_server_parents}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(parent_process_name) || &#39;,&#39;) &gt; 0) AND (LOWER(process_name) IN (&#39;sh&#39;, &#39;dash&#39;, &#39;bash&#39;, &#39;zsh&#39;) OR process_cmd_line LIKE &#39;%sh -c%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY parent_process_name, process_name, process_cmd_line HAVING hosts &lt;= 3 ORDER BY hosts, runs
+```
+
+## wp-content-php-drops
+&lt;!-- Suspicious PHP drops in WordPress Directories --&gt;
+Detect generalized PHP file creation by web server processes in plugin, upload, or cache directories.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts, web_server_parents=web_server_parents)
+~~~yaml
+expected: Creation of PHP files in sensitive WordPress directories by the web server
+  process itself. Evidence of persistence.
+reads:
+- device_hostname
+- file_path
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (instr(&#39;,&#39; || &#39;{{web_server_parents}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0) AND (LOWER(file_path) LIKE &#39;%.php&#39;) AND (LOWER(file_path) LIKE &#39;%/wp-content/plugins/%&#39; OR LOWER(file_path) LIKE &#39;%/wp-content/uploads/%&#39; OR LOWER(file_path) LIKE &#39;%/wp-content/cache/%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-wp2shell
+&lt;!-- Triage wp2shell Chain Evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- vulnerable-wordpress-inventory
+- wp-json-batch-activity
+- rare-web-server-shell-children
+- wp-content-php-drops
+max_iterations: 5
+objective: Determine if a host has been successfully compromised via the wp2shell
+  RCE chain. Cite the specific HTTP author__not_in request, the resulting rare shell
+  process from the web server, and any PHP artifacts created in /wp-content/.
+success_criteria: A per-host verdict of malicious, suspicious, or benign with supporting
+  row citations.
+tools:
+- endpoint
+- web
+```
+
+## route-verdict
+&lt;!-- Route Based on Verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: incomplete-linux-telemetry)
+else: → analyst-close-out
+
+## isolate-host
+&lt;!-- Isolate Compromised Server --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host via EDR. Collect the /wp-content/plugins/ directory and the full command-line history of the web server process before forensic imaging.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Triage Review --&gt;
+```manual target=analyst
+Review the cited author__not_in HTTP hits. Verify if the shell processes spawned by the web server (sh, dash) match known legitimate automation or maintenance scripts.
+```
+→ end
+
+## analyst-close-out
+&lt;!-- Close-out and Summary --&gt;
+```manual target=analyst
+Document how many vulnerable WordPress instances were identified and confirm if shell execution was absent on all of them. Prioritize patching.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=wordpress-wp2shell-rce-web-shell" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Internal Recon, Lateral Movement, and Exfiltration · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is performing Active Directory discovery, moving laterally via RDP with high-privilege accounts, and staging data for exfiltration over unencrypted FTP.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/internal-recon-lateral-exfil-ransomware/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Internal Recon, Lateral Movement, and Exfiltration · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is performing Active Directory discovery, moving laterally via RDP with high-privilege accounts, and staging data for exfiltration over unencrypted FTP.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/internal-recon-lateral-exfil-ransomware/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">Internal Recon, Lateral Movement, and Exfiltration</h1>
+      <p class="hyp-lead">An adversary is performing Active Directory discovery, moving laterally via RDP with high-privilege accounts, and staging data for exfiltration over unencrypted FTP.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://thedfirreport.com/2025/09/08/blurring-the-lines-intrusion-shows-connection-with-three-major-ransomware-gangs/" rel="noopener">The DFIR Report</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1003.006 T1018 T1021.001 T1021.002 T1046 T1048.003 T1087.002 T1105 T1482 T1560.001</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=internal-recon-lateral-exfil-ransomware" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>The speed at which ransomware affiliates move from initial access to full domain compromise often leaves defenders struggling to catch up. A recent analysis by The DFIR Report titled <a href="https://thedfirreport.com/2025/09/08/blurring-the-lines-intrusion-shows-connection-with-three-major-ransomware-gangs/" rel="noopener noreferrer">Blurring the Lines: Intrusion Shows Connection With Three Major Ransomware Gangs</a> illustrates this perfectly. In their report, an affiliate utilized a mix of common discovery tools, RDP for lateral movement, and unencrypted FTP for exfiltration, ultimately deploying backdoors like Betruger. </p>
+<h3>How the Hunt Flows</h3>
+<p>The first phase involves scoping the investigation to Windows Servers. By focusing on Domain Controllers, file servers, and backup systems (like Veeam), we significantly reduce the noise inherent in monitoring workstations. This ensures the subsequent telemetry analysis is centered on high-value targets most likely to be involved in lateral movement or data staging.</p>
+<p>Next, the hunt performs a parallel analysis across four distinct surfaces. On the process level, we look for reconnaissance tools such as AdFind, SharpHound, and Grixba. We specifically look for AdFind execution patterns using common flags like <code>-f</code> or <code>-gcb</code>, which are often used even if the binary itself has been renamed. Simultaneously, we examine authentication logs to identify rare RDP logon pairs. By baselining successful logons and filtering for those occurring three or fewer times within the lookback period, we highlight potential lateral movement using legitimate credentials.</p>
+<p>We also monitor for outbound network traffic over port 21 (FTP) or connections associated with tools like WinSCP and WinRAR. Ransomware actors frequently use these for exfiltration because they are less likely to trigger alerts than custom C2 protocols. Finally, we look for fileless execution patterns where MSBuild or Rundll32 spawn child processes with no corresponding file on disk—a technique observed in the deployment of the Betruger backdoor.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>No hunt is exhaustive. This playbook relies heavily on endpoint agent coverage across all servers; an unmanaged server performing AD queries will remain invisible to this process-level analysis. Furthermore, if the adversary shifts from unencrypted FTP to encrypted channels like SFTP (port 22) or HTTPS (port 443), our network-based query may fail unless the specific exfiltration binary is identified by the endpoint agent.</p>
+<h3>Why This is a Hunt, Not a Detection</h3>
+<p>Tools like <code>nltest.exe</code>, <code>ipconfig.exe</code>, and <code>WinSCP.exe</code> are staples of legitimate administrative work. A static detection rule firing on every instance of their execution would likely be disabled due to alert fatigue. This hunt provides a framework to cluster these activities. We aren't looking for just an AdFind execution; we are looking for AdFind execution followed by a rare RDP logon to a backup server and an outbound FTP connection. That sequence constitutes an intrusion narrative that a single rule cannot capture.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 8 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Identity / sign-in telemetry</span><span class="dim">identity</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is performing Active Directory discovery, moving laterally via RDP with high-privilege accounts, and staging data for exfiltration over unencrypted FTP.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify Windows servers which serve as primary targets for lateral movement and data staging.", "expected": "A list of hostnames representing servers. Narrowing to servers reduces noise from user-driven recon activity on workstations.", "id": "scope-windows-servers", "label": "Scope to Windows Servers", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT hostname as device_hostname, os_name, platform FROM hb_devices WHERE platform = \u0027windows\u0027 AND (LOWER(os_name) LIKE \u0027%server%\u0027 OR LOWER(hostname) LIKE \u0027%dc%\u0027 OR LOWER(hostname) LIKE \u0027%fs%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Identify known reconnaissance binaries or command-line patterns used to map AD or the network.", "expected": "Execution of AdFind (even renamed, via flags like -f or -gcb), SharpHound, or Grixba. Focus on high-value targets like Domain Controllers.", "id": "discovery-tool-execution", "label": "Discovery tool execution", "parents": [{"branch": null, "id": "scope-windows-servers", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(\u0027,\u0027 || \u0027{{recon_binaries}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 OR LOWER(process_cmd_line) LIKE \u0027% -f %\u0027 OR LOWER(process_cmd_line) LIKE \u0027% -gcb %\u0027 OR LOWER(process_cmd_line) LIKE \u0027%adfind%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%sharphound%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify rare source-destination RDP logon pairs that may indicate lateral movement using legitimate or newly created credentials.", "expected": "A successful logon to a server from an unusual source IP or a newly created user. Case-insensitive matching ensures reliable scoping and grouping.", "id": "rare-rdp-server-logons", "label": "Rare RDP server logons", "parents": [{"branch": null, "id": "scope-windows-servers", "kind": null}], "query": "SELECT LOWER(dst_endpoint_name) as target_host, LOWER(actor_user_name) as user, src_endpoint_ip, COUNT(*) as logon_count, MIN(time) as first_seen FROM hb_auth_signin WHERE metadata_product = \u0027windows\u0027 AND activity_id = 1 AND status_id = 1 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || dst_endpoint_name || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY 1, 2, 3 HAVING logon_count \u003c= 3 ORDER BY logon_count ASC", "role": "baseline", "source": "hb_auth_signin", "type": "query"}, {"description": "Find evidence of data exfiltration over unencrypted FTP, potentially involving archive tools like WinRAR or transfer tools like WinSCP.", "expected": "Outbound connections on port 21 originating from servers, or network activity associated with WinSCP or WinRAR.", "id": "ftp-exfiltration-traffic", "label": "FTP exfiltration traffic", "parents": [{"branch": null, "id": "scope-windows-servers", "kind": null}], "query": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (dst_endpoint_port = 21 OR instr(\u0027,\u0027 || \u0027{{exfil_binaries}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0) AND direction = \u0027outbound\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_network_connection", "type": "query"}, {"description": "Identify secondary payloads like Betruger being spawned by known injection targets like MSBuild or Rundll32, focusing on fileless execution.", "expected": "Fileless child processes (on_disk = 0) of MSBuild or Rundll32. This specifically targets the injection and deployment of the Betruger backdoor.", "id": "loader-child-processes", "label": "Loader child processes", "parents": [{"branch": null, "id": "scope-windows-servers", "kind": null}], "query": "SELECT device_hostname, process_name, parent_process_name, process_cmd_line, on_disk, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE \u0027%msbuild.exe\u0027 OR LOWER(parent_process_name) LIKE \u0027%rundll32.exe\u0027) AND on_disk = 0 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_process_activity", "type": "query"}, {"description": "Synthesize results across different surfaces into a per-host intrusion narrative.", "expected": null, "id": "triage-narrative", "label": "Triage the ransomware chain", "parents": [{"branch": null, "id": "discovery-tool-execution", "kind": "merge"}, {"branch": null, "id": "rare-rdp-server-logons", "kind": "merge"}, {"branch": null, "id": "ftp-exfiltration-traffic", "kind": "merge"}, {"branch": null, "id": "loader-child-processes", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Select the response path based on the triage agent\u0027s findings.", "expected": null, "id": "route-on-verdict", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-narrative", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the threat by isolating affected servers from the network.", "expected": null, "id": "isolate-host", "label": "Isolate host", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Manually verify findings and decide on full IR activation.", "expected": null, "id": "analyst-review", "label": "Analyst Review", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Conduct final review and document findings.", "expected": null, "id": "analyst-close-out", "label": "Analyst close out", "parents": [{"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "analyst-review", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-windows-servers">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope to Windows Servers</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify Windows servers which serve as primary targets for lateral movement and data staging.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT hostname as device_hostname, os_name, platform FROM hb_devices WHERE platform = &#39;windows&#39; AND (LOWER(os_name) LIKE &#39;%server%&#39; OR LOWER(hostname) LIKE &#39;%dc%&#39; OR LOWER(hostname) LIKE &#39;%fs%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames representing servers. Narrowing to servers reduces noise from user-driven recon activity on workstations.</p>        </li>
+        <li class="card step" id="step-discovery-tool-execution">
+          <div class="step-head">
+            <h3 class="heading-sm">Discovery tool execution</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify known reconnaissance binaries or command-line patterns used to map AD or the network.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{recon_binaries}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_cmd_line) LIKE &#39;% -f %&#39; OR LOWER(process_cmd_line) LIKE &#39;% -gcb %&#39; OR LOWER(process_cmd_line) LIKE &#39;%adfind%&#39; OR LOWER(process_cmd_line) LIKE &#39;%sharphound%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Execution of AdFind (even renamed, via flags like -f or -gcb), SharpHound, or Grixba. Focus on high-value targets like Domain Controllers.</p>        </li>
+        <li class="card step" id="step-rare-rdp-server-logons">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare RDP server logons</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify rare source-destination RDP logon pairs that may indicate lateral movement using legitimate or newly created credentials.</p>          <div class="code"><div class="code-head"><span>reads hb_auth_signin</span><span>sql</span></div><pre><code>SELECT LOWER(dst_endpoint_name) as target_host, LOWER(actor_user_name) as user, src_endpoint_ip, COUNT(*) as logon_count, MIN(time) as first_seen FROM hb_auth_signin WHERE metadata_product = &#39;windows&#39; AND activity_id = 1 AND status_id = 1 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_name || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3 HAVING logon_count &lt;= 3 ORDER BY logon_count ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A successful logon to a server from an unusual source IP or a newly created user. Case-insensitive matching ensures reliable scoping and grouping.</p>        </li>
+        <li class="card step" id="step-ftp-exfiltration-traffic">
+          <div class="step-head">
+            <h3 class="heading-sm">FTP exfiltration traffic</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Find evidence of data exfiltration over unencrypted FTP, potentially involving archive tools like WinRAR or transfer tools like WinSCP.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (dst_endpoint_port = 21 OR instr(&#39;,&#39; || &#39;{{exfil_binaries}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0) AND direction = &#39;outbound&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Outbound connections on port 21 originating from servers, or network activity associated with WinSCP or WinRAR.</p>        </li>
+        <li class="card step" id="step-loader-child-processes">
+          <div class="step-head">
+            <h3 class="heading-sm">Loader child processes</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify secondary payloads like Betruger being spawned by known injection targets like MSBuild or Rundll32, focusing on fileless execution.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, parent_process_name, process_cmd_line, on_disk, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE &#39;%msbuild.exe&#39; OR LOWER(parent_process_name) LIKE &#39;%rundll32.exe&#39;) AND on_disk = 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Fileless child processes (on_disk = 0) of MSBuild or Rundll32. This specifically targets the injection and deployment of the Betruger backdoor.</p>        </li>
+        <li class="card step" id="step-triage-narrative">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage the ransomware chain</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Synthesize results across different surfaces into a per-host intrusion narrative.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Select the response path based on the triage agent&#39;s findings.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the threat by isolating affected servers from the network.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Manually verify findings and decide on full IR activation.</p>        </li>
+        <li class="card step" id="step-analyst-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst close out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Conduct final review and document findings.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Domain and Host Discovery<br><span class="mono dim">T1087.002 · T1482 · T1018 · T1046</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>discovery-tool-execution</td></tr>            <tr><td>RDP Movement and Credential Harvesting<br><span class="mono dim">T1021.001 · T1021.002 · T1003.006</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-rdp-server-logons</td></tr>            <tr><td>Data Staging and FTP Exfiltration<br><span class="mono dim">T1560.001 · T1048.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>ftp-exfiltration-traffic</td></tr>            <tr><td>Secondary Backdoor Access<br><span class="mono dim">T1105</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>loader-child-processes</td></tr>            <tr><td>Masqueraded Software Installer<br><span class="mono dim">T1036.005 · T1204.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Blurring the Lines: Intrusion Shows Connection With Three Major Ransomware Gangs&#39; series.</td></tr>            <tr><td>SectopRAT Injected Execution<br><span class="mono dim">T1059.003 · T1127.001 · T1055</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Blurring the Lines: Intrusion Shows Connection With Three Major Ransomware Gangs&#39; series.</td></tr>            <tr><td>Account Creation and Startup Persistence<br><span class="mono dim">T1547.001 · T1136.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Blurring the Lines: Intrusion Shows Connection With Three Major Ransomware Gangs&#39; series.</td></tr>            <tr><td>SystemBC Proxy Deployment<br><span class="mono dim">T1090 · T1218.011</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Blurring the Lines: Intrusion Shows Connection With Three Major Ransomware Gangs&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs Endpoint agent coverage on all servers.</strong> A compromised unmanaged server can scan the network or perform AD queries without triggering process-level alerts. <span class="dim">It would answer Are there unmanaged servers where reconnaissance tools are running without detection?.</span></li>          <li class="card"><strong>Needs TLS decryption or high-fidelity proxy logs.</strong> If the adversary switches from port 21 to port 443 or 22, the network query will miss the traffic unless the exfiltration tool binary (WinSCP) is caught by process monitoring. <span class="dim">It would answer Is data being exfiltrated via SFTP or HTTPS instead of unencrypted FTP?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>exfil_binaries</code></td><td class="mono dim">list[string]</td><td class="mono">winrar.exe, rar.exe, winscp.exe</td><td>Tools used for compression and exfiltration.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>recon_binaries</code></td><td class="mono dim">list[string]</td><td class="mono">adfind.exe, sharphound.exe, netscan.exe, gt_net.exe, nltest.exe, ipconfig.exe</td><td>Common discovery and reconnaissance tools named in the report.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to focus on (e.g., Domain Controllers, Backup Servers).</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Identity / sign-in telemetry</td><td class="dim">identity</td><td class="mono">identity</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: &#34;A single detection rule might fire on &#39;adfind.exe&#39;. This hunt instead looks\
+  \ for a cluster of signals: rare server authentication followed by reconnaissance\
+  \ binaries with specific flags, and finally outbound FTP activity \u2014 identifying\
+  \ a coherent adversary narrative that isolated rules cannot capture.&#34;
+blind_spots:
+- id: missing-endpoint-telemetry
+  question: Are there unmanaged servers where reconnaissance tools are running without
+    detection?
+  requires: Endpoint agent coverage on all servers
+  risk: A compromised unmanaged server can scan the network or perform AD queries
+    without triggering process-level alerts.
+  stage: discovery-and-reconnaissance
+- id: ftp-encryption-blind-spot
+  question: Is data being exfiltrated via SFTP or HTTPS instead of unencrypted FTP?
+  requires: TLS decryption or high-fidelity proxy logs
+  risk: If the adversary switches from port 21 to port 443 or 22, the network query
+    will miss the traffic unless the exfiltration tool binary (WinSCP) is caught by
+    process monitoring.
+  stage: collection-and-exfiltration
+coverage:
+- stage: discovery-and-reconnaissance
+  status: covered
+  steps:
+  - discovery-tool-execution
+- stage: lateral-movement-and-credentials
+  status: covered
+  steps:
+  - rare-rdp-server-logons
+- stage: collection-and-exfiltration
+  status: covered
+  steps:
+  - ftp-exfiltration-traffic
+- stage: betruger-backdoor-deployment
+  status: covered
+  steps:
+  - loader-child-processes
+- reason: &#39;Belongs to another part of the &#39;&#39;Blurring the Lines: Intrusion Shows Connection
+    With Three Major Ransomware Gangs&#39;&#39; series.&#39;
+  stage: initial-access-masquerading-installer
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Blurring the Lines: Intrusion Shows Connection
+    With Three Major Ransomware Gangs&#39;&#39; series.&#39;
+  stage: sectoprat-execution-and-c2
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Blurring the Lines: Intrusion Shows Connection
+    With Three Major Ransomware Gangs&#39;&#39; series.&#39;
+  stage: persistence-and-privilege-escalation
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Blurring the Lines: Intrusion Shows Connection
+    With Three Major Ransomware Gangs&#39;&#39; series.&#39;
+  stage: systembc-proxy-tunnel
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Ransomware affiliates typically move from initial access to domain-wide
+    compromise within hours. Detecting the reconnaissance and lateral movement phase
+    is the final opportunity to prevent enterprise-wide encryption and data theft.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is performing Active Directory discovery, moving laterally
+  via RDP with high-privilege accounts, and staging data for exfiltration over unencrypted
+  FTP.
+labels:
+- hunt
+- attack.t1087.002
+- attack.t1482
+- attack.t1018
+- attack.t1046
+- attack.t1021.001
+- attack.t1021.002
+- attack.t1003.006
+- attack.t1560.001
+- attack.t1048.003
+- attack.t1105
+name: Internal Recon, Lateral Movement, and Exfiltration
+parameters:
+  exfil_binaries:
+    default:
+    - winrar.exe
+    - rar.exe
+    - winscp.exe
+    description: Tools used for compression and exfiltration.
+    from:
+      kind: article
+      observed: &#39;2025-09-08&#39;
+      ref: https://thedfirreport.com/2025/09/08/blurring-the-lines-intrusion-shows-connection-with-three-major-ransomware-gangs/
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  recon_binaries:
+    default:
+    - adfind.exe
+    - sharphound.exe
+    - netscan.exe
+    - gt_net.exe
+    - nltest.exe
+    - ipconfig.exe
+    description: Common discovery and reconnaissance tools named in the report.
+    from:
+      kind: article
+      observed: &#39;2025-09-08&#39;
+      ref: https://thedfirreport.com/2025/09/08/blurring-the-lines-intrusion-shows-connection-with-three-major-ransomware-gangs/
+    type: list[string]
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to focus on (e.g., Domain Controllers,
+      Backup Servers).
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://thedfirreport.com/2025/09/08/blurring-the-lines-intrusion-shows-connection-with-three-major-ransomware-gangs/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: &#39;Focus on high-value targets: Domain Controllers, Backup Servers (Veeam),
+  and File Servers. The initial query finds Windows servers specifically, but the
+  analyst can paste any suspect hostnames into the scope_hosts parameter.&#39;
+references:
+- name: &#34;The DFIR Report \u2014 Blurring the Lines: Intrusion Shows Connection With\
+    \ Three Major Ransomware Gangs&#34;
+  url: https://thedfirreport.com/2025/09/08/blurring-the-lines-intrusion-shows-connection-with-three-major-ransomware-gangs/
+related:
+- hunt: initial-access-masquerading-installer
+  reason: This hunt examines the post-exploitation actions taken after the masquerading
+    installer establishes the initial beachhead.
+  relation: follows
+scenario:
+  stages:
+  - name: Masqueraded Software Installer
+    observables:
+    - EarthTime.exe
+    - Brave Pragmatic Network Technology Co., Ltd. (revoked certificate)
+    slug: initial-access-masquerading-installer
+    tactic: initial-access
+    techniques:
+    - T1036.005
+    - T1204.002
+  - name: SectopRAT Injected Execution
+    observables:
+    - cmd.exe spawning MSBuild.exe from Downloads folder
+    - MSBuild.exe with no command-line arguments
+    - 45.141.87.55 on ports 9000 and 15647
+    - Pastebin connection for C2 configuration
+    slug: sectoprat-execution-and-c2
+    tactic: execution
+    techniques:
+    - T1059.003
+    - T1127.001
+    - T1055
+  - name: Account Creation and Startup Persistence
+    observables:
+    - Shortcut in Startup folder
+    - New local account with administrative privileges
+    - net user and net localgroup commands
+    slug: persistence-and-privilege-escalation
+    tactic: persistence
+    techniques:
+    - T1547.001
+    - T1136.001
+  - name: SystemBC Proxy Deployment
+    observables:
+    - C:\Users\Public\Music\WakeWordEngine.dll
+    - C:\Users\Public\Music\conhost.dll
+    - rundll32.exe WakeWordEngine.dll, Reset
+    - 149.28.101.219:443
+    slug: systembc-proxy-tunnel
+    tactic: command-and-control
+    techniques:
+    - T1090
+    - T1218.011
+  - name: Domain and Host Discovery
+    observables:
+    - AdFind for AD queries
+    - SharpHound for directory mapping
+    - SoftPerfect NetScan
+    - Grixba (GT_NET.exe)
+    - ipconfig
+    - nltest
+    slug: discovery-and-reconnaissance
+    tactic: discovery
+    techniques:
+    - T1087.002
+    - T1482
+    - T1018
+    - T1046
+  - name: RDP Movement and Credential Harvesting
+    observables:
+    - RDP using new local account or built-in Administrator
+    - wmiexec enumeration
+    - PsExec to execute SystemBC as SYSTEM
+    - DCSync attack against Domain Controller
+    - PowerShell script for Veeam credentials
+    slug: lateral-movement-and-credentials
+    tactic: lateral-movement
+    techniques:
+    - T1021.001
+    - T1021.002
+    - T1003.006
+  - name: Data Staging and FTP Exfiltration
+    observables:
+    - WinRAR archives of file shares
+    - WinSCP transferring data to cloud host via FTP
+    slug: collection-and-exfiltration
+    tactic: exfiltration
+    techniques:
+    - T1560.001
+    - T1048.003
+  - name: Secondary Backdoor Access
+    observables:
+    - Betruger backdoor payload spawned by SectopRAT
+    slug: betruger-backdoor-deployment
+    tactic: command-and-control
+    techniques:
+    - T1105
+  summary: A threat actor used a masqueraded EarthTime installer to deploy SectopRAT
+    and SystemBC, establishing a proxy tunnel to facilitate domain reconnaissance
+    and lateral movement via RDP. After harvesting credentials and archives from file
+    shares using tools like Grixba and AdFind, the actor exfiltrated sensitive data
+    via WinSCP before deploying a secondary Betruger backdoor.
+series:
+  index: 2
+  slug: blurring-the-lines-intrusion-shows-connection-with-three-major-ransomware-gangs
+  title: &#39;Blurring the Lines: Intrusion Shows Connection With Three Major Ransomware
+    Gangs&#39;
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  identity:
+    category: identity
+    name: Identity / sign-in telemetry
+    telemetry:
+    - identity
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Internal Recon, Lateral Movement, and Exfiltration
+
+This hunt targets the post-exploitation lifecycle of a ransomware affiliate who pivots from an initial beachhead to domain-wide control. It focuses on identifying reconnaissance tools (AdFind, SharpHound, Grixba), rare RDP authentication patterns involving servers, and the final data exfiltration phase using WinSCP or WinRAR over FTP. By correlating these independent signals across process, authentication, and network surfaces, we identify the transition from single-host compromise to enterprise-wide risk. The hunt specifically seeks to identify secondary payloads (like Betruger) that exhibit fileless characteristics and the use of legitimate administration tools for malicious discovery.
+
+## scope-windows-servers
+&lt;!-- Scope to Windows Servers --&gt;
+Identify Windows servers which serve as primary targets for lateral movement and data staging.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames representing servers. Narrowing to servers reduces noise
+  from user-driven recon activity on workstations.
+reads:
+- hostname
+- os_name
+- platform
+- time
+silence: not_evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT hostname as device_hostname, os_name, platform FROM hb_devices WHERE platform = &#39;windows&#39; AND (LOWER(os_name) LIKE &#39;%server%&#39; OR LOWER(hostname) LIKE &#39;%dc%&#39; OR LOWER(hostname) LIKE &#39;%fs%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-evidence-gathering
+&lt;!-- Parallel evidence gathering --&gt;
+parallel:
+- → discovery-tool-execution
+- → rare-rdp-server-logons
+- → ftp-exfiltration-traffic
+- → loader-child-processes
+join: → triage-narrative
+
+## discovery-tool-execution
+&lt;!-- Discovery tool execution --&gt;
+Identify known reconnaissance binaries or command-line patterns used to map AD or the network.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, recon_binaries=recon_binaries, scope_hosts=scope_hosts)
+~~~yaml
+expected: Execution of AdFind (even renamed, via flags like -f or -gcb), SharpHound,
+  or Grixba. Focus on high-value targets like Domain Controllers.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{recon_binaries}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_cmd_line) LIKE &#39;% -f %&#39; OR LOWER(process_cmd_line) LIKE &#39;% -gcb %&#39; OR LOWER(process_cmd_line) LIKE &#39;%adfind%&#39; OR LOWER(process_cmd_line) LIKE &#39;%sharphound%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-rdp-server-logons
+&lt;!-- Rare RDP server logons --&gt;
+Identify rare source-destination RDP logon pairs that may indicate lateral movement using legitimate or newly created credentials.
+
+```sqlite target=identity role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A successful logon to a server from an unusual source IP or a newly created
+  user. Case-insensitive matching ensures reliable scoping and grouping.
+prevalence:
+  by: target_host
+  key:
+  - user
+  - src_endpoint_ip
+  rare_below: 3
+reads:
+- dst_endpoint_name
+- actor_user_name
+- src_endpoint_ip
+- metadata_product
+- activity_id
+- status_id
+- time
+silence: not_evidence_of_absence
+source: hb_auth_signin
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT LOWER(dst_endpoint_name) as target_host, LOWER(actor_user_name) as user, src_endpoint_ip, COUNT(*) as logon_count, MIN(time) as first_seen FROM hb_auth_signin WHERE metadata_product = &#39;windows&#39; AND activity_id = 1 AND status_id = 1 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_name || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1, 2, 3 HAVING logon_count &lt;= 3 ORDER BY logon_count ASC
+```
+
+## ftp-exfiltration-traffic
+&lt;!-- FTP exfiltration traffic --&gt;
+Find evidence of data exfiltration over unencrypted FTP, potentially involving archive tools like WinRAR or transfer tools like WinSCP.
+
+```sqlite target=network role=enrichment params=(lookback_days=lookback_days, exfil_binaries=exfil_binaries, scope_hosts=scope_hosts)
+~~~yaml
+expected: Outbound connections on port 21 originating from servers, or network activity
+  associated with WinSCP or WinRAR.
+reads:
+- device_hostname
+- process_name
+- dst_endpoint_ip
+- dst_endpoint_port
+- direction
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (dst_endpoint_port = 21 OR instr(&#39;,&#39; || &#39;{{exfil_binaries}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0) AND direction = &#39;outbound&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## loader-child-processes
+&lt;!-- Loader child processes --&gt;
+Identify secondary payloads like Betruger being spawned by known injection targets like MSBuild or Rundll32, focusing on fileless execution.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Fileless child processes (on_disk = 0) of MSBuild or Rundll32. This specifically
+  targets the injection and deployment of the Betruger backdoor.
+reads:
+- device_hostname
+- process_name
+- parent_process_name
+- process_cmd_line
+- on_disk
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, parent_process_name, process_cmd_line, on_disk, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE &#39;%msbuild.exe&#39; OR LOWER(parent_process_name) LIKE &#39;%rundll32.exe&#39;) AND on_disk = 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-narrative
+&lt;!-- Triage the ransomware chain --&gt;
+```agent target=hunter
+cite: required
+context:
+- discovery-tool-execution
+- rare-rdp-server-logons
+- ftp-exfiltration-traffic
+- loader-child-processes
+max_iterations: 4
+objective: Determine if any host exhibits a combination of discovery tool execution
+  (like AdFind or SharpHound), rare RDP logon, and exfiltration activity, indicating
+  a ransomware affiliate operation.
+success_criteria: A per-host verdict of malicious | suspicious | benign, citing specific
+  rows that connect the discovery, lateral movement, and exfiltration stages.
+tools:
+- endpoint
+- identity
+- network
+```
+
+## route-on-verdict
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host, specifically showing a temporal link between recon activity, rare logons, and outbound FTP/C2 connections.&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: missing-endpoint-telemetry)
+else: → analyst-close-out
+
+## isolate-host
+&lt;!-- Isolate host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the compromised host and revoke any credentials (especially local admin or Veeam accounts) identified in the logs.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst Review --&gt;
+```manual target=analyst
+Review the cited evidence for the cluster of reconnaissance, RDP movement, and data staging. If confirmed, activate the ransomware response playbook.
+```
+→ analyst-close-out
+
+## analyst-close-out
+&lt;!-- Analyst close out --&gt;
+```manual target=analyst
+Document the investigation outcome. If the results were false positives, refine the RDP baseline by excluding expected maintenance windows or known administrative source IPs.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=internal-recon-lateral-exfil-ransomware" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

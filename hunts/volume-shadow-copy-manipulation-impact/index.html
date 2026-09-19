@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Volume Shadow Copy Manipulation and Impact · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is abusing the Volume Shadow Copy Service (VSS) to either extract the Active Directory database (ntds.dit) for credential theft or delete recovery points to prevent rollback before encrypting data.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/volume-shadow-copy-manipulation-impact/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Volume Shadow Copy Manipulation and Impact · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is abusing the Volume Shadow Copy Service (VSS) to either extract the Active Directory database (ntds.dit) for credential theft or delete recovery points to prevent rollback before encrypting data.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/volume-shadow-copy-manipulation-impact/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev medium">medium</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">Volume Shadow Copy Manipulation and Impact</h1>
+      <p class="hyp-lead">An adversary is abusing the Volume Shadow Copy Service (VSS) to either extract the Active Directory database (ntds.dit) for credential theft or delete recovery points to prevent rollback before encrypting data.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.huntress.com/blog/vss-abuse-explained" rel="noopener">Huntress</a></span>
+<span>2026-09-17</span>        <span>9 steps · 4 queries</span>
+<span class="mono">T1003.003 T1486 T1490</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=volume-shadow-copy-manipulation-impact" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Background</h3>
+<p>Recent research from Huntress, titled <a href="https://www.huntress.com/blog/vss-abuse-explained" rel="noopener noreferrer">How Attackers Abuse VSS, and How Huntress Detects It</a>, highlights how adversaries frequently target the Volume Shadow Copy Service. VSS is a dual-use mechanism: it provides the necessary infrastructure for legitimate backups, but it also allows attackers to create snapshots of locked system files like the Active Directory database (ntds.dit) for offline cracking, or to delete recovery points entirely before deploying ransomware.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins by scoping the environment using the <code>hb_devices</code> surface. We specifically isolate Windows Domain Controllers and high-value servers where the impact of credential theft or data encryption is highest. This ensures the hunt remains performant and focused on high-risk assets.</p>
+<p>Next, we pivot to <code>hb_process_activity</code> to identify the use of <code>vssadmin.exe</code> or <code>wmic.exe</code>. We are looking for specific command-line arguments related to shadow copy creation (often used for staging NTDS exfiltration) or deletion (used to prevent rollbacks). At this stage, we are collecting leads, not making final judgments.</p>
+<p>To separate legitimate administration from an attack, we run two parallel corroboration phases using <code>hb_file_activity</code>. The first branch looks for processes accessing <code>ntds.dit</code> within a shadow copy path—a clear indicator of credential staging. The second branch looks for high-volume file modifications by processes that are rare across the fleet. This allows us to identify potential ransomware activity that may have been preceded by VSS deletion.</p>
+<p>The final phase uses a triage agent to correlate these signals. It looks for temporal proximity between the VSS manipulation and the suspicious file activity, providing a verdict based on the full lifecycle of the observed behavior.</p>
+<h3>Limitations and Blind Spots</h3>
+<p>No hunt is exhaustive. This playbook primarily relies on command-line monitoring. If an attacker uses direct Win32 API calls (via PowerShell or a custom binary) to interact with the VSS provider, they may bypass the process activity checks. We also note that during periods of extreme disk I/O, such as mass encryption, endpoint agents may suppress file events to maintain system stability, which could impact our file churn calculations.</p>
+<h3>Running the Hunt</h3>
+<p>This hunt is packaged as an open <code>hunt.md</code> playbook. It can be imported into Huntbase or any runtime compatible with the <code>hunt.md</code> format. It is designed to be run periodically against server estates to identify latent persistence or staging activity that does not trigger standard real-time alerts. </p>
+<p>By focusing on the 'why'—correlating the tool with the result—this hunt provides a higher degree of confidence than isolated detection rules.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/vss-abuse-precursors-exploitation-lateral-movement/index.html">Part 1: VSS Abuse Precursors: Exploitation and Lateral Movement</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is abusing the Volume Shadow Copy Service (VSS) to either extract the Active Directory database (ntds.dit) for credential theft or delete recovery points to prevent rollback before encrypting data.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Focus the hunt on Windows systems where NTDS.dit extraction or mass encryption would have the highest business impact.", "expected": "A list of hostnames identifying the server estate. Silence means no Windows servers were seen in the lookback window.", "id": "scope-to-servers", "label": "Identify Windows Servers and DCs", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT hostname AS device_hostname, os_name, ip_address FROM hb_devices WHERE platform = \u0027windows\u0027 AND (LOWER(os_name) LIKE \u0027%server%\u0027 OR LOWER(hostname) LIKE \u0027%dc%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Find command-line invocations of vssadmin or wmic that specifically create or delete shadow copies.", "expected": "Processes launching VSS commands. Deletion with \u0027/quiet\u0027 or creation by unusual parents (like PsExec or cmd) are high-priority leads.", "id": "vss-tool-execution", "label": "Suspicious VSS CLI Manipulation", "parents": [{"branch": null, "id": "scope-to-servers", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE ((\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)) AND ((LOWER(process_name) LIKE \u0027%vssadmin.exe\u0027 AND (LOWER(process_cmd_line) LIKE \u0027%create%shadow%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%delete%shadows%\u0027)) OR (LOWER(process_name) LIKE \u0027%wmic.exe\u0027 AND LOWER(process_cmd_line) LIKE \u0027%shadowcopy%\u0027)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify processes accessing the Active Directory database (ntds.dit) through a volume shadow copy path.", "expected": "Any row showing a process reading ntds.dit from a \u0027HarddiskVolumeShadowCopy\u0027 path is an immediate indicator of credential theft.", "id": "ntds-access", "label": "Credential Database Access via Shadow Copy", "parents": [{"branch": null, "id": "vss-tool-execution", "kind": null}], "query": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE ((\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)) AND LOWER(file_name) = \u0027ntds.dit\u0027 AND LOWER(file_path) LIKE \u0027%shadowcopy%\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_file_activity", "type": "query"}, {"description": "Identify rare processes performing high-volume file updates or deletions, characteristic of ransomware.", "expected": "A process rare in the fleet but generating hundreds of file events on a single host. Known backup agents will have a high \u0027affected_hosts\u0027 count and can be ignored.", "id": "file-churn-baseline", "label": "High-Volume Rare Process File Churn", "parents": [{"branch": null, "id": "vss-tool-execution", "kind": null}], "query": "SELECT process_name, COUNT(DISTINCT device_hostname) AS affected_hosts, COUNT(*) AS total_events, MIN(time) AS first_seen FROM hb_file_activity WHERE ((\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)) AND activity_id IN (3, 4, 5) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY process_name HAVING affected_hosts \u003c 3 AND total_events \u003e 500 ORDER BY total_events DESC", "role": "baseline", "source": "hb_file_activity", "type": "query"}, {"description": "Correlate VSS manipulation with file-level indicators of theft or destruction.", "expected": "A definitive verdict for each host citing evidence from multiple surfaces.", "id": "vss-triage", "label": "Triage VSS Activity and Correlated Signals", "parents": [{"branch": null, "id": "ntds-access", "kind": "merge"}, {"branch": null, "id": "file-churn-baseline", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Automate response routing based on the severity of the triage findings.", "expected": null, "id": "route-on-verdict", "label": "Route on Verdict", "parents": [{"branch": null, "id": "vss-triage", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Stop further encryption or credential exfiltration immediately.", "expected": null, "id": "isolate-host", "label": "Isolate Compromised Host", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Final validation of findings and documentation of false positives for tuning.", "expected": null, "id": "analyst-incident-review", "label": "Analyst Review and Close-out", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-to-servers">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Windows Servers and DCs</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Focus the hunt on Windows systems where NTDS.dit extraction or mass encryption would have the highest business impact.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT hostname AS device_hostname, os_name, ip_address FROM hb_devices WHERE platform = &#39;windows&#39; AND (LOWER(os_name) LIKE &#39;%server%&#39; OR LOWER(hostname) LIKE &#39;%dc%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames identifying the server estate. Silence means no Windows servers were seen in the lookback window.</p>        </li>
+        <li class="card step" id="step-vss-tool-execution">
+          <div class="step-head">
+            <h3 class="heading-sm">Suspicious VSS CLI Manipulation</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Find command-line invocations of vssadmin or wmic that specifically create or delete shadow copies.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE ((&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND ((LOWER(process_name) LIKE &#39;%vssadmin.exe&#39; AND (LOWER(process_cmd_line) LIKE &#39;%create%shadow%&#39; OR LOWER(process_cmd_line) LIKE &#39;%delete%shadows%&#39;)) OR (LOWER(process_name) LIKE &#39;%wmic.exe&#39; AND LOWER(process_cmd_line) LIKE &#39;%shadowcopy%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Processes launching VSS commands. Deletion with &#39;/quiet&#39; or creation by unusual parents (like PsExec or cmd) are high-priority leads.</p>        </li>
+        <li class="card step" id="step-ntds-access">
+          <div class="step-head">
+            <h3 class="heading-sm">Credential Database Access via Shadow Copy</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify processes accessing the Active Directory database (ntds.dit) through a volume shadow copy path.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE ((&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND LOWER(file_name) = &#39;ntds.dit&#39; AND LOWER(file_path) LIKE &#39;%shadowcopy%&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Any row showing a process reading ntds.dit from a &#39;HarddiskVolumeShadowCopy&#39; path is an immediate indicator of credential theft.</p>        </li>
+        <li class="card step" id="step-file-churn-baseline">
+          <div class="step-head">
+            <h3 class="heading-sm">High-Volume Rare Process File Churn</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify rare processes performing high-volume file updates or deletions, characteristic of ransomware.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT process_name, COUNT(DISTINCT device_hostname) AS affected_hosts, COUNT(*) AS total_events, MIN(time) AS first_seen FROM hb_file_activity WHERE ((&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND activity_id IN (3, 4, 5) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_name HAVING affected_hosts &lt; 3 AND total_events &gt; 500 ORDER BY total_events DESC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A process rare in the fleet but generating hundreds of file events on a single host. Known backup agents will have a high &#39;affected_hosts&#39; count and can be ignored.</p>        </li>
+        <li class="card step" id="step-vss-triage">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage VSS Activity and Correlated Signals</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate VSS manipulation with file-level indicators of theft or destruction.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Automate response routing based on the severity of the triage findings.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Compromised Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Stop further encryption or credential exfiltration immediately.</p>        </li>
+        <li class="card step" id="step-analyst-incident-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Review and Close-out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final validation of findings and documentation of false positives for tuning.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Credential Access via Shadow Copy<br><span class="mono dim">T1490</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>vss-tool-execution, ntds-access</td></tr>            <tr><td>Inhibit System Recovery via Shadow Deletion<br><span class="mono dim">T1490</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>vss-tool-execution</td></tr>            <tr><td>Data Encrypted for Impact<br><span class="mono dim">T1486</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>file-churn-baseline</td></tr>            <tr><td>Exploitation of Public-Facing Application<br><span class="mono dim">T1190</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;How Attackers Abuse VSS, and How Huntress Detects It&#39; series.</td></tr>            <tr><td>Lateral Movement via SMB and PsExec<br><span class="mono dim">T1021.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;How Attackers Abuse VSS, and How Huntress Detects It&#39; series.</td></tr>            <tr><td>Session and Network Reconnaissance<br><span class="mono dim">T1021.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;How Attackers Abuse VSS, and How Huntress Detects It&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs Microsoft-Windows-VSS event logs or hb_api_activity.</strong> Sophisticated actors using direct API calls (e.g., via PowerShell or custom C++ binaries) bypass CLI-based detection rules entirely. <span class="dim">It would answer Was VSS manipulated via direct Win32 API calls rather than command-line tools?.</span> <span class="dim">Remediation: Ingest Windows Event Log 13 (VSS service started) and 8224 (VSS provider activity).</span></li>          <li class="card"><strong>Needs hb_file_activity with zero dropped-event indicator.</strong> Mass encryption is exceptionally noisy; if the agent suppresses events to maintain system performance, the &#39;total_events&#39; count may fall below the hunt threshold. <span class="dim">It would answer Did the endpoint agent drop file activity events during a period of massive disk I/O?.</span> <span class="dim">Remediation: Monitor agent performance metrics for &#39;dropped events&#39; during high-churn detection windows.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Specific hostnames to scope; leave empty for the entire Windows server fleet.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: &#39;While static rules can catch &#39;&#39;vssadmin delete shadows&#39;&#39;, this hunt adds
+  context: it correlates the VSS command with specific file access (ntds.dit) and
+  fleet-wide rarity of the calling process, distinguishing legitimate RMM tools from
+  attackers.&#39;
+blind_spots:
+- id: vss-api-evasion
+  owner: Endpoint Security Team
+  question: Was VSS manipulated via direct Win32 API calls rather than command-line
+    tools?
+  remediation: Ingest Windows Event Log 13 (VSS service started) and 8224 (VSS provider
+    activity).
+  requires: Microsoft-Windows-VSS event logs or hb_api_activity
+  risk: Sophisticated actors using direct API calls (e.g., via PowerShell or custom
+    C++ binaries) bypass CLI-based detection rules entirely.
+  stage: vss-credential-access
+- id: event-suppression-during-churn
+  owner: Detection Engineering
+  question: Did the endpoint agent drop file activity events during a period of massive
+    disk I/O?
+  remediation: Monitor agent performance metrics for &#39;dropped events&#39; during high-churn
+    detection windows.
+  requires: hb_file_activity with zero dropped-event indicator
+  risk: Mass encryption is exceptionally noisy; if the agent suppresses events to
+    maintain system performance, the &#39;total_events&#39; count may fall below the hunt
+    threshold.
+  stage: ransomware-encryption
+coverage:
+- stage: vss-credential-access
+  status: covered
+  steps:
+  - vss-tool-execution
+  - ntds-access
+- stage: vss-recovery-inhibition
+  status: covered
+  steps:
+  - vss-tool-execution
+- stage: ransomware-encryption
+  status: covered
+  steps:
+  - file-churn-baseline
+- reason: Belongs to another part of the &#39;How Attackers Abuse VSS, and How Huntress
+    Detects It&#39; series.
+  stage: initial-exploitation
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;How Attackers Abuse VSS, and How Huntress
+    Detects It&#39; series.
+  stage: lateral-movement-psexec
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;How Attackers Abuse VSS, and How Huntress
+    Detects It&#39; series.
+  stage: internal-reconnaissance
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: Volume Shadow Copies are a primary target for ransomware operators
+    and a quiet vector for credential theft. Ensuring these features are not being
+    manipulated by unauthorized processes is a critical security obligation.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is abusing the Volume Shadow Copy Service (VSS) to either
+  extract the Active Directory database (ntds.dit) for credential theft or delete
+  recovery points to prevent rollback before encrypting data.
+labels:
+- hunt
+- attack.t1490
+- attack.t1486
+- attack.t1003.003
+name: Volume Shadow Copy Manipulation and Impact
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    from:
+      kind: article
+      observed: &#39;2026-09-14&#39;
+      ref: huntress-vss-abuse
+    type: number
+  scope_hosts:
+    default: []
+    description: Specific hostnames to scope; leave empty for the entire Windows server
+      fleet.
+    from:
+      kind: manual
+      observed: &#39;2026-09-14&#39;
+      ref: analyst-entry
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.huntress.com/blog/vss-abuse-explained
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on domain controllers and high-value servers (DB, File). Use the
+  scope_hosts parameter to narrow the behavior queries if the estate is very large.
+references:
+- name: &#34;Huntress \u2014 How Attackers Abuse VSS, and How Huntress Detects It&#34;
+  url: https://www.huntress.com/blog/vss-abuse-explained
+related:
+- hunt: lateral-movement-psexec-hunting
+  reason: PsExec is frequently used to launch VSS tools on remote domain controllers;
+    that hunt handles the remote execution vector.
+  relation: precedes
+- hunt: vss-abuse-precursors-exploitation-lateral-movement
+  relation: follows
+scenario:
+  stages:
+  - name: Exploitation of Public-Facing Application
+    observables:
+    - Exploitation of internet-facing host
+    - Vulnerability exploitation in web servers or databases
+    slug: initial-exploitation
+    tactic: initial-access
+    techniques:
+    - T1190
+  - name: Lateral Movement via SMB and PsExec
+    observables:
+    - PsExec usage
+    - Spawning of SYSTEM-level command shell processes
+    - Activity on domain controllers
+    slug: lateral-movement-psexec
+    tactic: lateral-movement
+    techniques:
+    - T1021.002
+  - name: Session and Network Reconnaissance
+    observables:
+    - Enumeration of active Remote Desktop sessions
+    - DNS enumeration commands
+    - Reconnaissance against additional network hosts
+    slug: internal-reconnaissance
+    tactic: discovery
+    techniques:
+    - T1021.001
+  - name: Credential Access via Shadow Copy
+    observables:
+    - vssadmin create shadow
+    - Extraction of ntds.dit from volume shadow copy
+    slug: vss-credential-access
+    tactic: credential-access
+    techniques:
+    - T1490
+  - name: Inhibit System Recovery via Shadow Deletion
+    observables:
+    - vssadmin delete shadows /all /quiet
+    - Deletion of shadow copies following credential extraction
+    slug: vss-recovery-inhibition
+    tactic: impact
+    techniques:
+    - T1490
+  - name: Data Encrypted for Impact
+    observables:
+    - Mass file encryption
+    - Ransomware detonation
+    slug: ransomware-encryption
+    tactic: impact
+    techniques:
+    - T1486
+  summary: Attackers leverage Volume Shadow Copy (VSS) to facilitate credential theft
+    by creating shadows to extract the NTDS.dit database or to inhibit recovery by
+    deleting shadows prior to ransomware deployment. These techniques are often preceded
+    by lateral movement using tools like PsExec and internal reconnaissance against
+    domain controllers.
+series:
+  index: 2
+  slug: how-attackers-abuse-vss-and-how-huntress-detects-it
+  title: How Attackers Abuse VSS, and How Huntress Detects It
+  total: 2
+severity: medium
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# Volume Shadow Copy Manipulation and Impact
+
+This hunt targets the abuse of Windows VSS infrastructure as described in recent threat research. It begins by identifying the Windows server estate, specifically targeting Domain Controllers and critical servers. It then monitors for suspicious command-line invocations of vssadmin or wmic used to create or delete shadow copies. To distinguish between administrative tasks and malicious activity, the hunt corroborates these leads by checking for direct file access to ntds.dit within shadow copy paths (the credential theft path) and identifying rare processes performing high-volume file modifications indicative of ransomware. A triage agent then correlates these findings across process lineage and time windows to provide a definitive verdict.
+
+## scope-to-servers
+&lt;!-- Identify Windows Servers and DCs --&gt;
+Focus the hunt on Windows systems where NTDS.dit extraction or mass encryption would have the highest business impact.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of hostnames identifying the server estate. Silence means no Windows
+  servers were seen in the lookback window.
+reads:
+- hostname
+- os_name
+- ip_address
+- time
+silence: not_evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT hostname AS device_hostname, os_name, ip_address FROM hb_devices WHERE platform = &#39;windows&#39; AND (LOWER(os_name) LIKE &#39;%server%&#39; OR LOWER(hostname) LIKE &#39;%dc%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## vss-tool-execution
+&lt;!-- Suspicious VSS CLI Manipulation --&gt;
+Find command-line invocations of vssadmin or wmic that specifically create or delete shadow copies.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Processes launching VSS commands. Deletion with &#39;/quiet&#39; or creation by
+  unusual parents (like PsExec or cmd) are high-priority leads.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- parent_process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE ((&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND ((LOWER(process_name) LIKE &#39;%vssadmin.exe&#39; AND (LOWER(process_cmd_line) LIKE &#39;%create%shadow%&#39; OR LOWER(process_cmd_line) LIKE &#39;%delete%shadows%&#39;)) OR (LOWER(process_name) LIKE &#39;%wmic.exe&#39; AND LOWER(process_cmd_line) LIKE &#39;%shadowcopy%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## parallel-corroboration
+&lt;!-- Corroborate VSS Intent --&gt;
+parallel:
+- → ntds-access
+- → file-churn-baseline
+join: → vss-triage
+
+## ntds-access
+&lt;!-- Credential Database Access via Shadow Copy --&gt;
+Identify processes accessing the Active Directory database (ntds.dit) through a volume shadow copy path.
+
+```sqlite target=endpoint role=enrichment params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Any row showing a process reading ntds.dit from a &#39;HarddiskVolumeShadowCopy&#39;
+  path is an immediate indicator of credential theft.
+reads:
+- device_hostname
+- process_name
+- file_name
+- file_path
+- activity_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE ((&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND LOWER(file_name) = &#39;ntds.dit&#39; AND LOWER(file_path) LIKE &#39;%shadowcopy%&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## file-churn-baseline
+&lt;!-- High-Volume Rare Process File Churn --&gt;
+Identify rare processes performing high-volume file updates or deletions, characteristic of ransomware.
+
+```sqlite target=endpoint role=baseline params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A process rare in the fleet but generating hundreds of file events on a
+  single host. Known backup agents will have a high &#39;affected_hosts&#39; count and can
+  be ignored.
+prevalence:
+  by: device_hostname
+  key:
+  - process_name
+  rare_below: 3
+reads:
+- process_name
+- device_hostname
+- activity_id
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT process_name, COUNT(DISTINCT device_hostname) AS affected_hosts, COUNT(*) AS total_events, MIN(time) AS first_seen FROM hb_file_activity WHERE ((&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND activity_id IN (3, 4, 5) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_name HAVING affected_hosts &lt; 3 AND total_events &gt; 500 ORDER BY total_events DESC
+```
+
+## vss-triage
+&lt;!-- Triage VSS Activity and Correlated Signals --&gt;
+```agent target=hunter
+cite: required
+context:
+- vss-tool-execution
+- ntds-access
+- file-churn-baseline
+max_iterations: 4
+objective: Determine if the observed VSS manipulation on a host is part of an active
+  attack. Look for temporal proximity (within 1 hour) between VSS tool execution and
+  either ntds.dit access or high-volume file churn. Distinguish from legitimate backup
+  software by checking the process name and affected host count.
+success_criteria: A per-host verdict of malicious | suspicious | benign citing specific
+  process paths and timestamps.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the triage verdict is &#39;malicious&#39; for at least one host involving either access to ntds.dit or mass file churn&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-incident-review
+unavailable: → analyst-incident-review (blind_spot: vss-api-evasion)
+else: → analyst-incident-review
+
+## isolate-host
+&lt;!-- Isolate Compromised Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host via the EDR. Proceed to collect memory artifacts and specifically the ntds.dit file if theft was indicated.
+```
+→ analyst-incident-review
+
+## analyst-incident-review
+&lt;!-- Analyst Review and Close-out --&gt;
+```manual target=analyst
+Review the agent&#39;s cited evidence. If the &#39;malicious&#39; verdict was triggered by an unauthorized but known admin tool, update the whitelist. If the verdict was benign but the activity is high-volume, consider refining the churn threshold.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=volume-shadow-copy-manipulation-impact" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

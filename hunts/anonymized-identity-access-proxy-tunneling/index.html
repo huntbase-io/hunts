@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anonymized Identity Access and Proxy Tunneling · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary has compromised an identity (Okta) via multi-hop proxy infrastructure and is currently maintaining persistent command-and-control using tunneling software on a managed endpoint.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/anonymized-identity-access-proxy-tunneling/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Anonymized Identity Access and Proxy Tunneling · Huntbase Hunts">
+  <meta property="og:description" content="An adversary has compromised an identity (Okta) via multi-hop proxy infrastructure and is currently maintaining persistent command-and-control using tunneling software on a managed endpoint.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/anonymized-identity-access-proxy-tunneling/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev medium">medium</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+      </div>
+      <h1 class="heading-xl">Anonymized Identity Access and Proxy Tunneling</h1>
+      <p class="hyp-lead">An adversary has compromised an identity (Okta) via multi-hop proxy infrastructure and is currently maintaining persistent command-and-control using tunneling software on a managed endpoint.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://redcanary.com/blog/threat-detection/threat-hunting-scaled/" rel="noopener">Red Canary</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1090.003</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=anonymized-identity-access-proxy-tunneling" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Modern adversaries frequently use multi-hop proxy infrastructure to mask their origin and bypass location-based conditional access policies. While many teams monitor for suspicious logins, the real challenge lies in connecting a suspicious authentication event to the actual persistent access mechanism on the host. This hunt, inspired by the concepts in <a href="https://redcanary.com/blog/threat-detection/threat-hunting-scaled/" rel="noopener noreferrer">How threat hunting evolves at scale</a> by Red Canary, addresses this by correlating SaaS identity logs with granular endpoint telemetry.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins with a scoping phase using <code>hb_software_inventory</code>. We identify managed hosts that already possess proxy-capable or tunneling software. While many of these tools (like Tailscale or Ngrok) have legitimate uses, identifying the potential 'beachhead' hosts allows us to focus our more intensive correlation efforts where the risk is highest.</p>
+<p>Next, we pivot to the identity layer using <code>hb_auth_signin</code>. We look specifically for successful authentications where the source IP belongs to a known list of VPS providers or Tor exit nodes. These events are not inherently malicious, but when they occur in environments with strict access controls, they serve as high-utility triage markers.</p>
+<p>The core of the hunt is a parallel correlation across three endpoint surfaces: <code>hb_process_activity</code>, <code>hb_network_connection</code>, and <code>hb_dns_activity</code>. We look for rare binaries executing with proxy-related flags (e.g., <code>--socks</code>, <code>--tunnel</code>), connections to ports commonly associated with relays (9001, 9050), and DNS queries for <code>.onion</code> or other hidden service TLDs. We look for temporal alignment—did the suspicious login happen just before a rare tunneling process started communicating?</p>
+<p>Finally, a triage agent reviews the findings to provide a unified verdict. This step is necessary because the presence of a tool like Chisel or a login from a VPS IP can be benign; the maliciousness is often found in the specific combination of the two within a tight time window.</p>
+<h3>What This Hunt Cannot See</h3>
+<p>This hunt has two primary blind spots. First, it relies on EDR coverage. If an attacker uses a compromised identity to access an unmanaged or BYOD device, the endpoint-level tunneling and process telemetry will be invisible to this playbook. Second, the hunt is currently tuned for data-center VPS and Tor infrastructure. If the adversary uses a residential proxy botnet to mask their origin, the initial identity filter may not trigger, although the endpoint behaviors (like rare process execution) might still be caught if the scoping phase is broadened.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 2 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Identity / sign-in telemetry</span><span class="dim">identity</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary has compromised an identity (Okta) via multi-hop proxy infrastructure and is currently maintaining persistent command-and-control using tunneling software on a managed endpoint.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Scope the hunt to endpoints that have known proxying or tunneling software installed, which could be leveraged for multi-hop C2.", "expected": "A list of hosts with proxy-related software installed. Silence indicates no managed hosts have these specific packages in their inventory.", "id": "find-proxy-capable-hosts", "label": "Identify hosts with proxy/tunneling software", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (instr(\u0027,\u0027 || \u0027{{proxy_software_patterns}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(package_name) || \u0027,\u0027) \u003e 0 OR LOWER(package_name) LIKE \u0027%tunnel%\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Identify successful authentications at the identity provider level (Okta) that originated from known anonymization infrastructure.", "expected": "Login events from provided IPs. Any hit suggests a user session originating from infrastructure commonly used for source-masking.", "id": "vps-authentications", "label": "Successful Okta logons from VPS/Tor IPs", "parents": [{"branch": null, "id": "find-proxy-capable-hosts", "kind": null}], "query": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND instr(\u0027,\u0027 || \u0027{{vps_ips}}\u0027 || \u0027,\u0027, \u0027,\u0027 || src_endpoint_ip || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_auth_signin", "type": "query"}, {"description": "Identify execution of rare or atypically named binaries that use common proxying command-line arguments, prioritizing those on the scoped hosts.", "expected": "A binary or command line used for proxying seen on very few hosts. This highlights non-standard tools used for tunneling.", "id": "rare-proxy-processes", "label": "Rare proxy binary execution", "parents": [{"branch": null, "id": "vps-authentications", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, user_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_process_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(process_cmd_line) LIKE \u0027% -proxy %\u0027 OR LOWER(process_cmd_line) LIKE \u0027% -socks %\u0027 OR LOWER(process_cmd_line) LIKE \u0027% -tunnel %\u0027 OR LOWER(process_cmd_line) LIKE \u0027% -remote %\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY process_name, process_cmd_line HAVING host_count \u003c= 3", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Capture network connections directed at ports commonly associated with Tor relays and multi-hop infrastructure.", "expected": "Endpoints communicating via traditional Tor ports (9001/9050).", "id": "anomalous-proxy-ports", "label": "Connections to Tor and relay ports", "parents": [{"branch": null, "id": "vps-authentications", "kind": null}], "query": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND instr(\u0027,\u0027 || \u0027{{proxy_ports}}\u0027 || \u0027,\u0027, \u0027,\u0027 || CAST(dst_endpoint_port AS TEXT) || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_network_connection", "type": "query"}, {"description": "Identify DNS activity for TLDs used by the Tor network, which indicates the use of an onion proxy on the endpoint.", "expected": "Lookups for .onion domains; this is a high-fidelity marker for Tor usage.", "id": "onion-dns-lookups", "label": "DNS queries for hidden services", "parents": [{"branch": null, "id": "vps-authentications", "kind": null}], "query": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(query_hostname) LIKE \u0027%.onion%\u0027 OR LOWER(query_hostname) LIKE \u0027%.hiddenservice.net%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_dns_activity", "type": "query"}, {"description": "Determine if authentication from a masked source aligns with the presence of proxy software and tunneling activity on the associated host.", "expected": "A citation-backed verdict per host.", "id": "triage-agent", "label": "Correlate identity and endpoint events", "parents": [{"branch": null, "id": "rare-proxy-processes", "kind": "merge"}, {"branch": null, "id": "anomalous-proxy-ports", "kind": "merge"}, {"branch": null, "id": "onion-dns-lookups", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Isolate hosts with confirmed multi-hop proxy C2 and escalate others for review.", "expected": null, "id": "triage-decision", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-agent", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Terminate the multi-hop proxy session and prevent lateral movement.", "expected": null, "id": "isolate-host", "label": "Isolate compromised host", "parents": [{"branch": "on_supports", "id": "triage-decision", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Review agent results and tuning opportunities for the rare-proxy and onion-dns signals.", "expected": null, "id": "analyst-review", "label": "Review correlated intrusion", "parents": [{"branch": "default", "id": "triage-decision", "kind": null}, {"branch": "on_unavailable", "id": "triage-decision", "kind": null}, {"branch": "on_refutes", "id": "triage-decision", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Record findings and update parameters.", "expected": null, "id": "close-out", "label": "Close hunt and tune", "parents": [{"branch": null, "id": "analyst-review", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-find-proxy-capable-hosts">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify hosts with proxy/tunneling software</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Scope the hunt to endpoints that have known proxying or tunneling software installed, which could be leveraged for multi-hop C2.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (instr(&#39;,&#39; || &#39;{{proxy_software_patterns}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(package_name) || &#39;,&#39;) &gt; 0 OR LOWER(package_name) LIKE &#39;%tunnel%&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts with proxy-related software installed. Silence indicates no managed hosts have these specific packages in their inventory.</p>        </li>
+        <li class="card step" id="step-vps-authentications">
+          <div class="step-head">
+            <h3 class="heading-sm">Successful Okta logons from VPS/Tor IPs</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Identify successful authentications at the identity provider level (Okta) that originated from known anonymization infrastructure.</p>          <div class="code"><div class="code-head"><span>reads hb_auth_signin</span><span>sql</span></div><pre><code>SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND instr(&#39;,&#39; || &#39;{{vps_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || src_endpoint_ip || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Login events from provided IPs. Any hit suggests a user session originating from infrastructure commonly used for source-masking.</p>        </li>
+        <li class="card step" id="step-rare-proxy-processes">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare proxy binary execution</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify execution of rare or atypically named binaries that use common proxying command-line arguments, prioritizing those on the scoped hosts.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, user_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_cmd_line) LIKE &#39;% -proxy %&#39; OR LOWER(process_cmd_line) LIKE &#39;% -socks %&#39; OR LOWER(process_cmd_line) LIKE &#39;% -tunnel %&#39; OR LOWER(process_cmd_line) LIKE &#39;% -remote %&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_name, process_cmd_line HAVING host_count &lt;= 3</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A binary or command line used for proxying seen on very few hosts. This highlights non-standard tools used for tunneling.</p>        </li>
+        <li class="card step" id="step-anomalous-proxy-ports">
+          <div class="step-head">
+            <h3 class="heading-sm">Connections to Tor and relay ports</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Capture network connections directed at ports commonly associated with Tor relays and multi-hop infrastructure.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND instr(&#39;,&#39; || &#39;{{proxy_ports}}&#39; || &#39;,&#39;, &#39;,&#39; || CAST(dst_endpoint_port AS TEXT) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Endpoints communicating via traditional Tor ports (9001/9050).</p>        </li>
+        <li class="card step" id="step-onion-dns-lookups">
+          <div class="step-head">
+            <h3 class="heading-sm">DNS queries for hidden services</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify DNS activity for TLDs used by the Tor network, which indicates the use of an onion proxy on the endpoint.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(query_hostname) LIKE &#39;%.onion%&#39; OR LOWER(query_hostname) LIKE &#39;%.hiddenservice.net%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Lookups for .onion domains; this is a high-fidelity marker for Tor usage.</p>        </li>
+        <li class="card step" id="step-triage-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Correlate identity and endpoint events</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Determine if authentication from a masked source aligns with the presence of proxy software and tunneling activity on the associated host.</p>        </li>
+        <li class="card step" id="step-triage-decision">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Isolate hosts with confirmed multi-hop proxy C2 and escalate others for review.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate compromised host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Terminate the multi-hop proxy session and prevent lateral movement.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Review correlated intrusion</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Review agent results and tuning opportunities for the rare-proxy and onion-dns signals.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close hunt and tune</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Record findings and update parameters.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Identity authentication via multi-hop proxy<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>vps-authentications</td></tr>            <tr><td>Covert C2 via proxy tunneling<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-proxy-processes, anomalous-proxy-ports, onion-dns-lookups</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs EDR agent coverage on all devices.</strong> Authentications from VPS IPs are visible in Okta, but the subsequent tunneling on unmanaged hardware will be invisible to the endpoint surfaces. <span class="dim">It would answer Was the proxy software executed on a BYOD or unmanaged server?.</span></li>          <li class="card"><strong>Needs Residential proxy IP reputation feed.</strong> The vps_ips list primarily captures datacenter infrastructure; botnet-based proxies will likely bypass this specific identity filter. <span class="dim">It would answer Did the attacker use a residential botnet proxy rather than a datacenter VPS?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>proxy_ports</code></td><td class="mono dim">list[string]</td><td class="mono">9001, 9050, 9051, 9150</td><td>Default ports commonly used by Tor or other proxy relays.</td></tr>            <tr><td><code>proxy_software_patterns</code></td><td class="mono dim">list[string]</td><td class="mono">tor, ngrok, chisel, tailscale, zerotier, ligolo, frp</td><td>Software packages associated with network proxying or tunneling.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hosts to narrow endpoint correlation; paste results from the scoping step here.</td></tr>            <tr><td><code>vps_ips</code></td><td class="mono dim">list[ip]</td><td class="mono">185.220.101.0, 162.247.74.0, 104.244.72.0, 176.10.99.200, 192.42.116.16</td><td>Known Tor exit nodes or VPS provider IPs used for source masking.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Identity / sign-in telemetry</td><td class="dim">identity</td><td class="mono">identity</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: While rules exist for known Tor domains, this hunt pivots across the identity
+  layer and uses prevalence to find non-standard tunneling tools and command-line
+  arguments that single-surface rules miss.
+blind_spots:
+- id: unmanaged-device-blindspot
+  question: Was the proxy software executed on a BYOD or unmanaged server?
+  requires: EDR agent coverage on all devices
+  risk: Authentications from VPS IPs are visible in Okta, but the subsequent tunneling
+    on unmanaged hardware will be invisible to the endpoint surfaces.
+  stage: covert-c2-via-proxy-tunneling
+- id: residential-proxy-evasion
+  question: Did the attacker use a residential botnet proxy rather than a datacenter
+    VPS?
+  requires: Residential proxy IP reputation feed
+  risk: The vps_ips list primarily captures datacenter infrastructure; botnet-based
+    proxies will likely bypass this specific identity filter.
+  stage: identity-authentication-via-multi-hop-proxy
+coverage:
+- stage: identity-authentication-via-multi-hop-proxy
+  status: covered
+  steps:
+  - vps-authentications
+- stage: covert-c2-via-proxy-tunneling
+  status: covered
+  steps:
+  - rare-proxy-processes
+  - anomalous-proxy-ports
+  - onion-dns-lookups
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Adversaries use multi-hop proxies to evade geographical controls
+    and mask C2 traffic. Correlating SaaS logs with endpoint behavior is a high-friction
+    task that requires automated data shaping to scale, making it a prime candidate
+    for a hunt over simple detection rules.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary has compromised an identity (Okta) via multi-hop proxy infrastructure
+  and is currently maintaining persistent command-and-control using tunneling software
+  on a managed endpoint.
+labels:
+- hunt
+- attack.t1090.003
+name: Anonymized Identity Access and Proxy Tunneling
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  proxy_ports:
+    default:
+    - &#39;9001&#39;
+    - &#39;9050&#39;
+    - &#39;9051&#39;
+    - &#39;9150&#39;
+    description: Default ports commonly used by Tor or other proxy relays.
+    type: list[string]
+  proxy_software_patterns:
+    default:
+    - tor
+    - ngrok
+    - chisel
+    - tailscale
+    - zerotier
+    - ligolo
+    - frp
+    description: Software packages associated with network proxying or tunneling.
+    type: list[string]
+  scope_hosts:
+    default: []
+    description: Optional list of hosts to narrow endpoint correlation; paste results
+      from the scoping step here.
+    type: list[host]
+  vps_ips:
+    default:
+    - 185.220.101.0
+    - 162.247.74.0
+    - 104.244.72.0
+    - 176.10.99.200
+    - 192.42.116.16
+    description: Known Tor exit nodes or VPS provider IPs used for source masking.
+    from:
+      kind: article
+      observed: &#39;2026-06-11&#39;
+      ref: red-canary-threat-hunting-scaled
+    type: list[ip]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://redcanary.com/blog/threat-detection/threat-hunting-scaled/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: The hunt scopes to hosts with known proxy/VPN software in their inventory
+  (hb_software_inventory) to focus correlation on the most likely beachheads for multi-hop
+  C2.
+references:
+- name: &#34;Red Canary \u2014 How threat hunting evolves at scale&#34;
+  url: https://redcanary.com/blog/threat-detection/threat-hunting-scaled/
+related:
+- hunt: mfa-fatigue-and-anomalous-logon
+  reason: MFA fatigue often precedes a successful sign-in from a masked source.
+  relation: precedes
+scenario:
+  stages:
+  - name: Identity authentication via multi-hop proxy
+    observables:
+    - Okta sign-in events from known VPS provider IP ranges
+    - Authentication attempts from Tor exit nodes
+    - Successful logins following MFA challenges from disparate geolocations
+    slug: identity-authentication-via-multi-hop-proxy
+    tactic: initial-access
+    techniques:
+    - T1090.003
+  - name: Covert C2 via proxy tunneling
+    observables:
+    - DNS queries for .onion or .hiddenservice.net domains
+    - Network connections to known Tor relay node ports 9001 and 9050
+    - Execution of proxy or tunneling binaries like tor.exe or ngrok
+    - High-frequency network traffic to cloud VPS instances on non-standard ports
+    slug: covert-c2-via-proxy-tunneling
+    tactic: command-and-control
+    techniques:
+    - T1090.003
+  summary: An adversary uses multi-hop proxies to obfuscate their geographic and network
+    origin while authenticating to identity providers like Okta. Following access,
+    the attacker establishes covert command-and-control channels using tunneling tools
+    and operational relay boxes to mask ongoing activity from internal endpoints.
+severity: medium
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  identity:
+    category: identity
+    name: Identity / sign-in telemetry
+    telemetry:
+    - identity
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Anonymized Identity Access and Proxy Tunneling
+
+This hunt bridges the gap between identity-level authentication anomalies and endpoint-level network behavior. It first identifies managed hosts with proxy-capable software, then correlates successful authentications from known VPS/Tor infrastructure with subsequent execution of rare tunneling binaries and connections to proxy ports. By joining these surfaces, we can distinguish between legitimate remote access and an active multi-hop proxy intrusion.
+
+## find-proxy-capable-hosts
+&lt;!-- Identify hosts with proxy/tunneling software --&gt;
+Scope the hunt to endpoints that have known proxying or tunneling software installed, which could be leveraged for multi-hop C2.
+
+```sqlite target=endpoint role=scoping params=(proxy_software_patterns=proxy_software_patterns)
+~~~yaml
+expected: A list of hosts with proxy-related software installed. Silence indicates
+  no managed hosts have these specific packages in their inventory.
+reads:
+- device_hostname
+- package_name
+- package_version
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (instr(&#39;,&#39; || &#39;{{proxy_software_patterns}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(package_name) || &#39;,&#39;) &gt; 0 OR LOWER(package_name) LIKE &#39;%tunnel%&#39;)
+```
+
+## vps-authentications
+&lt;!-- Successful Okta logons from VPS/Tor IPs --&gt;
+Identify successful authentications at the identity provider level (Okta) that originated from known anonymization infrastructure.
+
+```sqlite target=identity role=triage params=(vps_ips=vps_ips, lookback_days=lookback_days)
+~~~yaml
+expected: Login events from provided IPs. Any hit suggests a user session originating
+  from infrastructure commonly used for source-masking.
+reads:
+- actor_user_name
+- src_endpoint_ip
+- dst_endpoint_name
+- time
+- status_id
+- activity_id
+silence: not_evidence_of_absence
+source: hb_auth_signin
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND instr(&#39;,&#39; || &#39;{{vps_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || src_endpoint_ip || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## corroborate-endpoint-behavior
+&lt;!-- Corroborate with endpoint telemetry --&gt;
+parallel:
+- → rare-proxy-processes
+- → anomalous-proxy-ports
+- → onion-dns-lookups
+join: → triage-agent
+
+## rare-proxy-processes
+&lt;!-- Rare proxy binary execution --&gt;
+Identify execution of rare or atypically named binaries that use common proxying command-line arguments, prioritizing those on the scoped hosts.
+
+```sqlite target=endpoint role=baseline params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A binary or command line used for proxying seen on very few hosts. This
+  highlights non-standard tools used for tunneling.
+prevalence:
+  by: device_hostname
+  key:
+  - process_name
+  - process_cmd_line
+  rare_below: 3
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, COUNT(DISTINCT device_hostname) as host_count, MIN(time) as first_seen FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_cmd_line) LIKE &#39;% -proxy %&#39; OR LOWER(process_cmd_line) LIKE &#39;% -socks %&#39; OR LOWER(process_cmd_line) LIKE &#39;% -tunnel %&#39; OR LOWER(process_cmd_line) LIKE &#39;% -remote %&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_name, process_cmd_line HAVING host_count &lt;= 3
+```
+
+## anomalous-proxy-ports
+&lt;!-- Connections to Tor and relay ports --&gt;
+Capture network connections directed at ports commonly associated with Tor relays and multi-hop infrastructure.
+
+```sqlite target=network role=enrichment params=(scope_hosts=scope_hosts, proxy_ports=proxy_ports, lookback_days=lookback_days)
+~~~yaml
+expected: Endpoints communicating via traditional Tor ports (9001/9050).
+reads:
+- device_hostname
+- process_name
+- dst_endpoint_ip
+- dst_endpoint_port
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND instr(&#39;,&#39; || &#39;{{proxy_ports}}&#39; || &#39;,&#39;, &#39;,&#39; || CAST(dst_endpoint_port AS TEXT) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## onion-dns-lookups
+&lt;!-- DNS queries for hidden services --&gt;
+Identify DNS activity for TLDs used by the Tor network, which indicates the use of an onion proxy on the endpoint.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Lookups for .onion domains; this is a high-fidelity marker for Tor usage.
+reads:
+- device_hostname
+- process_name
+- query_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(query_hostname) LIKE &#39;%.onion%&#39; OR LOWER(query_hostname) LIKE &#39;%.hiddenservice.net%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-agent
+&lt;!-- Correlate identity and endpoint events --&gt;
+```agent target=hunter
+cite: required
+context:
+- vps-authentications
+- rare-proxy-processes
+- anomalous-proxy-ports
+- onion-dns-lookups
+max_iterations: 5
+objective: Review the successful VPS logons (vps-authentications) and correlate them
+  with the rare proxy execution (rare-proxy-processes), anomalous ports (anomalous-proxy-ports),
+  and onion DNS lookups (onion-dns-lookups). Look for temporal alignment between the
+  login and the networking/process activity.
+success_criteria: A verdict of malicious, suspicious, or benign per host, citing the
+  relevant rows from all surfaces.
+tools:
+- endpoint
+- identity
+- network
+```
+
+## triage-decision
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host exhibiting both VPS sign-ins and endpoint tunneling&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: unmanaged-device-blindspot)
+else: → analyst-review
+
+## isolate-host
+&lt;!-- Isolate compromised host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the endpoint. Revoke all active Okta sessions for the identified user. Block the src_endpoint_ip at the firewall.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Review correlated intrusion --&gt;
+```manual target=analyst
+Verify if the proxy software found was authorized for business use. Investigate the identified user for signs of credential theft (e.g., unusual password resets or MFA updates).
+```
+→ close-out
+
+## close-out
+&lt;!-- Close hunt and tune --&gt;
+```manual target=analyst
+Log any new VPS IPs found. If the onion DNS signal was high fidelity, promote it to a standing detection rule.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=anonymized-identity-access-proxy-tunneling" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Living-off-the-Agent: Coding Tunnels and Persistence · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is utilizing trusted, signed AI coding agents (Claude Code, Cursor) to execute shells, establish reverse tunnels, and maintain persistence via LaunchAgents on developer workstations.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/living-off-the-agent-tunnels-persistence/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Living-off-the-Agent: Coding Tunnels and Persistence · Huntbase Hunts">
+  <meta property="og:description" content="An adversary is utilizing trusted, signed AI coding agents (Claude Code, Cursor) to execute shells, establish reverse tunnels, and maintain persistence via LaunchAgents on developer workstations.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/living-off-the-agent-tunnels-persistence/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+      </div>
+      <h1 class="heading-xl">Living-off-the-Agent: Coding Tunnels and Persistence</h1>
+      <p class="hyp-lead">An adversary is utilizing trusted, signed AI coding agents (Claude Code, Cursor) to execute shells, establish reverse tunnels, and maintain persistence via LaunchAgents on developer workstations.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.elastic.co/security-labs/threat-command/coding-agent-launchagent-tunnel-detection" rel="noopener">Elastic Security Labs</a></span>
+<span>2026-09-17</span>        <span>9 steps · 4 queries</span>
+<span class="mono">T1133 T1218 T1555.001 T1566 T1572</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=living-off-the-agent-tunnels-persistence" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why this hunt? \n\nElastic Security Labs recently published a detailed analysis titled \"Living off the coding agent: Two tales of tunnels and LaunchAgents\" (https://www.elastic.co/security-labs/threat-command/coding-agent-launchagent-tunnel-detection). Their research demonstrates how signed AI coding agents, which developers increasingly trust with high-level system access, can be manipulated to execute shells, establish reverse tunnels, and even install persistence. Because these agents are often signed and widely used, traditional alerts based on process name or signature can be noisy. This hunt provides a structured way to verify that your developer workstations haven't been turned into remote access points through the very tools meant to increase productivity. \n\n### Hypothesis \n\nOur hypothesis is that an adversary is utilizing the execution capabilities of trusted AI agents—specifically Claude Code and Cursor—to run malicious payloads. By leveraging these agents as living-off-the-land (LotL) proxies, an attacker can bypass standard security controls to establish encrypted reverse tunnels using brokers like Cloudflare or ngrok and maintain access via macOS LaunchAgents. \n\n### How the hunt flows \n\nThe hunt begins with a scoping phase using the <code>hb_software_inventory</code> surface. We look for the presence of known AI agents like Claude and Cursor. This allows us to focus our analysis on the specific population of developer machines where this threat is most relevant, rather than scanning the entire fleet for generic shell activity. \n\nNext, we pivot to <code>hb_process_activity</code> to identify suspicious execution patterns. We look for shells (zsh, bash) or utility binaries (curl, cloudflared) where the parent process is the coding agent. We specifically look for dangerous flags mentioned in the source article, such as <code>--allow-dangerously-skip-permissions</code>, which indicates the agent is operating with reduced guardrails. \n\nWe then examine <code>hb_network_connection</code> to identify connections to rare tunnel brokers. By stacking connections to domains like lhr.life, trycloudflare.com, or ngrok-free.app and filtering for low prevalence across the fleet, we can isolate specific workstations that are communicating with ephemeral remote management infrastructure. \n\nThe final technical step involves checking <code>hb_scheduled_job</code> for anomalous LaunchAgent persistence. We search for new plist entries or job definitions created within the last 14 days that reference tunnel binaries. This step is crucial for identifying sessions that have transitioned from interactive experimentation to a persistent foothold. \n\n### What the hunt cannot see \n\nThis hunt has two primary blind spots. First, if your EDR does not support deep process ancestry tracking or if the process tree is truncated, the link between the trusted agent and the malicious child shell may be lost. Second, because tunnel brokers use randomized subdomains, we can identify the use of the broker but cannot necessarily correlate specific tunnel instances without high-resolution DNS or HTTP logging. \n\n### How to run it \n\nThis hunt is provided as an open <code>hunt.md</code> playbook. It can be imported directly into Huntbase or any security runtime that supports the hunt.md specification. Analysts should focus their review on the command-line arguments of the agent-parented processes; look for credentials being passed in plaintext or commands that interact with the macOS keychain.</h3>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 4 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">4</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">1</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is utilizing trusted, signed AI coding agents (Claude Code, Cursor) to execute shells, establish reverse tunnels, and maintain persistence via LaunchAgents on developer workstations.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Focus the hunt on machines where agents like Claude Code or Cursor are installed using partial match on package and vendor names.", "expected": "A list of hostnames belonging to developers using these agents. Silence suggests the agents are installed as portable binaries outside the package manager.", "id": "scoping-agent-hosts", "label": "Identify hosts with AI coding agents", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%claude%\u0027 OR LOWER(package_name) LIKE \u0027%cursor%\u0027 OR LOWER(vendor_name) LIKE \u0027%anthropic%\u0027 OR LOWER(vendor_name) LIKE \u0027%anysphere%\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Identify shells, credentialed curl commands, or tunnel binaries spawned by the AI agent using partial path matching.", "expected": "Process trees where Claude or Cursor spawn shells with sensitive flags or credential-heavy command lines. This is the primary signal for \u0027living-off-the-agent\u0027 proxying.", "id": "agent-parented-behavior", "label": "Agent-parented shell and tunnel execution", "parents": [{"branch": null, "id": "scoping-agent-hosts", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE \u0027%claude%\u0027 OR LOWER(parent_process_name) LIKE \u0027%cursor%\u0027 OR LOWER(process_name) LIKE \u0027%claude%\u0027 OR LOWER(process_name) LIKE \u0027%cursor%\u0027) AND (LOWER(process_name) LIKE \u0027%/zsh\u0027 OR LOWER(process_name) LIKE \u0027%/bash\u0027 OR LOWER(process_name) LIKE \u0027%/python%\u0027 OR LOWER(process_name) LIKE \u0027%/curl\u0027 OR LOWER(process_name) LIKE \u0027%/cloudflared\u0027 OR LOWER(process_name) LIKE \u0027%/ngrok\u0027 OR LOWER(process_cmd_line) LIKE \u0027%--allow-dangerously-skip-permissions%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%security dump-keychain%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%user=%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Stack-count connections to known tunnel brokers, filtering for domain-based activity to identify rare usage.", "expected": "A connection to a tunnel provider that stands out from fleet norms. Domain matching avoids noise from raw IP background traffic.", "id": "tunnel-prevalence", "label": "Rare tunnel broker connections", "parents": [{"branch": null, "id": "scoping-agent-hosts", "kind": null}], "query": "SELECT dst_endpoint_hostname, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE dst_endpoint_hostname IS NOT NULL AND instr(\u0027,\u0027 || \u0027{{tunnel_domains}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(dst_endpoint_hostname) || \u0027,\u0027) \u003e 0 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY dst_endpoint_hostname HAVING hosts \u003c= 3 ORDER BY hosts ASC", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Check for new macOS persistence mechanisms that maintain tunnel connections outside of active sessions.", "expected": "LaunchAgent plists pointing to tunnel binaries or shell wrappers. Legitimate developers rarely install these for temporary testing.", "id": "persistence-check", "label": "Anomalous LaunchAgent persistence", "parents": [{"branch": null, "id": "scoping-agent-hosts", "kind": null}], "query": "SELECT device_hostname, job_name, job_definition_path, job_cmd_line, time FROM hb_scheduled_job WHERE job_kind = \u0027launchd\u0027 AND (LOWER(job_definition_path) LIKE \u0027%/launchagents/%\u0027 OR LOWER(job_cmd_line) LIKE \u0027%cloudflared%\u0027 OR LOWER(job_cmd_line) LIKE \u0027%ngrok%\u0027 OR LOWER(job_cmd_line) LIKE \u0027%lhr.life%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_scheduled_job", "type": "query"}, {"description": "Weigh the correlation of ancestry, tunnel usage, and persistence to distinguish legitimate dev-ops from a remote intrusion.", "expected": "A per-host verdict of malicious, suspicious, or benign citing specific evidence rows.", "id": "triage", "label": "Triage agent-parented chains", "parents": [{"branch": null, "id": "agent-parented-behavior", "kind": "merge"}, {"branch": null, "id": "tunnel-prevalence", "kind": "merge"}, {"branch": null, "id": "persistence-check", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct high-confidence findings to containment and suspicious findings to human review.", "expected": null, "id": "route", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Halt the potential reverse tunnel and prevent lateral movement or further exfiltration.", "expected": null, "id": "isolate-host", "label": "Isolate workstation", "parents": [{"branch": "on_supports", "id": "route", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Final human review to confirm developer intent and close the case.", "expected": null, "id": "analyst-review", "label": "Analyst review", "parents": [{"branch": "default", "id": "route", "kind": null}, {"branch": "on_unavailable", "id": "route", "kind": null}, {"branch": "on_refutes", "id": "route", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scoping-agent-hosts">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify hosts with AI coding agents</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Focus the hunt on machines where agents like Claude Code or Cursor are installed using partial match on package and vendor names.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%claude%&#39; OR LOWER(package_name) LIKE &#39;%cursor%&#39; OR LOWER(vendor_name) LIKE &#39;%anthropic%&#39; OR LOWER(vendor_name) LIKE &#39;%anysphere%&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames belonging to developers using these agents. Silence suggests the agents are installed as portable binaries outside the package manager.</p>        </li>
+        <li class="card step" id="step-agent-parented-behavior">
+          <div class="step-head">
+            <h3 class="heading-sm">Agent-parented shell and tunnel execution</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify shells, credentialed curl commands, or tunnel binaries spawned by the AI agent using partial path matching.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE &#39;%claude%&#39; OR LOWER(parent_process_name) LIKE &#39;%cursor%&#39; OR LOWER(process_name) LIKE &#39;%claude%&#39; OR LOWER(process_name) LIKE &#39;%cursor%&#39;) AND (LOWER(process_name) LIKE &#39;%/zsh&#39; OR LOWER(process_name) LIKE &#39;%/bash&#39; OR LOWER(process_name) LIKE &#39;%/python%&#39; OR LOWER(process_name) LIKE &#39;%/curl&#39; OR LOWER(process_name) LIKE &#39;%/cloudflared&#39; OR LOWER(process_name) LIKE &#39;%/ngrok&#39; OR LOWER(process_cmd_line) LIKE &#39;%--allow-dangerously-skip-permissions%&#39; OR LOWER(process_cmd_line) LIKE &#39;%security dump-keychain%&#39; OR LOWER(process_cmd_line) LIKE &#39;%user=%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Process trees where Claude or Cursor spawn shells with sensitive flags or credential-heavy command lines. This is the primary signal for &#39;living-off-the-agent&#39; proxying.</p>        </li>
+        <li class="card step" id="step-tunnel-prevalence">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare tunnel broker connections</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count connections to known tunnel brokers, filtering for domain-based activity to identify rare usage.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT dst_endpoint_hostname, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE dst_endpoint_hostname IS NOT NULL AND instr(&#39;,&#39; || &#39;{{tunnel_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(dst_endpoint_hostname) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY dst_endpoint_hostname HAVING hosts &lt;= 3 ORDER BY hosts ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A connection to a tunnel provider that stands out from fleet norms. Domain matching avoids noise from raw IP background traffic.</p>        </li>
+        <li class="card step" id="step-persistence-check">
+          <div class="step-head">
+            <h3 class="heading-sm">Anomalous LaunchAgent persistence</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Check for new macOS persistence mechanisms that maintain tunnel connections outside of active sessions.</p>          <div class="code"><div class="code-head"><span>reads hb_scheduled_job</span><span>sql</span></div><pre><code>SELECT device_hostname, job_name, job_definition_path, job_cmd_line, time FROM hb_scheduled_job WHERE job_kind = &#39;launchd&#39; AND (LOWER(job_definition_path) LIKE &#39;%/launchagents/%&#39; OR LOWER(job_cmd_line) LIKE &#39;%cloudflared%&#39; OR LOWER(job_cmd_line) LIKE &#39;%ngrok%&#39; OR LOWER(job_cmd_line) LIKE &#39;%lhr.life%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> LaunchAgent plists pointing to tunnel binaries or shell wrappers. Legitimate developers rarely install these for temporary testing.</p>        </li>
+        <li class="card step" id="step-triage">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage agent-parented chains</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Weigh the correlation of ancestry, tunnel usage, and persistence to distinguish legitimate dev-ops from a remote intrusion.</p>        </li>
+        <li class="card step" id="step-route">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct high-confidence findings to containment and suspicious findings to human review.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate workstation</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Halt the potential reverse tunnel and prevent lateral movement or further exfiltration.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final human review to confirm developer intent and close the case.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Coding Agent Shell Execution<br><span class="mono dim">T1218</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>agent-parented-behavior</td></tr>            <tr><td>Credential Access and Harvesting<br><span class="mono dim">T1555.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>agent-parented-behavior</td></tr>            <tr><td>Reverse Tunnel C2<br><span class="mono dim">T1572</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>tunnel-prevalence, agent-parented-behavior</td></tr>            <tr><td>External Service Persistence<br><span class="mono dim">T1133</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>persistence-check</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs EDR process tree tracking with full path depth.</strong> If the parent process is missing or truncated, the critical link between the trusted agent and the malicious child is lost, potentially misclassifying the alert as a generic user activity. <span class="dim">It would answer Was the tunnel binary spawned directly by the agent or by an unrelated user shell?.</span> <span class="dim">Remediation: Audit EDR configuration to ensure parent command lines and full executable paths are captured for all process launch events.</span></li>          <li class="card"><strong>Needs hb_dns_activity or hb_http_activity with full URL.</strong> Tunnel brokers use randomized subdomains. If only the apex domain is logged, we cannot isolate the specific tunnel instance for cross-host correlation. <span class="dim">It would answer What was the specific subdomain for the lhr.life tunnel?.</span> <span class="dim">Remediation: Enable DNS query logging for all developer VLANs.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional: Hostnames to restrict the hunt to after the scoping step.</td></tr>            <tr><td><code>tunnel_domains</code></td><td class="mono dim">list[domain]</td><td class="mono">lhr.life, localhost.run, trycloudflare.com, api.trycloudflare.com, ngrok-free.app, ngrok.com</td><td>Common domains for free or ephemeral tunnel brokers.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A single rule on tunnel binaries (cloudflared, ngrok) would be too noisy
+  for developers. This hunt correlates the trusted agent ancestry with rare networking
+  behaviors and persistence, using a baseline to filter out fleet-wide dev-ops noise.
+blind_spots:
+- id: insufficient-process-ancestry-tracking
+  owner: Endpoint Security Team
+  question: Was the tunnel binary spawned directly by the agent or by an unrelated
+    user shell?
+  remediation: Audit EDR configuration to ensure parent command lines and full executable
+    paths are captured for all process launch events.
+  requires: EDR process tree tracking with full path depth
+  risk: If the parent process is missing or truncated, the critical link between the
+    trusted agent and the malicious child is lost, potentially misclassifying the
+    alert as a generic user activity.
+  stage: agent-parented-shell-execution
+- id: ephemeral-tunnel-subdomains
+  owner: Network Engineering
+  question: What was the specific subdomain for the lhr.life tunnel?
+  remediation: Enable DNS query logging for all developer VLANs.
+  requires: hb_dns_activity or hb_http_activity with full URL
+  risk: Tunnel brokers use randomized subdomains. If only the apex domain is logged,
+    we cannot isolate the specific tunnel instance for cross-host correlation.
+  stage: reverse-tunnel-establishment
+coverage:
+- stage: agent-parented-shell-execution
+  status: covered
+  steps:
+  - agent-parented-behavior
+- reason: Covers credential-harvesting command patterns like &#39;security dump-keychain&#39;
+    and plaintext POST parameters.
+  stage: credential-access-and-exfiltration
+  status: covered
+  steps:
+  - agent-parented-behavior
+- stage: reverse-tunnel-establishment
+  status: covered
+  steps:
+  - tunnel-prevalence
+  - agent-parented-behavior
+- stage: launchagent-persistence
+  status: covered
+  steps:
+  - persistence-check
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: AI coding agents operate with significant local trust and can automate
+    complex tasks. Their use as a proxy for remote management bypasses traditional
+    firewall controls and session monitoring, making a negative result over developer
+    machines an essential security verification.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is utilizing trusted, signed AI coding agents (Claude Code,
+  Cursor) to execute shells, establish reverse tunnels, and maintain persistence via
+  LaunchAgents on developer workstations.
+labels:
+- hunt
+- attack.t1133
+- attack.t1218
+- attack.t1555.001
+- attack.t1572
+- attack.t1566
+name: &#39;Living-off-the-Agent: Coding Tunnels and Persistence&#39;
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: &#39;Optional: Hostnames to restrict the hunt to after the scoping step.&#39;
+    type: list[host]
+  tunnel_domains:
+    default:
+    - lhr.life
+    - localhost.run
+    - trycloudflare.com
+    - api.trycloudflare.com
+    - ngrok-free.app
+    - ngrok.com
+    description: Common domains for free or ephemeral tunnel brokers.
+    from:
+      kind: article
+      observed: &#39;2026-08-07&#39;
+      ref: elastic-labs-coding-agent
+    type: list[domain]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.elastic.co/security-labs/threat-command/coding-agent-launchagent-tunnel-detection
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on workstations assigned to software engineering and data science
+  teams. AI agents like Claude Code are often installed in user-profile paths, so
+  behavioral queries use partial string matches to account for variable install locations.
+references:
+- name: &#39;Living off the coding agent: Two tales of tunnels and LaunchAgents&#39;
+  url: https://www.elastic.co/security-labs/threat-command/coding-agent-launchagent-tunnel-detection
+related:
+- hunt: mcp-server-anomalies
+  reason: Model Context Protocol (MCP) servers represent another vector for local
+    tool execution under agent control.
+  relation: sibling
+scenario:
+  stages:
+  - name: Coding Agent Shell Execution
+    observables:
+    - Claude Code
+    - Cursor
+    - zsh
+    - --allow-dangerously-skip-permissions
+    - /tmp/mcp_clean_landers.py
+    slug: agent-parented-shell-execution
+    tactic: execution
+    techniques:
+    - T1218
+  - name: Credential Access and Harvesting
+    observables:
+    - security dump-keychain
+    - curl -X POST
+    - user=
+    - password=
+    - /login
+    - lhr.life
+    - trycloudflare.com
+    slug: credential-access-and-exfiltration
+    tactic: credential-access
+    techniques:
+    - T1555.001
+  - name: Reverse Tunnel C2
+    observables:
+    - cloudflared
+    - ngrok
+    - localhost.run
+    - lhr.life
+    - trycloudflare.com
+    - api.trycloudflare.com
+    slug: reverse-tunnel-establishment
+    tactic: command-and-control
+    techniques:
+    - T1572
+  - name: External Service Persistence
+    observables:
+    - LaunchAgents
+    - .plist
+    - launchd
+    - ~/.zshenv
+    slug: launchagent-persistence
+    tactic: persistence
+    techniques:
+    - T1133
+  summary: This campaign involves the abuse of trusted coding agents like Claude Code
+    and Cursor to proxy malicious activities, including credential harvesting from
+    the macOS Keychain and the deployment of reverse tunnels using tools like cloudflared
+    and ngrok. The attackers establish persistent remote access to local services
+    via LaunchAgents, effectively bypassing firewall restrictions under the guise
+    of legitimate developer operations.
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    huntbase:
+      product: hb-endpoint-control
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Living-off-the-Agent: Coding Tunnels and Persistence
+
+This hunt targets &#39;vibe-coded&#39; intrusions where a developer workstation&#39;s trust in signed AI agents is abused to create remote access. By scoping to hosts running these agents and looking for correlated signals—agent-parented shells with dangerous flags, connections to free tunnel brokers (lhr.life, trycloudflare), and new LaunchAgent persistence—this hunt identifies sessions where an agent is used as a living-off-the-land execution proxy. It focuses on the behavioral overlap between legitimate developer automation and unauthorized remote management.
+
+## scoping-agent-hosts
+&lt;!-- Identify hosts with AI coding agents --&gt;
+Focus the hunt on machines where agents like Claude Code or Cursor are installed using partial match on package and vendor names.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hostnames belonging to developers using these agents. Silence
+  suggests the agents are installed as portable binaries outside the package manager.
+reads:
+- device_hostname
+- package_name
+- vendor_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%claude%&#39; OR LOWER(package_name) LIKE &#39;%cursor%&#39; OR LOWER(vendor_name) LIKE &#39;%anthropic%&#39; OR LOWER(vendor_name) LIKE &#39;%anysphere%&#39;)
+```
+
+## corroborate-activity
+&lt;!-- Parallel evidence collection --&gt;
+parallel:
+- → agent-parented-behavior
+- → tunnel-prevalence
+- → persistence-check
+join: → triage
+
+## agent-parented-behavior
+&lt;!-- Agent-parented shell and tunnel execution --&gt;
+Identify shells, credentialed curl commands, or tunnel binaries spawned by the AI agent using partial path matching.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Process trees where Claude or Cursor spawn shells with sensitive flags or
+  credential-heavy command lines. This is the primary signal for &#39;living-off-the-agent&#39;
+  proxying.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- parent_process_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE &#39;%claude%&#39; OR LOWER(parent_process_name) LIKE &#39;%cursor%&#39; OR LOWER(process_name) LIKE &#39;%claude%&#39; OR LOWER(process_name) LIKE &#39;%cursor%&#39;) AND (LOWER(process_name) LIKE &#39;%/zsh&#39; OR LOWER(process_name) LIKE &#39;%/bash&#39; OR LOWER(process_name) LIKE &#39;%/python%&#39; OR LOWER(process_name) LIKE &#39;%/curl&#39; OR LOWER(process_name) LIKE &#39;%/cloudflared&#39; OR LOWER(process_name) LIKE &#39;%/ngrok&#39; OR LOWER(process_cmd_line) LIKE &#39;%--allow-dangerously-skip-permissions%&#39; OR LOWER(process_cmd_line) LIKE &#39;%security dump-keychain%&#39; OR LOWER(process_cmd_line) LIKE &#39;%user=%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## tunnel-prevalence
+&lt;!-- Rare tunnel broker connections --&gt;
+Stack-count connections to known tunnel brokers, filtering for domain-based activity to identify rare usage.
+
+```sqlite target=network role=baseline params=(tunnel_domains=tunnel_domains, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A connection to a tunnel provider that stands out from fleet norms. Domain
+  matching avoids noise from raw IP background traffic.
+prevalence:
+  by: device_hostname
+  key:
+  - dst_endpoint_hostname
+  rare_below: 3
+reads:
+- dst_endpoint_hostname
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT dst_endpoint_hostname, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE dst_endpoint_hostname IS NOT NULL AND instr(&#39;,&#39; || &#39;{{tunnel_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(dst_endpoint_hostname) || &#39;,&#39;) &gt; 0 AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY dst_endpoint_hostname HAVING hosts &lt;= 3 ORDER BY hosts ASC
+```
+
+## persistence-check
+&lt;!-- Anomalous LaunchAgent persistence --&gt;
+Check for new macOS persistence mechanisms that maintain tunnel connections outside of active sessions.
+
+```sqlite target=endpoint role=enrichment params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: LaunchAgent plists pointing to tunnel binaries or shell wrappers. Legitimate
+  developers rarely install these for temporary testing.
+reads:
+- device_hostname
+- job_name
+- job_definition_path
+- job_cmd_line
+- time
+silence: not_evidence_of_absence
+source: hb_scheduled_job
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, job_name, job_definition_path, job_cmd_line, time FROM hb_scheduled_job WHERE job_kind = &#39;launchd&#39; AND (LOWER(job_definition_path) LIKE &#39;%/launchagents/%&#39; OR LOWER(job_cmd_line) LIKE &#39;%cloudflared%&#39; OR LOWER(job_cmd_line) LIKE &#39;%ngrok%&#39; OR LOWER(job_cmd_line) LIKE &#39;%lhr.life%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage
+&lt;!-- Triage agent-parented chains --&gt;
+```agent target=hunter
+cite: required
+context:
+- agent-parented-behavior
+- tunnel-prevalence
+- persistence-check
+max_iterations: 6
+objective: Determine if the observed behavior represents unauthorized remote access
+  via a coding agent. Specifically look for credentials POSTed to tunnel URLs combined
+  with persistent LaunchAgents.
+success_criteria: A per-host verdict citing specific process command lines and tunnel
+  domains.
+tools:
+- endpoint
+- network
+```
+
+## route
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: insufficient-process-ancestry-tracking)
+else: → analyst-review
+
+## isolate-host
+&lt;!-- Isolate workstation --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host, terminate the agent-parented tunnel processes, and collect the LaunchAgent plists for forensic analysis.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst review --&gt;
+```manual target=analyst
+Examine the cited command lines. Determine if the developer was self-testing a local app or if the agent session was manipulated. If malicious, investigate the credentials POSTed to the tunnel URL and check for lateral movement attempts.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=living-off-the-agent-tunnels-persistence" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PureCrypter evasion and Mallox ransomware execution · Huntbase Hunts</title>
+  <link rel="icon" href="../../static/logo-icon.svg">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder is executing the PureCrypter loader on a compromised SQL server, performing heavy environment checks and establishing user-profile persistence before deploying the Mallox ransomware payload.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/purecrypter-evasion-mallox-execution/">
+  <meta property="og:site_name" content="Huntbase Hunts">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="PureCrypter evasion and Mallox ransomware execution · Huntbase Hunts">
+  <meta property="og:description" content="An intruder is executing the PureCrypter loader on a compromised SQL server, performing heavy environment checks and establishing user-profile persistence before deploying the Mallox ransomware payload.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/purecrypter-evasion-mallox-execution/"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hunts" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+</head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hunts">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hunts</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Library</a>
+      <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a>
+      <a href="../../feed.xml">Feed</a>
+      <a class="btn btn-ghost" href="https://huntbase.io/request-access">Request access</a>
+    </nav>
+  </header>
+  <main><article class="hunt">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← Hunt library</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 2</span>      </div>
+      <h1 class="heading-xl">PureCrypter evasion and Mallox ransomware execution</h1>
+      <p class="hyp-lead">An intruder is executing the PureCrypter loader on a compromised SQL server, performing heavy environment checks and establishing user-profile persistence before deploying the Mallox ransomware payload.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/" rel="noopener">Sekoia</a></span>
+<span>2026-09-17</span>        <span>11 steps · 5 queries</span>
+<span class="mono">T1047 T1129 T1486 T1497.001 T1547.001 T1562.001</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=purecrypter-evasion-mallox-execution" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">11</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <p>Recent research from Sekoia.io titled "Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation" highlights a shift in how these affiliates maintain access and deploy payloads. While many detections focus on the final ransomware binary, this hunt targets the PureCrypter loader's behavioral chain. This loader is particularly noisy in its environment checks, making it an ideal candidate for behavioral hunting on compromised SQL servers.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins by scoping the environment to identify systems running Microsoft SQL Server. This focuses the telemetry gathering on high-value targets, though the parameters allow for a fleet-wide search if lateral movement is suspected beyond the initial entry point.</p>
+<p>Next, the hunt gathers evidence from four distinct surfaces simultaneously. It looks for process activity related to WMI queries for hardware identifiers (Win32_BIOS) and the specific list of sandbox-evasion usernames used by PureCrypter. This is often accompanied by network resets (ipconfig release/renew) used to complicate automated analysis.</p>
+<p>For persistence, we examine registry activity. The hunt specifically targets the Windows Run keys where the loader points to binaries residing in user-writable paths like AppData. This is a common pivot point because legitimate applications rarely use these paths for auto-start entries on a server.</p>
+<p>We also monitor script activity for Windows Defender tampering. The loader frequently uses PowerShell to add its own path or the payload path to the Defender exclusion list. Identifying these <code>Add-MpPreference</code> commands provides high-confidence evidence of an attempt to suppress endpoint security alerts.</p>
+<p>Finally, we stack-count rare executables running from the AppData directory. By filtering for binaries seen on only a few hosts, we can isolate the Mallox ransomware payload (e.g., Ydxhjxwf.exe) even if the filename has been rotated since the source article's publication.</p>
+<h3>What This Hunt Cannot See</h3>
+<p>There are two primary blind spots to consider. First, if the threat actor uses a non-PowerShell interpreter (like an obfuscated VBScript) to set Defender exclusions without equivalent script block logging, that specific step will be silent. Second, since PureCrypter often employs reflective loading to transition between stages in memory, the initial file-based execution may be the only visible process event before the final ransomware begins its encryption routine.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/mallox-mssql-exploitation-initial-delivery/index.html">Part 1: Mallox MS-SQL Exploitation and Initial Delivery</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 6 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder is executing the PureCrypter loader on a compromised SQL server, performing heavy environment checks and establishing user-profile persistence before deploying the Mallox ransomware payload.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Focus the hunt on hosts with Microsoft SQL Server installed, as they are the primary targets of this campaign.", "expected": "A list of hostnames likely hosting SQL Server. If empty, the hunt runs across the full estate.", "id": "scope-mssql-servers", "label": "Identify candidate SQL servers", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%sql%server%\u0027 OR LOWER(vendor_name) LIKE \u0027%microsoft%\u0027) AND asset_scope = \u0027endpoint\u0027", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Find process execution matching the loader\u0027s environment checks (WMI for BIOS/System) and the specific usernames it exits for.", "expected": "Processes querying hardware identifiers or matching a known sandbox username. Finding BIOS/System WMI queries paired with ipconfig resets is highly indicative.", "id": "purecrypter-evasion-checks", "label": "Anti-analysis behavior and WMI checks", "parents": [{"branch": null, "id": "scope-mssql-servers", "kind": null}], "query": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(process_cmd_line) LIKE \u0027%win32_bios%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%win32_computersystem%\u0027 OR instr(\u0027,\u0027 || \u0027{{malicious_usernames}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(user_name) || \u0027,\u0027) \u003e 0 OR LOWER(process_cmd_line) LIKE \u0027%ipconfig%renew%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%ipconfig%release%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify the registry entry established by the loader to ensure survival after reboots.", "expected": "A Run key pointing to a binary in a user-writable path. Normal applications usually install to Program Files.", "id": "run-key-persistence", "label": "Persistence in user Run key", "parents": [{"branch": null, "id": "scope-mssql-servers", "kind": null}], "query": "SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND LOWER(reg_target) LIKE \u0027%software\\microsoft\\windows\\currentversion\\run%\u0027 AND (LOWER(reg_value_data) LIKE \u0027%\\appdata\\local\\%\u0027 OR LOWER(reg_value_data) LIKE \u0027%\\appdata\\roaming\\%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_registry_activity", "type": "query"}, {"description": "Find the PowerShell commands used to suppress Defender alerts for the ransomware binary.", "expected": "Script blocks adding the loader or payload path to MpPreference exclusions.", "id": "defender-exclusion-tampering", "label": "Windows Defender exclusion activity", "parents": [{"branch": null, "id": "scope-mssql-servers", "kind": null}], "query": "SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(script_content) LIKE \u0027%mppreference%\u0027 AND LOWER(script_content) LIKE \u0027%-exclusion%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_script_activity", "type": "query"}, {"description": "Stack-count processes running from AppData to highlight the Mallox binary against fleet background noise.", "expected": "Binaries seen on only one or two hosts, specifically matching the reported Mallox filename or running from unusual AppData subdirectories.", "id": "rare-profile-binaries", "label": "Rare executables in user profile paths", "parents": [{"branch": null, "id": "scope-mssql-servers", "kind": null}], "query": "SELECT LOWER(process_path) as path, COUNT(DISTINCT device_hostname) as hosts, COUNT(*) as runs, MIN(time) as first_seen FROM hb_process_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (LOWER(process_name) = LOWER(\u0027{{mallox_filename}}\u0027) OR (LOWER(process_path) LIKE \u0027%\\appdata\\%\u0027 AND LOWER(process_path) LIKE \u0027%.exe\u0027)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY 1 HAVING hosts \u003c= 3 ORDER BY hosts ASC", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Analyze the correlation between anti-analysis behavior, persistence mechanisms, and rare binary execution.", "expected": "A per-host verdict of malicious, suspicious, or benign.", "id": "triage-agent", "label": "Triaging PureCrypter and Mallox presence", "parents": [{"branch": null, "id": "purecrypter-evasion-checks", "kind": "merge"}, {"branch": null, "id": "run-key-persistence", "kind": "merge"}, {"branch": null, "id": "defender-exclusion-tampering", "kind": "merge"}, {"branch": null, "id": "rare-profile-binaries", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Decide whether to isolate the host or move to analyst review.", "expected": null, "id": "routing-decision", "label": "Route based on verdict", "parents": [{"branch": null, "id": "triage-agent", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent further spread of ransomware by isolating the affected host.", "expected": null, "id": "isolate-host", "label": "Isolate host", "parents": [{"branch": "on_supports", "id": "routing-decision", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Conduct a manual review of the agent\u0027s findings to confirm the intrusion and tune future detections.", "expected": null, "id": "analyst-review", "label": "Analyst confirmation and tuning", "parents": [{"branch": "default", "id": "routing-decision", "kind": null}, {"branch": "on_unavailable", "id": "routing-decision", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Finalize the hunt when no malicious activity is identified.", "expected": null, "id": "close-out", "label": "Close out hunt", "parents": [{"branch": "on_refutes", "id": "routing-decision", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-mssql-servers">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify candidate SQL servers</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Focus the hunt on hosts with Microsoft SQL Server installed, as they are the primary targets of this campaign.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%sql%server%&#39; OR LOWER(vendor_name) LIKE &#39;%microsoft%&#39;) AND asset_scope = &#39;endpoint&#39;</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hostnames likely hosting SQL Server. If empty, the hunt runs across the full estate.</p>        </li>
+        <li class="card step" id="step-purecrypter-evasion-checks">
+          <div class="step-head">
+            <h3 class="heading-sm">Anti-analysis behavior and WMI checks</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Find process execution matching the loader&#39;s environment checks (WMI for BIOS/System) and the specific usernames it exits for.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_cmd_line) LIKE &#39;%win32_bios%&#39; OR LOWER(process_cmd_line) LIKE &#39;%win32_computersystem%&#39; OR instr(&#39;,&#39; || &#39;{{malicious_usernames}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(user_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_cmd_line) LIKE &#39;%ipconfig%renew%&#39; OR LOWER(process_cmd_line) LIKE &#39;%ipconfig%release%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Processes querying hardware identifiers or matching a known sandbox username. Finding BIOS/System WMI queries paired with ipconfig resets is highly indicative.</p>        </li>
+        <li class="card step" id="step-run-key-persistence">
+          <div class="step-head">
+            <h3 class="heading-sm">Persistence in user Run key</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify the registry entry established by the loader to ensure survival after reboots.</p>          <div class="code"><div class="code-head"><span>reads hb_registry_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND LOWER(reg_target) LIKE &#39;%software\microsoft\windows\currentversion\run%&#39; AND (LOWER(reg_value_data) LIKE &#39;%\appdata\local\%&#39; OR LOWER(reg_value_data) LIKE &#39;%\appdata\roaming\%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A Run key pointing to a binary in a user-writable path. Normal applications usually install to Program Files.</p>        </li>
+        <li class="card step" id="step-defender-exclusion-tampering">
+          <div class="step-head">
+            <h3 class="heading-sm">Windows Defender exclusion activity</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Find the PowerShell commands used to suppress Defender alerts for the ransomware binary.</p>          <div class="code"><div class="code-head"><span>reads hb_script_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(script_content) LIKE &#39;%mppreference%&#39; AND LOWER(script_content) LIKE &#39;%-exclusion%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Script blocks adding the loader or payload path to MpPreference exclusions.</p>        </li>
+        <li class="card step" id="step-rare-profile-binaries">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare executables in user profile paths</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count processes running from AppData to highlight the Mallox binary against fleet background noise.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT LOWER(process_path) as path, COUNT(DISTINCT device_hostname) as hosts, COUNT(*) as runs, MIN(time) as first_seen FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_name) = LOWER(&#39;{{mallox_filename}}&#39;) OR (LOWER(process_path) LIKE &#39;%\appdata\%&#39; AND LOWER(process_path) LIKE &#39;%.exe&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1 HAVING hosts &lt;= 3 ORDER BY hosts ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Binaries seen on only one or two hosts, specifically matching the reported Mallox filename or running from unusual AppData subdirectories.</p>        </li>
+        <li class="card step" id="step-triage-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Triaging PureCrypter and Mallox presence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Analyze the correlation between anti-analysis behavior, persistence mechanisms, and rare binary execution.</p>        </li>
+        <li class="card step" id="step-routing-decision">
+          <div class="step-head">
+            <h3 class="heading-sm">Route based on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Decide whether to isolate the host or move to analyst review.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent further spread of ransomware by isolating the affected host.</p>        </li>
+        <li class="card step" id="step-analyst-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst confirmation and tuning</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Conduct a manual review of the agent&#39;s findings to confirm the intrusion and tune future detections.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close out hunt</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Finalize the hunt when no malicious activity is identified.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>PureCrypter Anti-Analysis and Evasion<br><span class="mono dim">T1497.001 · T1562.001 · T1129</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>purecrypter-evasion-checks, defender-exclusion-tampering</td></tr>            <tr><td>Registry Run Key Persistence<br><span class="mono dim">T1547.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>run-key-persistence</td></tr>            <tr><td>Mallox Ransomware Execution<br><span class="mono dim">T1486</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-profile-binaries</td></tr>            <tr><td>MS-SQL Brute Force<br><span class="mono dim">T1110 · T1190</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation&#39; series.</td></tr>            <tr><td>MS-SQL Feature Exploitation<br><span class="mono dim">T1059.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation&#39; series.</td></tr>            <tr><td>PowerShell Downloader and WMIC Execution<br><span class="mono dim">T1059.001 · T1047</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_script_activity for non-PowerShell interpreters.</strong> PureCrypter commonly uses PowerShell, but if a variant uses a different interpreter without script block logging, the Defender exclusion step will be silent. <span class="dim">It would answer Was the exclusion or payload download performed via an obfuscated VBScript or JScript?.</span></li>          <li class="card"><strong>Needs hb_module_activity.</strong> Since reflective loading occurs in memory, file activity will not capture the transition. We rely on process monitoring of the initial loader and the prevalence of the resulting process. <span class="dim">It would answer Can we see the reflective loading of the stage 2 DLL or the final payload?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>malicious_usernames</code></td><td class="mono dim">list[string]</td><td class="mono">john, anna, xxxxxxxx</td><td>Usernames checked by PureCrypter as part of anti-analysis; finding these in activity may indicate an evasion attempt.</td></tr>            <tr><td><code>mallox_filename</code></td><td class="mono dim">string</td><td class="mono">Ydxhjxwf.exe</td><td>The specific ransomware filename observed in the report.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to scope the hunt (e.g., confirmed MSSQL servers).</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download>Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download>Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: &#34;While static rules might alert on &#39;Ydxhjxwf.exe&#39;, they are easily bypassed.\
+  \ This hunt looks for the loader&#39;s immutable logic\u2014WMI hardware queries, specific\
+  \ sandbox-evasion usernames, and stack-counted rare binaries in profile paths\u2014\
+  correlating three distinct surfaces into one high-fidelity verdict.&#34;
+blind_spots:
+- id: missing-script-telemetry
+  question: Was the exclusion or payload download performed via an obfuscated VBScript
+    or JScript?
+  requires: hb_script_activity for non-PowerShell interpreters
+  risk: PureCrypter commonly uses PowerShell, but if a variant uses a different interpreter
+    without script block logging, the Defender exclusion step will be silent.
+  stage: loader-evasion-and-anti-analysis
+- id: reflective-loading-blindspot
+  question: Can we see the reflective loading of the stage 2 DLL or the final payload?
+  requires: hb_module_activity
+  risk: Since reflective loading occurs in memory, file activity will not capture
+    the transition. We rely on process monitoring of the initial loader and the prevalence
+    of the resulting process.
+  stage: mallox-ransomware-execution
+coverage:
+- stage: loader-evasion-and-anti-analysis
+  status: covered
+  steps:
+  - purecrypter-evasion-checks
+  - defender-exclusion-tampering
+- stage: persistence-run-key
+  status: covered
+  steps:
+  - run-key-persistence
+- stage: mallox-ransomware-execution
+  status: covered
+  steps:
+  - rare-profile-binaries
+- reason: Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter
+    in MSSQL exploitation&#39; series.
+  stage: sql-brute-force-access
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter
+    in MSSQL exploitation&#39; series.
+  stage: sql-server-exploitation
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter
+    in MSSQL exploitation&#39; series.
+  stage: initial-payload-delivery
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Mallox ransomware affiliates target database infrastructure to maximize
+    leverage for extortion. Detecting the PureCrypter loader&#39;s heavy anti-analysis
+    logic and persistence allows intervention before the destructive encryption phase
+    begins.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder is executing the PureCrypter loader on a compromised SQL server,
+  performing heavy environment checks and establishing user-profile persistence before
+  deploying the Mallox ransomware payload.
+labels:
+- hunt
+- attack.t1497.001
+- attack.t1562.001
+- attack.t1129
+- attack.t1547.001
+- attack.t1486
+- attack.t1047
+name: PureCrypter evasion and Mallox ransomware execution
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  malicious_usernames:
+    default:
+    - john
+    - anna
+    - xxxxxxxx
+    description: Usernames checked by PureCrypter as part of anti-analysis; finding
+      these in activity may indicate an evasion attempt.
+    from:
+      kind: article
+      observed: &#39;2024-05-02&#39;
+      ref: https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/
+    type: list[string]
+  mallox_filename:
+    default: Ydxhjxwf.exe
+    description: The specific ransomware filename observed in the report.
+    from:
+      kind: article
+      observed: &#39;2024-05-02&#39;
+      ref: https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/
+    type: string
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to scope the hunt (e.g., confirmed MSSQL
+      servers).
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on high-value assets running SQL Server. The software inventory scoping
+  step narrows the hunt to these servers, but leaving the scope_hosts parameter empty
+  allows for a fleet-wide search if lateral movement is suspected.
+references:
+- name: Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation
+  url: https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/
+related:
+- hunt: mssql-bruteforce-and-exploitation
+  reason: This hunt picks up after the exploitation of the SQL server to deploy the
+    loader.
+  relation: follows
+- hunt: mallox-mssql-exploitation-initial-delivery
+  relation: follows
+scenario:
+  stages:
+  - name: MS-SQL Brute Force
+    observables:
+    - Brute-force attempts against &#39;sa&#39; account
+    - Source IP address in AS208091 (XHost Internet Solution)
+    - Approximately 320 authentication attempts per minute
+    - Targeting MS-SQL port (1433)
+    slug: sql-brute-force-access
+    tactic: initial-access
+    techniques:
+    - T1110
+    - T1190
+  - name: MS-SQL Feature Exploitation
+    observables:
+    - Enabling &#39;TRUSTWORTHY&#39; database parameter
+    - Enabling &#39;clr enabled&#39; parameter
+    - Creating assembly named &#39;shell&#39; (SqlShell DLL)
+    - Creating stored procedure &#39;cmd_exec&#39;
+    - Enabling &#39;xp_cmdshell&#39; configuration
+    - Enabling &#39;Ole Automation Procedures&#39;
+    - Use of &#39;sp_oacreate&#39; to create &#39;wscript.shell&#39; OLE object
+    - Application name &#39;vYMiFrYR&#39; in SQL connection logs
+    slug: sql-server-exploitation
+    tactic: execution
+    techniques:
+    - T1059.003
+  - name: PowerShell Downloader and WMIC Execution
+    observables:
+    - echo and redirect used to create PowerShell script
+    - PowerShell script saved to C:\ProgramData
+    - WMIC used to execute downloaded binary
+    - Downloading multimedia-themed files (e.g., .mp4, .wav, .pdf) containing encrypted
+      payloads
+    slug: initial-payload-delivery
+    tactic: execution
+    techniques:
+    - T1059.001
+    - T1047
+  - name: PureCrypter Anti-Analysis and Evasion
+    observables:
+    - WMI query &#39;select * from Win32_BIOS&#39; to check for VMWare, Virtual, AMI, or Xen
+    - WMI query &#39;select * from Win32_ComputerSystem&#39; to check for Microsoft or VMWare
+    - Process search for &#39;SbieDll.dll&#39;
+    - Monitor size check for 1440x900
+    - Username check for &#39;john&#39;, &#39;anna&#39;, or &#39;xxxxxxxx&#39;
+    - Execution of &#39;ipconfig /renew&#39; and &#39;ipconfig /release&#39; for network testing
+    - Patching &#39;EtwEventWrite&#39; and &#39;AmsiScanBuffer&#39; in memory
+    - Adding Windows Defender exclusions via &#39;MpPreference -Exclusion&#39;
+    slug: loader-evasion-and-anti-analysis
+    tactic: defense-evasion
+    techniques:
+    - T1497.001
+    - T1562.001
+    - T1129
+  - name: Registry Run Key Persistence
+    observables:
+    - Registry key addition in &#39;Software\Microsoft\Windows\CurrentVersion\Run\&#39;
+    slug: persistence-run-key
+    tactic: persistence
+    techniques:
+    - T1547.001
+  - name: Mallox Ransomware Execution
+    observables:
+    - Ransomware executable named &#39;Ydxhjxwf.exe&#39; in %appdata%
+    - Reflective code loading of stage 2 DLL
+    - Elevation of process privileges with &#39;SeDebugPrivilege&#39;
+    slug: mallox-ransomware-execution
+    tactic: impact
+    techniques:
+    - T1486
+  summary: An affiliate of Mallox ransomware targets internet-facing MS-SQL servers
+    using brute-force attacks against the &#39;sa&#39; account. Upon gaining access, the attacker
+    exploits SQL features such as CLR assemblies and xp_cmdshell to deliver PureCrypter,
+    a .NET loader that employs extensive anti-analysis and evasion techniques before
+    executing the final Mallox ransomware payload.
+series:
+  index: 2
+  slug: mallox-ransomware-affiliate-leverages-purecrypter-in-mssql-exploitation
+  title: Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# PureCrypter evasion and Mallox ransomware execution
+
+This hunt focuses on the behavioral indicators of the PureCrypter loader and the Mallox ransomware it drops. It identifies unique defense evasion techniques, such as WMI-based BIOS and manufacturer checks, screen size validation, and network resets. It then corroborates these with registry-based persistence in user profile Run keys and stack-counts rare binaries running from AppData. This multi-surface approach ensures visibility even if the final ransomware filenames rotate.
+
+## scope-mssql-servers
+&lt;!-- Identify candidate SQL servers --&gt;
+Focus the hunt on hosts with Microsoft SQL Server installed, as they are the primary targets of this campaign.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hostnames likely hosting SQL Server. If empty, the hunt runs across
+  the full estate.
+reads:
+- device_hostname
+- package_name
+- vendor_name
+- asset_scope
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%sql%server%&#39; OR LOWER(vendor_name) LIKE &#39;%microsoft%&#39;) AND asset_scope = &#39;endpoint&#39;
+```
+
+## parallel-telemetry-gathering
+&lt;!-- Gather multi-surface evidence --&gt;
+parallel:
+- → purecrypter-evasion-checks
+- → run-key-persistence
+- → defender-exclusion-tampering
+- → rare-profile-binaries
+join: → triage-agent
+
+## purecrypter-evasion-checks
+&lt;!-- Anti-analysis behavior and WMI checks --&gt;
+Find process execution matching the loader&#39;s environment checks (WMI for BIOS/System) and the specific usernames it exits for.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, malicious_usernames=malicious_usernames, lookback_days=lookback_days)
+~~~yaml
+expected: Processes querying hardware identifiers or matching a known sandbox username.
+  Finding BIOS/System WMI queries paired with ipconfig resets is highly indicative.
+reads:
+- device_hostname
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_cmd_line) LIKE &#39;%win32_bios%&#39; OR LOWER(process_cmd_line) LIKE &#39;%win32_computersystem%&#39; OR instr(&#39;,&#39; || &#39;{{malicious_usernames}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(user_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_cmd_line) LIKE &#39;%ipconfig%renew%&#39; OR LOWER(process_cmd_line) LIKE &#39;%ipconfig%release%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## run-key-persistence
+&lt;!-- Persistence in user Run key --&gt;
+Identify the registry entry established by the loader to ensure survival after reboots.
+
+```sqlite target=endpoint role=enrichment params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A Run key pointing to a binary in a user-writable path. Normal applications
+  usually install to Program Files.
+reads:
+- device_hostname
+- reg_target
+- reg_value_data
+- time
+silence: not_evidence_of_absence
+source: hb_registry_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND LOWER(reg_target) LIKE &#39;%software\microsoft\windows\currentversion\run%&#39; AND (LOWER(reg_value_data) LIKE &#39;%\appdata\local\%&#39; OR LOWER(reg_value_data) LIKE &#39;%\appdata\roaming\%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## defender-exclusion-tampering
+&lt;!-- Windows Defender exclusion activity --&gt;
+Find the PowerShell commands used to suppress Defender alerts for the ransomware binary.
+
+```sqlite target=endpoint role=enrichment params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Script blocks adding the loader or payload path to MpPreference exclusions.
+reads:
+- device_hostname
+- script_content
+- actor_user_name
+- time
+silence: not_evidence_of_absence
+source: hb_script_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(script_content) LIKE &#39;%mppreference%&#39; AND LOWER(script_content) LIKE &#39;%-exclusion%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-profile-binaries
+&lt;!-- Rare executables in user profile paths --&gt;
+Stack-count processes running from AppData to highlight the Mallox binary against fleet background noise.
+
+```sqlite target=endpoint role=baseline params=(scope_hosts=scope_hosts, mallox_filename=mallox_filename, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Binaries seen on only one or two hosts, specifically matching the reported
+  Mallox filename or running from unusual AppData subdirectories.
+prevalence:
+  by: device_hostname
+  key:
+  - process_path
+  rare_below: 3
+reads:
+- process_path
+- device_hostname
+- time
+- process_name
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-17&#39;
+~~~
+SELECT LOWER(process_path) as path, COUNT(DISTINCT device_hostname) as hosts, COUNT(*) as runs, MIN(time) as first_seen FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (LOWER(process_name) = LOWER(&#39;{{mallox_filename}}&#39;) OR (LOWER(process_path) LIKE &#39;%\appdata\%&#39; AND LOWER(process_path) LIKE &#39;%.exe&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY 1 HAVING hosts &lt;= 3 ORDER BY hosts ASC
+```
+
+## triage-agent
+&lt;!-- Triaging PureCrypter and Mallox presence --&gt;
+```agent target=hunter
+cite: required
+context:
+- purecrypter-evasion-checks
+- run-key-persistence
+- defender-exclusion-tampering
+- rare-profile-binaries
+max_iterations: 4
+objective: &#39;Determine if any host exhibits the PureCrypter behavior chain: environment
+  sensing followed by persistence and execution of a rare binary in AppData.&#39;
+success_criteria: A detailed verdict citing process paths, registry keys, and specific
+  WMI queries.
+tools:
+- endpoint
+```
+
+## routing-decision
+&lt;!-- Route based on verdict --&gt;
+if~: &#34;the triage verdict is malicious for at least one host and confirms ransomware execution indicators&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-review
+unavailable: → analyst-review (blind_spot: missing-script-telemetry)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately via EDR/Identity control. Collect the rare binary from the identified AppData path for forensic analysis.
+```
+→ analyst-review
+
+## analyst-review
+&lt;!-- Analyst confirmation and tuning --&gt;
+```manual target=analyst
+Verify the rare process activity and check for signs of volume shadow copy deletion or mass file encryption on the identified hosts.
+```
+→ end
+
+## close-out
+&lt;!-- Close out hunt --&gt;
+```manual target=analyst
+Log the hosts examined and confirm no PureCrypter/Mallox indicators were found. Retain the scoping results for the next monthly run.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://huntbase.io/request-access?hunt=purecrypter-evasion-mallox-execution" target="_top">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download>Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download>Definition (JSON)</a>
+    </div>
+  </section>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+  </footer>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>
