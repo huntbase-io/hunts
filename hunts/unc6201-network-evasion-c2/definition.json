@@ -1,0 +1,563 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Exploitation of zero-day vulnerabilities in edge appliances (Dell RecoverPoint) and vCenter by UNC6201 presents a critical risk of persistent, high-privileged access and stealthy network pivoting."
+      },
+      "name": "UNC6201 Network Evasion and C2",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1071",
+        "attack.t1090.003",
+        "attack.t1190"
+      ],
+      "series": {
+        "slug": "unc6201-exploiting-a-dell-recoverpoint-zero-day",
+        "index": 2,
+        "title": "UNC6201 exploiting a Dell RecoverPoint zero-day",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "unc6201-initial-access-webshells",
+          "reason": "Initial access via Tomcat Manager and SLAYSTYLE webshell persistence is handled in the companion hunt.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "dell-recoverpoint-intrusion-persistence",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single detection rule would struggle to distinguish legitimate iptables administration from SPA redirection. This hunt baselines DoH activity against the fleet and correlates it with specific, rare network redirection commands to identify an active pivot.",
+      "coverage": [
+        {
+          "stage": "stealthy-iptables-proxying",
+          "steps": [
+            "iptables-redirection-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-doh-communication",
+          "steps": [
+            "dns-over-https-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "vmware-infrastructure-pivoting",
+          "reason": "No virtual machine hardware audit source is available in the hb_ surfaces to detect Ghost NIC creation.",
+          "status": "not_visible",
+          "blind_spot": "no-esxi-hardware-telemetry"
+        },
+        {
+          "stage": "tomcat-manager-zero-day-exploit",
+          "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "webshell-war-persistence",
+          "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "boot-script-backdoor-persistence",
+          "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Tomcat Manager Zero-Day Exploitation",
+            "slug": "tomcat-manager-zero-day-exploit",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190",
+              "T1133"
+            ],
+            "observables": [
+              "CVE-2026-22769",
+              "HTTP PUT /manager/text/deploy?path=/",
+              "admin user authentication to Apache Tomcat Manager",
+              "/home/kos/tomcat9/tomcat-users.xml",
+              "/home/kos/auditlog/fapi_cl_audit_log.log"
+            ]
+          },
+          {
+            "name": "SLAYSTYLE Web Shell Deployment",
+            "slug": "webshell-war-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "Malicious WAR file upload to /var/lib/tomcat9",
+              "org.apache.catalina.startup.HostConfig.deployWAR",
+              "/var/cache/tomcat9/Catalina",
+              "java.io",
+              "Base64.getDecoder",
+              "Runtime.getRuntime().exec"
+            ]
+          },
+          {
+            "name": "Backdoor Persistence via Boot Script",
+            "slug": "boot-script-backdoor-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "Modification of /home/kos/kbox/src/installation/distribution/convert_hosts.sh",
+              "Execution via /etc/rc.local at boot",
+              "GRIMBOLT C# Native AOT binary packed with UPX",
+              "BRICKSTORM binary replacement"
+            ]
+          },
+          {
+            "name": "Stealthy Proxying via IPTables",
+            "slug": "stealthy-iptables-proxying",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "iptables -I INPUT -i eth0 -p tcp --dport 443 -m string --hex-string",
+              "iptables REDIRECT --to-ports 10443",
+              "Monitoring port 443 for Single Packet Authorization (SPA)",
+              "Systemd Journal command recovery"
+            ]
+          },
+          {
+            "name": "C2 via DNS-over-HTTPS",
+            "slug": "c2-doh-communication",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071"
+            ],
+            "observables": [
+              "DNS-over-HTTPS queries to Google, Cloudflare, and Amazon DNS services",
+              "C2 traffic associated with GRIMBOLT and BRICKSTORM"
+            ]
+          },
+          {
+            "name": "Lateral Movement via Ghost NICs",
+            "slug": "vmware-infrastructure-pivoting",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Creation of temporary network ports (Ghost NICs) on virtual machines",
+              "Pivoting from ESXi servers to internal or SaaS infrastructure"
+            ]
+          }
+        ],
+        "summary": "Suspected PRC-nexus actor UNC6201 exploited a zero-day (CVE-2026-22769) in Dell RecoverPoint for Virtual Machines using hardcoded Tomcat Manager credentials. They established persistent access via SLAYSTYLE web shells and backdoors, utilizing modified boot scripts and complex iptables rules for stealthy network proxying and Single Packet Authorization."
+      },
+      "severity": "critical",
+      "rationale": "The hunt should prioritize internet-facing Linux appliances and hosts identified in the software inventory as Dell RecoverPoint or vCenter.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using iptables REDIRECT rules for Single Packet Authorization and DNS-over-HTTPS for command-and-control to hide ingress traffic and outbound beacons on compromised appliances.",
+      "parameters": {
+        "doh_domains": {
+          "from": {
+            "ref": "unc6201-exploitation",
+            "kind": "article",
+            "observed": "2025-09-01"
+          },
+          "type": "list[domain]",
+          "default": [
+            "dns.google",
+            "cloudflare-dns.com",
+            "dns.google.com",
+            "dns.nextdns.io"
+          ],
+          "description": "Known DNS-over-HTTPS provider domains."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus on; leave empty to hunt across the estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day",
+          "name": "UNC6201 exploiting a Dell RecoverPoint zero-day"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-process-telemetry",
+          "risk": "If iptables manipulation is performed via a direct API call or kernel module rather than the binary, this hunt will not see it.",
+          "stage": "stealthy-iptables-proxying",
+          "question": "What iptables commands were executed by the web shell?",
+          "requires": "hb_process_activity with command-line logging on Linux"
+        },
+        {
+          "id": "no-esxi-hardware-telemetry",
+          "risk": "The creation of temporary virtual network interfaces is not visible in standard endpoint process or network connection surfaces.",
+          "stage": "vmware-infrastructure-pivoting",
+          "question": "Were Ghost NICs created on virtual machines?",
+          "requires": "vCenter/ESXi audit logs showing hardware configuration changes"
+        }
+      ]
+    },
+    "name": "UNC6201 Network Evasion and C2",
+    "description": "This hunt identifies stealthy network proxying and evasive command-and-control patterns associated with UNC6201 activity. The hunt first scopes for vulnerable Dell RecoverPoint appliances and then fans out to look for specific iptables manipulation used for traffic redirection (SPA) and attempts to resolve known DNS-over-HTTPS providers. An agent weighs these network-level indicators to identify hosts being used as stealthy pivots."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "unc6201-exploiting-a-dell-recoverpoint-zero-day",
+          "index": 2,
+          "title": "UNC6201 exploiting a Dell RecoverPoint zero-day",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "stealthy-iptables-proxying",
+            "steps": [
+              "iptables-redirection-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-doh-communication",
+            "steps": [
+              "dns-over-https-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "vmware-infrastructure-pivoting",
+            "reason": "No virtual machine hardware audit source is available in the hb_ surfaces to detect Ghost NIC creation.",
+            "status": "not_visible",
+            "blind_spot": "no-esxi-hardware-telemetry"
+          },
+          {
+            "stage": "tomcat-manager-zero-day-exploit",
+            "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "webshell-war-persistence",
+            "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "boot-script-backdoor-persistence",
+            "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using iptables REDIRECT rules for Single Packet Authorization and DNS-over-HTTPS for command-and-control to hide ingress traffic and outbound beacons on compromised appliances.",
+        "blind_spots": [
+          {
+            "id": "missing-process-telemetry",
+            "risk": "If iptables manipulation is performed via a direct API call or kernel module rather than the binary, this hunt will not see it.",
+            "stage": "stealthy-iptables-proxying",
+            "question": "What iptables commands were executed by the web shell?",
+            "requires": "hb_process_activity with command-line logging on Linux"
+          },
+          {
+            "id": "no-esxi-hardware-telemetry",
+            "risk": "The creation of temporary virtual network interfaces is not visible in standard endpoint process or network connection surfaces.",
+            "stage": "vmware-infrastructure-pivoting",
+            "question": "Were Ghost NICs created on virtual machines?",
+            "requires": "vCenter/ESXi audit logs showing hardware configuration changes"
+          }
+        ],
+        "scoping_notes": "The hunt should prioritize internet-facing Linux appliances and hosts identified in the software inventory as Dell RecoverPoint or vCenter.",
+        "beyond_detection": "A single detection rule would struggle to distinguish legitimate iptables administration from SPA redirection. This hunt baselines DoH activity against the fleet and correlates it with specific, rare network redirection commands to identify an active pivot."
+      }
+    },
+    {
+      "id": "scope-vulnerable-appliances",
+      "type": "query",
+      "label": "Scope potentially vulnerable Dell appliances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%recoverpoint%' OR LOWER(vendor_name) LIKE '%dell%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Identify Dell RecoverPoint for Virtual Machines software in the inventory to narrow the focus to high-value targets.",
+        "expected_signal": "A list of hostnames running Dell RecoverPoint software. Silence means no such software is managed or reported in inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope potentially vulnerable Dell appliances",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%recoverpoint%' OR LOWER(vendor_name) LIKE '%dell%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames running Dell RecoverPoint software. Silence means no such software is managed or reported in inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "iptables-redirection-commands",
+      "type": "query",
+      "label": "SPA and iptables redirection activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%iptables%' OR LOWER(process_cmd_line) LIKE '%iptables%') AND (LOWER(process_cmd_line) LIKE '%redirect%' OR LOWER(process_cmd_line) LIKE '%--hex-string%' OR LOWER(process_cmd_line) LIKE '%--u32%' OR LOWER(process_cmd_line) LIKE '%-m u32%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the use of iptables to establish Single Packet Authorization or port redirection patterns.",
+        "expected_signal": "A process execution row showing iptables used to redirect traffic or match strings. Silence proves no such commands were captured by process monitoring."
+      },
+      "parents": [
+        {
+          "id": "scope-vulnerable-appliances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "SPA and iptables redirection activity",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%iptables%' OR LOWER(process_cmd_line) LIKE '%iptables%') AND (LOWER(process_cmd_line) LIKE '%redirect%' OR LOWER(process_cmd_line) LIKE '%--hex-string%' OR LOWER(process_cmd_line) LIKE '%--u32%' OR LOWER(process_cmd_line) LIKE '%-m u32%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "A process execution row showing iptables used to redirect traffic or match strings. Silence proves no such commands were captured by process monitoring.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "dns-over-https-activity",
+      "type": "query",
+      "label": "DNS-over-HTTPS resolution patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) as lookup_count, MIN(time) as first_seen FROM hb_dns_activity WHERE instr(',' || '{{doh_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Identify hosts resolving common DoH providers which may indicate encrypted C2 traffic.",
+        "expected_signal": "Lookup events for DoH domains. Rare lookups from appliances are suspicious; frequent lookups from browsers are baseline."
+      },
+      "parents": [
+        {
+          "id": "scope-vulnerable-appliances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "DNS-over-HTTPS resolution patterns",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) as lookup_count, MIN(time) as first_seen FROM hb_dns_activity WHERE instr(',' || '{{doh_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Lookup events for DoH domains. Rare lookups from appliances are suspicious; frequent lookups from browsers are baseline.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-network-evasion",
+      "type": "analytic",
+      "label": "Evaluate network evasion evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "scope-vulnerable-appliances",
+          "iptables-redirection-commands",
+          "dns-over-https-activity"
+        ],
+        "objective": "Determine if any host exhibits both iptables redirection commands and rare DoH resolution activity, suggesting a persistent pivot.",
+        "description": "Review findings from iptables and DNS activity to determine if an appliance is likely being used as a C2 pivot.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the network activity matches UNC6201 tradecraft.",
+        "success_criteria": "Verdicts for each examined host citing the specific iptables command or DNS query. You must explicitly filter the findings from iptables-redirection-commands and dns-over-https-activity to focus only on the hosts identified in scope-vulnerable-appliances."
+      },
+      "parents": [
+        {
+          "id": "iptables-redirection-commands",
+          "kind": "merge"
+        },
+        {
+          "id": "dns-over-https-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decide-on-isolation",
+      "type": "checkpoint",
+      "label": "Determine response action",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-network-evasion verdict is malicious for at least one host",
+        "condition": "the triage-network-evasion verdict is malicious for at least one host",
+        "blind_spot": "missing-process-telemetry",
+        "confidence": "high",
+        "description": "Route the hunt to isolation if the agent finds malicious network evasion patterns.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-network-evasion"
+        }
+      ]
+    },
+    {
+      "id": "isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further lateral movement or C2 by isolating the suspected pivot host.",
+        "instructions": "Isolate the host identified as malicious and verify that the iptables rules are preserved for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decide-on-isolation",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-triage-review",
+      "type": "task",
+      "label": "Review triage findings",
+      "config": {
+        "assignee": "analyst",
+        "description": "An analyst reviews the evidence of network evasion to confirm the threat and check for additional pivots.",
+        "instructions": "Verify the cited iptables commands. If malicious, perform a full disk image analysis focusing on the /var/log/tomcat9 and /home/kos directories."
+      },
+      "parents": [
+        {
+          "id": "decide-on-isolation",
+          "branch": "default"
+        },
+        {
+          "id": "decide-on-isolation",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "decide-on-isolation",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out-hunt",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and update detection rules.",
+        "instructions": "Record whether the iptables rules were legitimate or malicious. If malicious, ensure the host is remediated by applying the Dell RecoverPoint hotfix."
+      },
+      "parents": [
+        {
+          "id": "analyst-triage-review"
+        }
+      ]
+    }
+  ]
+}
