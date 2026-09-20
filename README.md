@@ -1,9 +1,14 @@
-# Huntbase Hunts
+# Huntbase Hunt Hub
 
 Threat hunts drafted from current public threat research, reviewed by a person,
 and published as open [hunt.md](https://github.com/huntbase-io/hunt-md) files.
 
-**Browse them at [hub.huntbase.io](https://hub.huntbase.io).**
+**Browse them at [hub.huntbase.io](https://hub.huntbase.io)**, the Huntbase Hunt Hub.
+
+- **Run a hunt**: [sign up to Huntbase, free](https://app.huntbase.io/auth/sign-up?utm_source=hub&utm_medium=referral&utm_campaign=signup&utm_content=github-readme)
+  and run any hunt against your own connections.
+- **Get new hunts by email**: [subscribe to the weekly hunts](https://news.hub.huntbase.io/subscription/form).
+- **Follow along**: the [Atom feed](https://hub.huntbase.io/feed.xml).
 
 Each hunt turns one piece of research into something you can run: a
 hypothesis, the queries that test it, what a hit looks like, and what the hunt
@@ -38,10 +43,17 @@ the parameters, and check the queries against your own telemetry.
 
 ## Using a hunt
 
-- **In Huntbase**: open the hunt on the site and choose Run hunt.
+- **In Huntbase**: open the hunt on [hub.huntbase.io](https://hub.huntbase.io)
+  and choose Run hunt. Signup is open and free; there is no waiting list.
 - **Anywhere else**: download `hunt.md`. It is a plain Markdown file with a
   YAML header; the queries are SQL over normalized telemetry tables, with the
   columns each one reads listed beside it.
+
+## More
+
+- [Huntbase](https://www.huntbase.io), the platform these hunts run in
+- [Documentation](https://docs.huntbase.io)
+- [The hunt.md format](https://github.com/huntbase-io/hunt-md)
 
 ## Found a problem?
 
