@@ -173,8 +173,6 @@ targets:
     role: analyst
   endpoint:
     category: endpoint
-    huntbase:
-      product: hb-endpoint-control
     name: Endpoint telemetry (hb_ surfaces)
     telemetry:
     - endpoint
