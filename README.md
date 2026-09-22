@@ -1,9 +1,9 @@
-# Huntbase Hunt Hub
+# Huntbase Hub
 
 Threat hunts drafted from current public threat research, reviewed by a person,
 and published as open [hunt.md](https://github.com/huntbase-io/hunt-md) files.
 
-**Browse them at [hub.huntbase.io](https://hub.huntbase.io)**, the Huntbase Hunt Hub.
+**Browse them at [hub.huntbase.io](https://hub.huntbase.io)**, the Huntbase Hub.
 
 - **Run a hunt**: [sign up to Huntbase, free](https://app.huntbase.io/auth/sign-up?utm_source=hub&utm_medium=referral&utm_campaign=signup&utm_content=github-readme)
   and run any hunt against your own connections.
