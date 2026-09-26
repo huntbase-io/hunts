@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Akira Ransomware Deployment and Credential Access · Huntbase Hub</title>
+  <link rel="icon" href="../../static/logo-icon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="../../favicon.ico" sizes="any">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder has escalated privileges through NTDS dumping and database credential harvesting, and is now exfiltrating data before deploying Akira ransomware.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/akira-ransomware-credential-access/">
+  <meta property="og:site_name" content="Huntbase Hub">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Akira Ransomware Deployment and Credential Access · Huntbase Hub">
+  <meta property="og:description" content="An intruder has escalated privileges through NTDS dumping and database credential harvesting, and is now exfiltrating data before deploying Akira ransomware.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/akira-ransomware-credential-access/">
+  <meta property="og:image" content="https://hub.huntbase.io/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Huntbase Hub: threat hunts from this week's research">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Akira Ransomware Deployment and Credential Access · Huntbase Hub">
+  <meta name="twitter:description" content="An intruder has escalated privileges through NTDS dumping and database credential harvesting, and is now exfiltrating data before deploying Akira ransomware.">
+  <meta name="twitter:image" content="https://hub.huntbase.io/static/og.png"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hub" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+<script defer src="../../static/analytics.js" data-key="phc_NaC68cbX13YbvdvqE5AC1bwHivYSRhcZc6upjVubI8M" data-host="https://eu.i.posthog.com"></script></head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hub">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hub</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Hunts</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="../../feed.xml">Feed</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=nav" rel="noopener" data-track="signup" data-placement="nav">Sign up</a>
+      <a class="btn btn-brand" href="#subscribe" data-track="subscribe-jump" data-placement="nav">Get updates</a>
+    </nav>
+  </header>
+  <main><article class="hunt" data-slug="akira-ransomware-credential-access">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← All hunts</a>
+        <span class="badge sev critical">critical</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 3 of 3</span>      </div>
+      <h1 class="heading-xl">Akira Ransomware Deployment and Credential Access</h1>
+      <p class="hyp-lead">An intruder has escalated privileges through NTDS dumping and database credential harvesting, and is now exfiltrating data before deploying Akira ransomware.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/" rel="noopener">The DFIR Report</a></span>
+<span>2026-09-20</span>        <span>12 steps · 5 queries</span>
+<span class="mono">T1003.001 T1003.003 T1048.003 T1486 T1555</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=akira-ransomware-credential-access&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=akira-ransomware-credential-access" target="_top" rel="noopener" data-track="run" data-placement="header">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download data-placement="header">Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">12</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why Now</h3>
+<p>The DFIR Report recently published "From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira" (https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/), detailing a rapid attack chain that escalates from a simple search to full-fleet encryption. While initial access and persistence via Bumblebee are critical early indicators, the actual destruction occurs during the final stages of credential harvesting and data exfiltration. This hunt focuses on those late-stage maneuvers where an adversary prepares to monetize their access, providing a high-fidelity window for intervention before the final locker executes.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt starts by querying the software inventory surface to find Domain Controllers and systems running Veeam, PostgreSQL, or SQL. These hosts represent the primary targets for an adversary seeking to capture the keys to the kingdom or disable recovery options. Identifying these high-value assets early allows the hunt to scope subsequent queries to the most relevant systems in the environment.</p>
+<p>The analyst then looks for specific signs of credential extraction across the fleet. One query checks for the abuse of the wbadmin.exe backup utility, specifically looking for command lines targeting the ntds.dit file on Domain Controllers. Simultaneously, another query searches for rare process activity involving LSASS memory dumps via comsvcs.dll or commands that access database credentials. An automated triage agent evaluates these results to confirm if a host has been compromised for credential theft.</p>
+<p>The hunt then pivots to network and process activity to identify the actual impact of the intrusion. It checks for outbound network connections to known exfiltration IP addresses and proxy tunnels. It also searches for the Akira ransomware payloads themselves, identified by specific file hashes or common names like locker.exe and win.exe. This phase focuses on finding the movement of data and the presence of the encryption engine.</p>
+<p>In the final phase, an assessment agent correlates the early-stage credential access with the late-stage network and process activity. This synthesis provides a clear timeline of the breach, helping the analyst distinguish between isolated suspicious events and a coordinated ransomware campaign. This logic confirms the full intrusion chain, allowing the analyst to trigger containment protocols for affected hosts.</p>
+<h3>Blind Spots</h3>
+<p>This hunt relies heavily on endpoint telemetry from a managed agent. It cannot see encryption activity or credential theft occurring on unmanaged servers or legacy systems that lack coverage. Additionally, while the hunt identifies the commands used to dump LSASS or export the NTDS database, it cannot confirm the success of these operations without seeing the resulting dump files or observing subsequent lateral movement using those stolen credentials.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/bumblebee-seo-poisoning-sideloading/index.html">Part 1: Bumblebee SEO Poisoning and DLL Sideloading</a></li><li><a href="../../hunts/bumblebee-recon-privileged-persistence/index.html">Part 2: Bumblebee Reconnaissance and Privileged Persistence</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 11 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">2</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder has escalated privileges through NTDS dumping and database credential harvesting, and is now exfiltrating data before deploying Akira ransomware.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Locate Domain Controllers and systems running backup or database software likely to be targeted for credentials.", "expected": "A list of servers that represent high-value targets for an adversary. Silence indicates these software packages are not installed via a tracked manager.", "id": "identify-high-value-assets", "label": "Identify High-Value Assets", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, package_name, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%veeam%\u0027 OR LOWER(package_name) LIKE \u0027%postgres%\u0027 OR LOWER(package_name) LIKE \u0027%sql%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Detect use of the wbadmin backup utility to export the Active Directory database.", "expected": "A wbadmin process with a command line including ntds.dit. This is a high-confidence signal for domain controller compromise.", "id": "wbadmin-ntds-extraction", "label": "wbadmin NTDS Extraction", "parents": [{"branch": null, "id": "identify-high-value-assets", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(process_name) LIKE \u0027%wbadmin.exe\u0027 AND LOWER(process_cmd_line) LIKE \u0027%ntds.dit%\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Find rare commands targeting LSASS memory or Veeam credentials across the fleet.", "expected": "Command lines that appear on very few hosts. Fleet-wide normal activity is excluded by the count threshold.", "id": "rare-credential-theft-commands", "label": "Rare Credential Theft Commands", "parents": [{"branch": null, "id": "identify-high-value-assets", "kind": null}], "query": "SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE \u0027%comsvcs.dll%\u0027 OR (LOWER(process_name) LIKE \u0027%psql.exe\u0027 AND LOWER(process_cmd_line) LIKE \u0027%credentials%\u0027)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY process_cmd_line HAVING host_count \u003c= 2", "role": "baseline", "source": "hb_process_activity", "type": "query"}, {"description": "Assess whether observed commands indicate successful credential extraction precursors.", "expected": "Verdicts identifying specific hosts compromised during credential harvesting.", "id": "early-credential-agent", "label": "Early Credential Triage", "parents": [{"branch": null, "id": "wbadmin-ntds-extraction", "kind": "merge"}, {"branch": null, "id": "rare-credential-theft-commands", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Detect network connections to known exfiltration servers or proxy tunnels.", "expected": "Outbound connections to specified IPs. High traffic bytes from FileZilla or SSH processes are indicators of exfiltration.", "id": "exfiltration-connections", "label": "Exfiltration Connections", "parents": [{"branch": null, "id": "early-credential-agent", "kind": null}], "query": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, traffic_bytes, time FROM hb_network_connection WHERE instr(\u0027,\u0027 || \u0027{{exfil_ips}}\u0027 || \u0027,\u0027, \u0027,\u0027 || dst_endpoint_ip || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "enrichment", "source": "hb_network_connection", "type": "query"}, {"description": "Identify the execution of Akira ransomware payloads by file name or reported hash.", "expected": "A process match for Akira. Any result is an immediate indication of system encryption.", "id": "ransomware-payload-execution", "label": "Ransomware Payload Execution", "parents": [{"branch": null, "id": "early-credential-agent", "kind": null}], "query": "SELECT device_hostname, process_name, process_hash_sha256, process_cmd_line, time FROM hb_process_activity WHERE (instr(\u0027,\u0027 || \u0027{{akira_hashes}}\u0027 || \u0027,\u0027, \u0027,\u0027 || process_hash_sha256 || \u0027,\u0027) \u003e 0 OR LOWER(process_name) LIKE \u0027%locker.exe\u0027 OR LOWER(process_name) LIKE \u0027%win.exe\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "triage", "source": "hb_process_activity", "type": "query"}, {"description": "Synthesize early credential access with late-stage exfiltration and impact.", "expected": "A final verdict confirming the presence of an Akira ransomware intrusion.", "id": "final-intrusion-agent", "label": "Final Intrusion Assessment", "parents": [{"branch": null, "id": "exfiltration-connections", "kind": "merge"}, {"branch": null, "id": "ransomware-payload-execution", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the hunt to immediate action if a ransomware incident is confirmed.", "expected": null, "id": "route-on-verdict", "label": "Route on Verdict", "parents": [{"branch": null, "id": "final-intrusion-agent", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Immediately isolate compromised systems to prevent further encryption or lateral movement.", "expected": null, "id": "contain-affected-hosts", "label": "Contain Affected Hosts", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Verify the automated findings and determine the extent of operational impact.", "expected": null, "id": "analyst-manual-review", "label": "Analyst Manual Review", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "contain-affected-hosts", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document results and promote successful queries to permanent detection rules.", "expected": null, "id": "close-out", "label": "Close Out", "parents": [{"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "analyst-manual-review", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-identify-high-value-assets">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify High-Value Assets</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Locate Domain Controllers and systems running backup or database software likely to be targeted for credentials.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT device_hostname, package_name, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%veeam%&#39; OR LOWER(package_name) LIKE &#39;%postgres%&#39; OR LOWER(package_name) LIKE &#39;%sql%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of servers that represent high-value targets for an adversary. Silence indicates these software packages are not installed via a tracked manager.</p>        </li>
+        <li class="card step" id="step-wbadmin-ntds-extraction">
+          <div class="step-head">
+            <h3 class="heading-sm">wbadmin NTDS Extraction</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Detect use of the wbadmin backup utility to export the Active Directory database.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(process_name) LIKE &#39;%wbadmin.exe&#39; AND LOWER(process_cmd_line) LIKE &#39;%ntds.dit%&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A wbadmin process with a command line including ntds.dit. This is a high-confidence signal for domain controller compromise.</p>        </li>
+        <li class="card step" id="step-rare-credential-theft-commands">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare Credential Theft Commands</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Find rare commands targeting LSASS memory or Veeam credentials across the fleet.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%comsvcs.dll%&#39; OR (LOWER(process_name) LIKE &#39;%psql.exe&#39; AND LOWER(process_cmd_line) LIKE &#39;%credentials%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_cmd_line HAVING host_count &lt;= 2</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Command lines that appear on very few hosts. Fleet-wide normal activity is excluded by the count threshold.</p>        </li>
+        <li class="card step" id="step-early-credential-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Early Credential Triage</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Assess whether observed commands indicate successful credential extraction precursors.</p>        </li>
+        <li class="card step" id="step-exfiltration-connections">
+          <div class="step-head">
+            <h3 class="heading-sm">Exfiltration Connections</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect network connections to known exfiltration servers or proxy tunnels.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, traffic_bytes, time FROM hb_network_connection WHERE instr(&#39;,&#39; || &#39;{{exfil_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_ip || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Outbound connections to specified IPs. High traffic bytes from FileZilla or SSH processes are indicators of exfiltration.</p>        </li>
+        <li class="card step" id="step-ransomware-payload-execution">
+          <div class="step-head">
+            <h3 class="heading-sm">Ransomware Payload Execution</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Identify the execution of Akira ransomware payloads by file name or reported hash.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_hash_sha256, process_cmd_line, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{akira_hashes}}&#39; || &#39;,&#39;, &#39;,&#39; || process_hash_sha256 || &#39;,&#39;) &gt; 0 OR LOWER(process_name) LIKE &#39;%locker.exe&#39; OR LOWER(process_name) LIKE &#39;%win.exe&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A process match for Akira. Any result is an immediate indication of system encryption.</p>        </li>
+        <li class="card step" id="step-final-intrusion-agent">
+          <div class="step-head">
+            <h3 class="heading-sm">Final Intrusion Assessment</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Synthesize early credential access with late-stage exfiltration and impact.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the hunt to immediate action if a ransomware incident is confirmed.</p>        </li>
+        <li class="card step" id="step-contain-affected-hosts">
+          <div class="step-head">
+            <h3 class="heading-sm">Contain Affected Hosts</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Immediately isolate compromised systems to prevent further encryption or lateral movement.</p>        </li>
+        <li class="card step" id="step-analyst-manual-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Manual Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Verify the automated findings and determine the extent of operational impact.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close Out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document results and promote successful queries to permanent detection rules.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>NTDS.dit Extraction<br><span class="mono dim">T1003.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>wbadmin-ntds-extraction</td></tr>            <tr><td>Database and Memory Credential Theft<br><span class="mono dim">T1003.001 · T1555</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-credential-theft-commands</td></tr>            <tr><td>Data Exfiltration via FileZilla<br><span class="mono dim">T1048.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>exfiltration-connections</td></tr>            <tr><td>Akira Ransomware Deployment<br><span class="mono dim">T1486</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>ransomware-payload-execution</td></tr>            <tr><td>Initial Access via SEO Poisoning<br><span class="mono dim">T1189</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Bumblebee Loading and Execution<br><span class="mono dim">T1574.002 · T1204.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Bumblebee and Adaptix C2<br><span class="mono dim">T1071.001 · T1568.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Host and Domain Reconnaissance<br><span class="mono dim">T1082 · T1087.002 · T1069.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Privileged Account Creation<br><span class="mono dim">T1136.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Lateral Movement via RDP<br><span class="mono dim">T1021.001</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Persistence and External Tunneling<br><span class="mono dim">T1133 · T1572</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs Endpoint telemetry from all managed and unmanaged assets.</strong> A ransomware payload executing on a server without an agent is invisible until system failure. <span class="dim">It would answer Are unmanaged servers undergoing encryption?.</span></li>          <li class="card"><strong>Needs hb_process_activity with error codes or OS signals.</strong> We see the command but cannot confirm if the attacker actually obtained credentials without seeing the resulting dump file. <span class="dim">It would answer Was the LSASS dump attempt successful or blocked by security software?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>akira_hashes</code></td><td class="mono dim">list[hash]</td><td class="mono">de730d969854c3697fd0e0803826b4222f3a14efe47e4c60ed749fff6edce19d, 18b8e6762afd29a09becae283083c74a19fc09db1f2c3412c42f1b0178bc122a</td><td>Hashes for Akira ransomware payloads (locker.exe, win.exe).</td></tr>            <tr><td><code>exfil_ips</code></td><td class="mono dim">list[ip]</td><td class="mono">185.174.100.203, 193.242.184.150, 83.229.17.60</td><td>Known exfiltration and proxy tunnel servers.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to scope the hunt.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download data-placement="source">Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download data-placement="source">Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple rule for wbadmin may miss variation; this hunt correlates software
+  inventory with rare commands across several surfaces and uses an agent to weigh
+  the entire chain of events.
+blind_spots:
+- id: missing-endpoint-telemetry
+  question: Are unmanaged servers undergoing encryption?
+  requires: Endpoint telemetry from all managed and unmanaged assets
+  risk: A ransomware payload executing on a server without an agent is invisible until
+    system failure.
+  stage: impact-akira-ransomware
+- id: lsass-protection-blindness
+  question: Was the LSASS dump attempt successful or blocked by security software?
+  requires: hb_process_activity with error codes or OS signals
+  risk: We see the command but cannot confirm if the attacker actually obtained credentials
+    without seeing the resulting dump file.
+  stage: credential-access-postgre-lsass
+coverage:
+- stage: credential-access-ntds-dump
+  status: covered
+  steps:
+  - wbadmin-ntds-extraction
+- stage: credential-access-postgre-lsass
+  status: covered
+  steps:
+  - rare-credential-theft-commands
+- stage: exfiltration-sftp
+  status: covered
+  steps:
+  - exfiltration-connections
+- stage: impact-akira-ransomware
+  status: covered
+  steps:
+  - ransomware-payload-execution
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: initial-access-seo-poisoning
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: execution-malware-loading
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: command-and-control-bumblebee-adaptix
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: discovery-host-and-domain
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: persistence-domain-account-creation
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: lateral-movement-rdp
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Flash Alert: From Bing Search to Ransomware:
+    Bumblebee and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: persistence-and-tunneling
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Akira ransomware results in catastrophic operational disruption.
+    Detecting the precursor credential theft and exfiltration is the last line of
+    defense before encryption.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder has escalated privileges through NTDS dumping and database
+  credential harvesting, and is now exfiltrating data before deploying Akira ransomware.
+labels:
+- hunt
+- attack.t1003.003
+- attack.t1003.001
+- attack.t1555
+- attack.t1048.003
+- attack.t1486
+name: Akira Ransomware Deployment and Credential Access
+parameters:
+  akira_hashes:
+    default:
+    - de730d969854c3697fd0e0803826b4222f3a14efe47e4c60ed749fff6edce19d
+    - 18b8e6762afd29a09becae283083c74a19fc09db1f2c3412c42f1b0178bc122a
+    description: Hashes for Akira ransomware payloads (locker.exe, win.exe).
+    from:
+      kind: article
+      observed: &#39;2025-08-05&#39;
+      ref: https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/
+    type: list[hash]
+  exfil_ips:
+    default:
+    - 185.174.100.203
+    - 193.242.184.150
+    - 83.229.17.60
+    description: Known exfiltration and proxy tunnel servers.
+    from:
+      kind: article
+      observed: &#39;2025-08-05&#39;
+      ref: https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/
+    type: list[ip]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to scope the hunt.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Prioritize Domain Controllers for the wbadmin check and backup servers
+  (Veeam/Postgres) for the database credential check.
+references:
+- name: &#39;From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39;
+  url: https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-2/
+related:
+- hunt: akira-initial-access-and-bumblebee
+  reason: This hunt picks up where initial access and Bumblebee deployment end.
+  relation: follows
+- hunt: bumblebee-recon-privileged-persistence
+  relation: follows
+scenario:
+  stages:
+  - name: Initial Access via SEO Poisoning
+    observables:
+    - opmanager.pro
+    - ManageEngine-OpManager.msi
+    - angryipscanner.org
+    - axiscamerastation.org
+    - ip-scanner.org
+    slug: initial-access-seo-poisoning
+    tactic: initial-access
+    techniques:
+    - T1189
+  - name: Bumblebee Loading and Execution
+    observables:
+    - msiexec.exe
+    - consent.exe
+    - msimg32.dll
+    - 186b26df63df3b7334043b47659cba4185c948629d857d47452cc1936f0aa5da
+    - a6df0b49a5ef9ffd6513bfe061fb60f6d2941a440038e2de8a7aeb1914945331
+    slug: execution-malware-loading
+    tactic: execution
+    techniques:
+    - T1574.002
+    - T1204.002
+  - name: Bumblebee and Adaptix C2
+    observables:
+    - 109.205.195.211
+    - 188.40.187.145
+    - 172.96.137.160
+    - ev2sirbd269o5j.org
+    - 2rxyt9urhq0bgj.org
+    - AdgNsy.exe
+    slug: command-and-control-bumblebee-adaptix
+    tactic: command-and-control
+    techniques:
+    - T1071.001
+    - T1568.002
+  - name: Host and Domain Reconnaissance
+    observables:
+    - systeminfo
+    - &#39;nltest /dclist:&#39;
+    - whoami /groups
+    - net group &#34;domain admins&#34; /dom
+    slug: discovery-host-and-domain
+    tactic: discovery
+    techniques:
+    - T1082
+    - T1087.002
+    - T1069.002
+  - name: Privileged Account Creation
+    observables:
+    - net user backup_DA
+    - net user backup_EA
+    - net group &#34;Enterprise Administrators&#34; backup_EA /add
+    slug: persistence-domain-account-creation
+    tactic: persistence
+    techniques:
+    - T1136.002
+  - name: Lateral Movement via RDP
+    observables:
+    - backup_EA
+    slug: lateral-movement-rdp
+    tactic: lateral-movement
+    techniques:
+    - T1021.001
+  - name: NTDS.dit Extraction
+    observables:
+    - wbadmin.exe start backup -backuptarget:\\127.0.0.1\C$\ProgramData\ -include:&#34;C:\windows\NTDS\ntds.dit&#34;
+    - ntds.dit
+    slug: credential-access-ntds-dump
+    tactic: credential-access
+    techniques:
+    - T1003.003
+  - name: Persistence and External Tunneling
+    observables:
+    - RustDesk
+    - ssh root@193.242.184.150 -R *:10400
+    - 83.229.17.60
+    slug: persistence-and-tunneling
+    tactic: persistence
+    techniques:
+    - T1133
+    - T1572
+  - name: Database and Memory Credential Theft
+    observables:
+    - psql.exe -U postgres -d VeeamBackup -c &#34;SELECT user_name,password FROM credentials&#34;
+    - &#39;rundll32.exe C:\windows\System32\comsvcs.dll, #+000024&#39;
+    slug: credential-access-postgre-lsass
+    tactic: credential-access
+    techniques:
+    - T1003.001
+    - T1555
+  - name: Data Exfiltration via FileZilla
+    observables:
+    - FileZilla
+    - 185.174.100.203
+    slug: exfiltration-sftp
+    tactic: exfiltration
+    techniques:
+    - T1048.003
+  - name: Akira Ransomware Deployment
+    observables:
+    - locker.exe
+    - win.exe
+    - de730d969854c3697fd0e0803826b4222f3a14efe47e4c60ed749fff6edce19d
+    slug: impact-akira-ransomware
+    tactic: impact
+    techniques:
+    - T1486
+  summary: Threat actors utilized SEO poisoning for &#39;ManageEngine OpManager&#39; to deliver
+    Bumblebee malware, which dropped AdaptixC2 for post-exploitation. The intrusion
+    involved domain account creation, NTDS.dit dumping via wbadmin, and lateral movement
+    to a backup server before exfiltrating data and deploying Akira ransomware.
+series:
+  index: 3
+  slug: flash-alert-from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira
+  title: &#39;Flash Alert: From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver
+    Akira&#39;
+  total: 3
+severity: critical
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Akira Ransomware Deployment and Credential Access
+
+This hunt focuses on the final and most destructive stages of the Akira ransomware lifecycle. It identifies high-value assets like Domain Controllers and backup servers, then searches for credential extraction from the NTDS.dit file and Veeam databases. The hunt then follows the intrusion into data exfiltration via SFTP and the multi-host deployment of the Akira ransomware payload. An agent correlates early-stage credential theft with late-stage encryption to confirm the full intrusion chain.
+
+## identify-high-value-assets
+&lt;!-- Identify High-Value Assets --&gt;
+Locate Domain Controllers and systems running backup or database software likely to be targeted for credentials.
+
+```sqlite target=endpoint role=scoping params=(scope_hosts=scope_hosts)
+~~~yaml
+expected: A list of servers that represent high-value targets for an adversary. Silence
+  indicates these software packages are not installed via a tracked manager.
+reads:
+- device_hostname
+- package_name
+- vendor_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT device_hostname, package_name, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%veeam%&#39; OR LOWER(package_name) LIKE &#39;%postgres%&#39; OR LOWER(package_name) LIKE &#39;%sql%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## parallel-credential-harvesting
+&lt;!-- Parallel Credential Harvesting --&gt;
+parallel:
+- → wbadmin-ntds-extraction
+- → rare-credential-theft-commands
+join: → early-credential-agent
+
+## wbadmin-ntds-extraction
+&lt;!-- wbadmin NTDS Extraction --&gt;
+Detect use of the wbadmin backup utility to export the Active Directory database.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: A wbadmin process with a command line including ntds.dit. This is a high-confidence
+  signal for domain controller compromise.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- user_name
+- time
+silence: evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(process_name) LIKE &#39;%wbadmin.exe&#39; AND LOWER(process_cmd_line) LIKE &#39;%ntds.dit%&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## rare-credential-theft-commands
+&lt;!-- Rare Credential Theft Commands --&gt;
+Find rare commands targeting LSASS memory or Veeam credentials across the fleet.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Command lines that appear on very few hosts. Fleet-wide normal activity
+  is excluded by the count threshold.
+prevalence:
+  by: device_hostname
+  key:
+  - process_cmd_line
+  rare_below: 3
+reads:
+- process_cmd_line
+- device_hostname
+- time
+- process_name
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE &#39;%comsvcs.dll%&#39; OR (LOWER(process_name) LIKE &#39;%psql.exe&#39; AND LOWER(process_cmd_line) LIKE &#39;%credentials%&#39;)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY process_cmd_line HAVING host_count &lt;= 2
+```
+
+## early-credential-agent
+&lt;!-- Early Credential Triage --&gt;
+```agent target=hunter
+cite: required
+context:
+- wbadmin-ntds-extraction
+- rare-credential-theft-commands
+max_iterations: 3
+objective: Determine if any host has successfully executed credential extraction commands
+  against NTDS or databases.
+success_criteria: A per-host verdict of malicious | suspicious | benign citing the
+  command and target file.
+tools:
+- endpoint
+- network
+```
+
+## parallel-follow-on-impact
+&lt;!-- Parallel Follow-on Impact --&gt;
+parallel:
+- → exfiltration-connections
+- → ransomware-payload-execution
+join: → final-intrusion-agent
+
+## exfiltration-connections
+&lt;!-- Exfiltration Connections --&gt;
+Detect network connections to known exfiltration servers or proxy tunnels.
+
+```sqlite target=network role=enrichment params=(exfil_ips=exfil_ips, lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Outbound connections to specified IPs. High traffic bytes from FileZilla
+  or SSH processes are indicators of exfiltration.
+reads:
+- device_hostname
+- process_name
+- dst_endpoint_ip
+- dst_endpoint_port
+- traffic_bytes
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, traffic_bytes, time FROM hb_network_connection WHERE instr(&#39;,&#39; || &#39;{{exfil_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_ip || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## ransomware-payload-execution
+&lt;!-- Ransomware Payload Execution --&gt;
+Identify the execution of Akira ransomware payloads by file name or reported hash.
+
+```sqlite target=endpoint role=triage params=(akira_hashes=akira_hashes, lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: A process match for Akira. Any result is an immediate indication of system
+  encryption.
+reads:
+- device_hostname
+- process_name
+- process_hash_sha256
+- process_cmd_line
+- time
+silence: evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT device_hostname, process_name, process_hash_sha256, process_cmd_line, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{akira_hashes}}&#39; || &#39;,&#39;, &#39;,&#39; || process_hash_sha256 || &#39;,&#39;) &gt; 0 OR LOWER(process_name) LIKE &#39;%locker.exe&#39; OR LOWER(process_name) LIKE &#39;%win.exe&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## final-intrusion-agent
+&lt;!-- Final Intrusion Assessment --&gt;
+```agent target=hunter
+cite: required
+context:
+- early-credential-agent
+- exfiltration-connections
+- ransomware-payload-execution
+max_iterations: 5
+objective: Determine if the combined evidence proves a complete ransomware intrusion
+  from credential theft to file encryption.
+success_criteria: A detailed timeline of the breach, listing compromised hosts and
+  the source of truth for each stage.
+tools:
+- endpoint
+- network
+```
+
+## route-on-verdict
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the final assessment confirms malicious activity on at least one host&#34; (confidence: high, judge=hunter)
+then: → contain-affected-hosts
+indeterminate: → analyst-manual-review
+unavailable: → analyst-manual-review (blind_spot: missing-endpoint-telemetry)
+else: → close-out
+
+## contain-affected-hosts
+&lt;!-- Contain Affected Hosts --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate every host identified as malicious or suspicious by the agent triage. Revoke all domain administrator credentials created or accessed during the lookback window.
+```
+→ analyst-manual-review
+
+## analyst-manual-review
+&lt;!-- Analyst Manual Review --&gt;
+```manual target=analyst
+Review the cited telemetry. Confirm the locker.exe execution and the wbadmin command syntax. Check for evidence of data staging in C:\ProgramData before exfiltration occurred. Initiate a restoration process from offline backups for encrypted systems.
+```
+→ close-out
+
+## close-out
+&lt;!-- Close Out --&gt;
+```manual target=analyst
+Record the hunt results. If the wbadmin query identified a verified intrusion, promote it to a standing detection rule. Document any unmanaged servers that were encrypted.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=akira-ransomware-credential-access&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=akira-ransomware-credential-access" target="_top" rel="noopener" data-track="run" data-placement="band">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download data-placement="band">Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download data-placement="band">Definition (JSON)</a>
+    </div>
+  </section>
+
+  <aside class="card subscribe">
+    <div>
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts like this one, every week: the research, the hypothesis and the queries.</p>
+    </div>
+    <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="hunt">
+  <label class="sr-only" for="sub-email-hunt">Email address</label>
+  <input id="sub-email-hunt" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+  </aside>
+
+  <aside class="card after-download chrome" id="after-download" hidden aria-live="polite">
+    <button type="button" class="close" aria-label="Dismiss">×</button>
+    <p class="eyebrow"><span>Downloaded</span></p>
+    <p>The file runs anywhere that reads hunt.md. In Huntbase it runs against your own connections.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=akira-ransomware-credential-access&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=akira-ransomware-credential-access-after-download" target="_top" rel="noopener" data-track="run" data-placement="after-download">Run this in Huntbase<span aria-hidden="true"> →</span></a>      <a href="#subscribe" data-track="subscribe-jump" data-placement="after-download">Get new hunts by email</a>
+    </div>
+  </aside>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+    <div class="foot-subscribe" id="subscribe">
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts from the week's research, in your inbox every Tuesday.</p>
+      <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="footer">
+  <label class="sr-only" for="sub-email-footer">Email address</label>
+  <input id="sub-email-footer" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+    </div>
+    <nav class="foot-links" aria-label="Huntbase">
+      <a href="https://www.huntbase.io" rel="noopener">Huntbase</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=footer" rel="noopener" data-track="signup" data-placement="footer">Sign up free</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md spec</a>
+      <a href="https://github.com/huntbase-io/hunts" rel="noopener">Hunts on GitHub</a>
+      <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener" data-track="subscribe" data-placement="footer-links">Newsletter</a>
+      <a href="https://www.huntbase.io/legal/privacy" rel="noopener">Privacy</a>
+      <a href="https://www.huntbase.io/terms" rel="noopener">Terms</a>
+    </nav>
+  </footer>
+  <script>
+  (() => {
+    // Inline newsletter forms. listmonk's public API sends no CORS headers, so
+    // the POST goes out in no-cors mode and the reply is opaque: the browser has
+    // already validated the address, and the real confirmation is the opt-in
+    // email, so success here means "sent", not "subscribed".
+    const api = "https://news.hub.huntbase.io/api/public/subscription", list = "72c40a64-91cd-4a64-8c41-14c9036a2b18", hosted = "https://news.hub.huntbase.io/subscription/form";
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    document.querySelectorAll('form[data-subscribe]').forEach((form) => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = form.querySelector('input[type=email]');
+        const button = form.querySelector('button');
+        const email = input.value.trim();
+        button.disabled = true;
+        document.dispatchEvent(new CustomEvent('hub:subscribe', { detail: { placement: form.dataset.placement || '' } }));
+        try {
+          await fetch(api, { method: 'POST', mode: 'no-cors', body: new URLSearchParams({ email, l: list }) });
+          form.innerHTML = `<p class="sub-done" role="status"><strong>Almost there.</strong> We've sent a confirmation link to ${esc(email)}. Click it and you're subscribed.</p>`;
+        } catch (err) {
+          button.disabled = false;
+          form.querySelector('.sub-note').innerHTML = `We couldn't reach the newsletter service. <a href="${esc(hosted)}" target="_blank" rel="noopener">Subscribe on the form instead →</a>`;
+        }
+      });
+    });
+    // "Get updates" scrolls to the nearest form and puts the cursor in it: the
+    // hero form on the home page (the list below it grows as you scroll, so an
+    // anchor to the footer lands short), otherwise the footer form.
+    document.querySelectorAll('a[href="#subscribe"]').forEach((a) => a.addEventListener('click', (e) => {
+      const form = document.querySelector('.hero form[data-subscribe]') || document.querySelector('#subscribe form[data-subscribe]');
+      const input = form && form.querySelector('input[type=email]');
+      if (!input) return;
+      e.preventDefault();
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => input.focus({ preventScroll: true }), 450);
+    }));
+  })();
+  </script>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+
+    // A download is not the end of the visit: say where the file can go next.
+    const prompt = document.getElementById('after-download');
+    document.querySelectorAll('a[download]').forEach((a) => a.addEventListener('click', () => { prompt.hidden = false; }));
+    prompt.querySelector('.close').addEventListener('click', () => { prompt.hidden = true; });
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

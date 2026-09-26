@@ -1,0 +1,659 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Fileless execution is the standard method for modern Linux rootkits and stealthy implants to bypass signature-based and file-scanning controls; a negative result over the fleet is a significant assurance of asset integrity."
+      },
+      "name": "Linux Fileless and In-Memory Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1620",
+        "attack.t1059.004",
+        "attack.t1059.006",
+        "attack.t1070.004",
+        "attack.t1014",
+        "attack.t1105"
+      ],
+      "related": [
+        {
+          "hunt": "linux-ebpf-rootkit-detection",
+          "reason": "This hunt focuses on the execution phase; rootkit detection focuses on the persistent hooks in the kernel.",
+          "relation": "alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule for memfd_create may trigger high noise in development environments. This hunt pivots across DNS (staging), prevalence (unlinked binaries), and module activity to identify a complete, high-confidence intrusion chain that a single rule cannot resolve.",
+      "coverage": [
+        {
+          "stage": "remote-payload-staging",
+          "steps": [
+            "dns-staging-leads"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "memfd-fileless-execution",
+          "steps": [
+            "memfd-behavioral-leads"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "interpreter-one-liners",
+          "steps": [
+            "memfd-behavioral-leads"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "deleted-binary-execution",
+          "steps": [
+            "deleted-binary-baseline"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "in-memory-kernel-module-load",
+          "steps": [
+            "kernel-module-leads"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Remote Payload Staging",
+            "slug": "remote-payload-staging",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1105",
+              "T1204.002"
+            ],
+            "observables": [
+              "curl",
+              "wget",
+              "git clone https://github.com/elastic/FENIX.git",
+              "pip install sympy-dev",
+              "fenix.git",
+              "sympy-dev (PyPI)"
+            ]
+          },
+          {
+            "name": "memfd_create Fileless Execution",
+            "slug": "memfd-fileless-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1620"
+            ],
+            "observables": [
+              "memfd_create",
+              "process.ext.memfd.name",
+              "/proc/self/fd/",
+              "MFD_CLOEXEC",
+              "MFD_ALLOW_SEALING",
+              "MFD_HUGETLB"
+            ]
+          },
+          {
+            "name": "Interpreter One-Liner Execution",
+            "slug": "interpreter-one-liners",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.004",
+              "T1059.006"
+            ],
+            "observables": [
+              "python -c",
+              "bash -c",
+              "perl -e",
+              "base64 -d",
+              "openssl",
+              "gzip -d",
+              "curl ... | bash",
+              "sh one-liners"
+            ]
+          },
+          {
+            "name": "Execution of Unlinked Binaries",
+            "slug": "deleted-binary-execution",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1070.004"
+            ],
+            "observables": [
+              "/proc/<pid>/exe",
+              "(deleted)",
+              "on_disk = 0",
+              "unlinked payload in /tmp"
+            ]
+          },
+          {
+            "name": "In-Memory Kernel Module Loading",
+            "slug": "in-memory-kernel-module-load",
+            "tactic": "persistence",
+            "techniques": [
+              "T1014",
+              "T1547.006"
+            ],
+            "observables": [
+              "init_module",
+              "finit_module",
+              "load_module event",
+              "memfd_create for module bytes"
+            ]
+          }
+        ],
+        "summary": "Adversaries utilize Linux fileless execution primitives such as memfd_create, interpreter one-liners, and unlinked binaries to execute malicious payloads while minimizing on-disk footprints. These techniques, often staged via remote downloads or malicious packages, enable in-memory execution of ELFs and kernel modules that complicate traditional file-based detection and inspection."
+      },
+      "severity": "high",
+      "rationale": "Start with public-facing Linux servers (DMZ) and development systems where tools like git and python are authorized. Focus the hunt on processes running with on_disk = 0 first, as these are the strongest indicators of evasion.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is executing malicious code on Linux hosts by staging payloads in memory-backed file descriptors, using interpreter one-liners, or running unlinked binaries to avoid on-disk detection.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2024-09-01"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Limit the hunt to specific Linux hostnames; leave empty for the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-designer",
+            "kind": "manual",
+            "observed": "2024-09-01"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "staging_domains": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2024-09-01"
+          },
+          "type": "list[domain]",
+          "default": [
+            "github.com",
+            "pypi.org",
+            "files.pythonhosted.org",
+            "raw.githubusercontent.com"
+          ],
+          "description": "Domains commonly used to stage loaders or download malicious PyPI packages."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/memfd-create-linux-fileless-execution",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/memfd-create-linux-fileless-execution",
+          "name": "Elastic Security Labs \u2014 Linux Detection Engineering \u2014 Fileless Execution"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "limited-kernel-telemetry",
+          "risk": "Rootkits loaded on older kernels or through non-standard interfaces may not trigger hb_module_activity.",
+          "stage": "in-memory-kernel-module-load",
+          "question": "whether the provider can observe finit_module calls on older kernels",
+          "requires": "eBPF-based syscall monitoring on Kernel 5.10+"
+        },
+        {
+          "id": "obfuscated-one-liners",
+          "risk": "A loader that pipes encrypted content directly into an interpreter bypasses the process_cmd_line search.",
+          "stage": "interpreter-one-liners",
+          "question": "what code ran if the command line was base64 encoded or read from stdin",
+          "requires": "Deep script block inspection (hb_script_activity)"
+        }
+      ]
+    },
+    "name": "Linux Fileless and In-Memory Execution",
+    "description": "This hunt follows a phased flow to detect the lifecycle of Linux fileless execution. It starts by scoping to Linux assets and identifying early staging leads such as DNS resolutions to public repositories and the use of memfd_create primitives. It then pivots to verify high-confidence indicators of successful execution, including processes running from deleted binaries (stack-counted for prevalence) and the loading of kernel modules directly from memory or ephemeral paths."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "remote-payload-staging",
+            "steps": [
+              "dns-staging-leads"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "memfd-fileless-execution",
+            "steps": [
+              "memfd-behavioral-leads"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "interpreter-one-liners",
+            "steps": [
+              "memfd-behavioral-leads"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "deleted-binary-execution",
+            "steps": [
+              "deleted-binary-baseline"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "in-memory-kernel-module-load",
+            "steps": [
+              "kernel-module-leads"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is executing malicious code on Linux hosts by staging payloads in memory-backed file descriptors, using interpreter one-liners, or running unlinked binaries to avoid on-disk detection.",
+        "blind_spots": [
+          {
+            "id": "limited-kernel-telemetry",
+            "risk": "Rootkits loaded on older kernels or through non-standard interfaces may not trigger hb_module_activity.",
+            "stage": "in-memory-kernel-module-load",
+            "question": "whether the provider can observe finit_module calls on older kernels",
+            "requires": "eBPF-based syscall monitoring on Kernel 5.10+"
+          },
+          {
+            "id": "obfuscated-one-liners",
+            "risk": "A loader that pipes encrypted content directly into an interpreter bypasses the process_cmd_line search.",
+            "stage": "interpreter-one-liners",
+            "question": "what code ran if the command line was base64 encoded or read from stdin",
+            "requires": "Deep script block inspection (hb_script_activity)"
+          }
+        ],
+        "scoping_notes": "Start with public-facing Linux servers (DMZ) and development systems where tools like git and python are authorized. Focus the hunt on processes running with on_disk = 0 first, as these are the strongest indicators of evasion.",
+        "beyond_detection": "A single rule for memfd_create may trigger high noise in development environments. This hunt pivots across DNS (staging), prevalence (unlinked binaries), and module activity to identify a complete, high-confidence intrusion chain that a single rule cannot resolve."
+      }
+    },
+    {
+      "id": "linux-host-inventory",
+      "type": "query",
+      "label": "Identify Linux host scope",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE package_type IN ('deb', 'rpm', 'python') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Scope the hunt to Linux hosts by identifying systems with Linux-specific package management activity.",
+        "expected_signal": "A list of Linux hosts to be used as a filter in subsequent steps."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Linux host scope",
+        "reads": [
+          "device_hostname",
+          "package_type"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE package_type IN ('deb', 'rpm', 'python') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of Linux hosts to be used as a filter in subsequent steps.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "dns-staging-leads",
+      "type": "query",
+      "label": "DNS staging to repositories",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE instr(',' || '{{staging_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Find hosts resolving common staging domains, which may precede a fileless download.",
+        "expected_signal": "DNS resolutions from tools like curl, git, or python to public code repositories."
+      },
+      "parents": [
+        {
+          "id": "linux-host-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS staging to repositories",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE instr(',' || '{{staging_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS resolutions from tools like curl, git, or python to public code repositories.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "memfd-behavioral-leads",
+      "type": "query",
+      "label": "Fileless execution behavioral patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE 'memfd:%' OR LOWER(process_cmd_line) LIKE '%memfd:%' OR LOWER(process_cmd_line) LIKE '%memfd_create%' OR LOWER(process_cmd_line) LIKE '%/proc/self/fd/%' OR LOWER(process_cmd_line) LIKE '%python -c%' OR LOWER(process_cmd_line) LIKE '%bash -c%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect command-line indicators and process name patterns of fileless execution, including memfd_create strings and interpreter one-liners.",
+        "expected_signal": "Processes named with memfd prefixes or command lines containing memory-backed execution primitives."
+      },
+      "parents": [
+        {
+          "id": "linux-host-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Fileless execution behavioral patterns",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE 'memfd:%' OR LOWER(process_cmd_line) LIKE '%memfd:%' OR LOWER(process_cmd_line) LIKE '%memfd_create%' OR LOWER(process_cmd_line) LIKE '%/proc/self/fd/%' OR LOWER(process_cmd_line) LIKE '%python -c%' OR LOWER(process_cmd_line) LIKE '%bash -c%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes named with memfd prefixes or command lines containing memory-backed execution primitives.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-stage-agent",
+      "type": "analytic",
+      "label": "Evaluate early-stage staging",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "dns-staging-leads",
+          "memfd-behavioral-leads"
+        ],
+        "objective": "Identify hosts where staging activity (DNS) aligns with fileless command-line primitives.",
+        "description": "Assess whether the observed staging and primitives indicate the start of a fileless intrusion.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict per host indicating if staging or execution primitives are present.",
+        "success_criteria": "A per-host verdict citing the specific staging domains and command-line arguments found."
+      },
+      "parents": [
+        {
+          "id": "dns-staging-leads",
+          "kind": "merge"
+        },
+        {
+          "id": "memfd-behavioral-leads",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "deleted-binary-baseline",
+      "type": "query",
+      "label": "Prevalence of unlinked binaries",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE on_disk = 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 3",
+        "surface": "hb_process_activity",
+        "description": "Identify rare processes running from unlinked files by grouping on process name when on_disk is false.",
+        "expected_signal": "Rare processes that were deleted after execution, grouped by their original identifier."
+      },
+      "parents": [
+        {
+          "id": "early-stage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Prevalence of unlinked binaries",
+        "reads": [
+          "process_name",
+          "device_hostname",
+          "time",
+          "on_disk"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE on_disk = 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare processes that were deleted after execution, grouped by their original identifier.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "kernel-module-leads",
+      "type": "query",
+      "label": "Anomalous kernel module loads",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, module_name, module_path, process_name, time FROM hb_module_activity WHERE (module_path LIKE '/proc/%' OR module_path LIKE '/dev/shm/%' OR module_path LIKE '/tmp/%' OR module_path IS NULL) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_module_activity",
+        "description": "Detect kernel modules loaded from memory descriptors, suspicious temporary paths, or with missing paths.",
+        "expected_signal": "Kernel module loads that do not originate from standard library paths or have null paths, suggesting rootkit activity."
+      },
+      "parents": [
+        {
+          "id": "early-stage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Anomalous kernel module loads",
+        "reads": [
+          "device_hostname",
+          "module_name",
+          "module_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_module_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, module_name, module_path, process_name, time FROM hb_module_activity WHERE (module_path LIKE '/proc/%' OR module_path LIKE '/dev/shm/%' OR module_path LIKE '/tmp/%' OR module_path IS NULL) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Kernel module loads that do not originate from standard library paths or have null paths, suggesting rootkit activity.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "follow-on-agent",
+      "type": "analytic",
+      "label": "Correlate full fileless chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "early-stage-agent",
+          "deleted-binary-baseline",
+          "kernel-module-leads"
+        ],
+        "objective": "Determine if hosts with early-stage leads successfully transitioned to evasive execution states.",
+        "description": "Combine the early-stage staging verdicts with the follow-on evidence of unlinked binaries and module loads.",
+        "max_iterations": 4,
+        "expected_signal": "A high-confidence verdict for a fileless intrusion chain.",
+        "success_criteria": "A final verdict identifying the compromised hosts and the specific fileless tradecraft observed across all stages."
+      },
+      "parents": [
+        {
+          "id": "deleted-binary-baseline",
+          "kind": "merge"
+        },
+        {
+          "id": "kernel-module-leads",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "intrusion-decision",
+      "type": "checkpoint",
+      "label": "Route on fileless intrusion",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the follow-on-agent identifies at least one host with staging activity and confirmed evasive execution (on_disk=0 or in-memory module load)",
+        "condition": "the follow-on-agent identifies at least one host with staging activity and confirmed evasive execution (on_disk=0 or in-memory module load)",
+        "blind_spot": "limited-kernel-telemetry",
+        "confidence": "high",
+        "description": "Decide the response based on the correlation of staging and execution evidence.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "follow-on-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat and prevent further lateral movement or command-and-control communication.",
+        "instructions": "Isolate the host and preserve the process state for memory analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "intrusion-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-review",
+      "type": "task",
+      "label": "Forensic memory and procfs review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Recover the fileless payload from the isolated host's memory or proc filesystem.",
+        "instructions": "Examine /proc/<pid>/fd/ for memory-backed file descriptors and /proc/<pid>/exe if on_disk was 0 to recover the executed binary."
+      },
+      "parents": [
+        {
+          "id": "intrusion-decision",
+          "branch": "default"
+        },
+        {
+          "id": "intrusion-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt summary and close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the findings and recommend detection engineering improvements.",
+        "instructions": "Record the examined hosts and findings. If the behavioral leads were high-fidelity, promote the memfd-behavioral-leads query to a permanent rule."
+      },
+      "parents": [
+        {
+          "id": "intrusion-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

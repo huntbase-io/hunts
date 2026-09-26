@@ -1,0 +1,572 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "RMM abuse is a common precursor to ransomware. Identifying these tools via network patterns provides a platform-agnostic detection method that works even when adversaries use signed, legitimate binaries to bypass endpoint security."
+      },
+      "name": "Abused RMM Infrastructure and Network Patterns",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1071.001",
+        "attack.t1071.004",
+        "attack.t1105"
+      ],
+      "series": {
+        "slug": "the-dual-use-dilemma-rethinking-detection-for-remote-access-tool-abuse",
+        "index": 2,
+        "title": "The dual-use dilemma: Rethinking detection for remote access tool abuse",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "abused-rmm-persistence-and-installation",
+          "reason": "This hunt focuses on the network layer; binary-level persistence and service installation are handled in a separate hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule on RMM domains fires on legitimate IT activity. This hunt uses a prevalence model to identify rare RMM usage and corroborates it with User-Agent metadata, requiring an analyst and agent to weigh the context of the host's role.",
+      "coverage": [
+        {
+          "stage": "rmm-network-c2",
+          "steps": [
+            "rmm-dns-leads",
+            "rmm-dns-prevalence",
+            "rmm-http-user-agents"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-rmm-lures",
+          "reason": "Belongs to the first hunt in this series (Abused RMM Staging and Lures).",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "loader-execution-and-staging",
+          "reason": "Belongs to the first hunt in this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "rmm-persistence-and-installation",
+          "reason": "Belongs to the first hunt in this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "credential-access-and-follow-on",
+          "reason": "Handled by identity-focused hunts targeting credential theft.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "RMM Phishing Lures",
+            "slug": "initial-access-rmm-lures",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566",
+              "T1190"
+            ],
+            "observables": [
+              "ssa.msi",
+              "Ecard9140.exe",
+              "party_invite.exe",
+              "Voicemailaudioext.exe",
+              "docmentfilecsm_jw98evavuqm5gb3.exe",
+              "IRS-Statement_Pr2ui4J9cfA6YEu.exe",
+              "invited.exe",
+              "MSTeam-installer.msi"
+            ]
+          },
+          {
+            "name": "RMM Loader Execution",
+            "slug": "loader-execution-and-staging",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "PowerShell downloading ZIP files",
+              "Batch files extracting ZIPs",
+              "SyncroLive.Agent.Runner.exe spawning msiexec.exe",
+              "client32.exe execution from C:\\Users\\Public\\"
+            ]
+          },
+          {
+            "name": "RMM Persistence and Installation",
+            "slug": "rmm-persistence-and-installation",
+            "tactic": "persistence",
+            "techniques": [
+              "T1574.002"
+            ],
+            "observables": [
+              "client32.ini",
+              "HostService.exe",
+              "remotepcservice.exe",
+              "RMMService.exe",
+              "remotepchost1.exe",
+              "C:\\ProgramData\\PDQ\\PDQConnectAgent\\token",
+              "syncro.installer.exe"
+            ]
+          },
+          {
+            "name": "RMM Network Communication",
+            "slug": "rmm-network-c2",
+            "tactic": "command-and-control",
+            "observables": [
+              "remotepc.com",
+              "remotedesktop.com",
+              "syncromsp.com",
+              "syncroapi.com",
+              "kabutoservices.com",
+              "atera.com",
+              "cmdm.comodo.com",
+              "User-Agent: NetSupport Manager/1.3",
+              "User-Agent: JWrapperDownloader",
+              "User-Agent: Servicing/1.0.29.18406",
+              "/access/JWrapper-Remote%20Access-version.txt"
+            ]
+          },
+          {
+            "name": "Credential Access and Follow-on Payloads",
+            "slug": "credential-access-and-follow-on",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555",
+              "T1486"
+            ],
+            "observables": [
+              "DICOMportable.zip",
+              "DicomPortable.exe",
+              "DeerStealer",
+              "HijackLoader",
+              "Sideloaded DLLs via ITarian"
+            ]
+          }
+        ],
+        "summary": "Adversaries abuse legitimate, signed RMM tools like ScreenConnect, Syncro, and NetSupport by deploying them through phishing lures to establish stealthy persistence. These tools are often chained\u2014one RMM serving as a loader for others\u2014to facilitate follow-on malicious activity including credential theft and ransomware."
+      },
+      "severity": "high",
+      "rationale": "Focus on workstations and servers first. Servers typically have more static RMM usage patterns, making deviations stand out. The lead query acts as a gate; use its results to populate scope_hosts for follow-on steps.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using unauthorized remote monitoring and management (RMM) tools for command and control, detectable via rare DNS lookups to RMM domains and specific User-Agent strings.",
+      "parameters": {
+        "rmm_domains": {
+          "from": {
+            "ref": "red-canary-rmm-abuse",
+            "kind": "article",
+            "observed": "2026-06-17"
+          },
+          "type": "list[domain]",
+          "default": [
+            "remotepc.com",
+            "remotedesktop.com",
+            "syncromsp.com",
+            "syncroapi.com",
+            "kabutoservices.com",
+            "atera.com",
+            "cmdm.comodo.com",
+            "atera-agent-heartbeat.servicebus.windows.net"
+          ],
+          "description": "Known RMM domains identified in recent abuse campaigns."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Filter follow-on steps to these hosts; usually populated from the initial leads step."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of historical telemetry to examine."
+        },
+        "rmm_user_agents": {
+          "from": {
+            "ref": "red-canary-rmm-abuse",
+            "kind": "article",
+            "observed": "2026-06-17"
+          },
+          "type": "list[string]",
+          "default": [
+            "NetSupport Manager/1.3",
+            "JWrapperDownloader",
+            "Servicing/1.0.29.18406"
+          ],
+          "description": "RMM-specific User-Agent strings identified in research."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://redcanary.com/blog/security-operations/rmm-detection/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://redcanary.com/blog/security-operations/rmm-detection/",
+          "name": "The dual-use dilemma: Rethinking detection for remote access tool abuse"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "doh-blind-spot",
+          "risk": "Malicious RMM clients using DoH will not appear in hb_dns_activity.",
+          "stage": "rmm-network-c2",
+          "question": "whether the RMM tool is using DNS-over-HTTPS (DoH) to bypass network-level DNS logging",
+          "requires": "cleartext DNS logging or endpoint-based DNS visibility"
+        },
+        {
+          "id": "no-http-telemetry",
+          "risk": "Without HTTP metadata, the hunt relies entirely on DNS prevalence, which may increase false positives.",
+          "stage": "rmm-network-c2",
+          "question": "whether the RMM tool is presenting a recognizable User-Agent",
+          "requires": "hb_http_activity from a proxy or endpoint agent"
+        }
+      ]
+    },
+    "name": "Abused RMM Infrastructure and Network Patterns",
+    "description": "Adversaries abuse legitimate RMM tools like Syncro, Atera, and NetSupport to maintain persistence and bypass binary-based detection. Because these tools are signed and trusted, their installation often goes unnoticed by signature-based tools. This hunt identifies unauthorized RMM usage by focusing on the network layer. It first scopes the environment for known RMM domains, then measures the fleet-wide prevalence of those domains to distinguish between sanctioned IT tools and malicious one-offs. It simultaneously inspects HTTP User-Agents for common RMM patterns on the suspicious hosts. An agent evaluates the combined evidence to determine if a host is compromised."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "the-dual-use-dilemma-rethinking-detection-for-remote-access-tool-abuse",
+          "index": 2,
+          "title": "The dual-use dilemma: Rethinking detection for remote access tool abuse",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "rmm-network-c2",
+            "steps": [
+              "rmm-dns-leads",
+              "rmm-dns-prevalence",
+              "rmm-http-user-agents"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-rmm-lures",
+            "reason": "Belongs to the first hunt in this series (Abused RMM Staging and Lures).",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "loader-execution-and-staging",
+            "reason": "Belongs to the first hunt in this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "rmm-persistence-and-installation",
+            "reason": "Belongs to the first hunt in this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "credential-access-and-follow-on",
+            "reason": "Handled by identity-focused hunts targeting credential theft.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using unauthorized remote monitoring and management (RMM) tools for command and control, detectable via rare DNS lookups to RMM domains and specific User-Agent strings.",
+        "blind_spots": [
+          {
+            "id": "doh-blind-spot",
+            "risk": "Malicious RMM clients using DoH will not appear in hb_dns_activity.",
+            "stage": "rmm-network-c2",
+            "question": "whether the RMM tool is using DNS-over-HTTPS (DoH) to bypass network-level DNS logging",
+            "requires": "cleartext DNS logging or endpoint-based DNS visibility"
+          },
+          {
+            "id": "no-http-telemetry",
+            "risk": "Without HTTP metadata, the hunt relies entirely on DNS prevalence, which may increase false positives.",
+            "stage": "rmm-network-c2",
+            "question": "whether the RMM tool is presenting a recognizable User-Agent",
+            "requires": "hb_http_activity from a proxy or endpoint agent"
+          }
+        ],
+        "scoping_notes": "Focus on workstations and servers first. Servers typically have more static RMM usage patterns, making deviations stand out. The lead query acts as a gate; use its results to populate scope_hosts for follow-on steps.",
+        "beyond_detection": "A simple detection rule on RMM domains fires on legitimate IT activity. This hunt uses a prevalence model to identify rare RMM usage and corroborates it with User-Agent metadata, requiring an analyst and agent to weigh the context of the host's role."
+      }
+    },
+    {
+      "id": "rmm-dns-leads",
+      "type": "query",
+      "label": "Initial RMM domain discovery",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) as lookup_count, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_dns_activity WHERE instr(',' || '{{rmm_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Identify any host in the estate making requests to known RMM infrastructure as a scoping lead.",
+        "expected_signal": "A list of hosts and the RMM domains they are resolving. This query acts as the gate for the hunt."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Initial RMM domain discovery",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) as lookup_count, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_dns_activity WHERE instr(',' || '{{rmm_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts and the RMM domains they are resolving. This query acts as the gate for the hunt.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rmm-dns-prevalence",
+      "type": "query",
+      "label": "DNS prevalence of RMM domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(query_hostname) as rmm_domain, COUNT(DISTINCT device_hostname) as host_count, COUNT(*) as total_lookups FROM hb_dns_activity WHERE instr(',' || '{{rmm_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_dns_activity",
+        "description": "Stack-count the domains seen on lead hosts to find rare instances that indicate unauthorized RMM usage.",
+        "expected_signal": "RMM domains resolving on very few hosts. Fleet-wide IT tools will have high host counts and can be filtered."
+      },
+      "parents": [
+        {
+          "id": "rmm-dns-leads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "DNS prevalence of RMM domains",
+        "reads": [
+          "query_hostname",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(query_hostname) as rmm_domain, COUNT(DISTINCT device_hostname) as host_count, COUNT(*) as total_lookups FROM hb_dns_activity WHERE instr(',' || '{{rmm_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "RMM domains resolving on very few hosts. Fleet-wide IT tools will have high host counts and can be filtered.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 4
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rmm-http-user-agents",
+      "type": "query",
+      "label": "HTTP User-Agent inspection",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, user_agent, time FROM hb_http_activity WHERE instr(',' || '{{rmm_user_agents}}' || ',', ',' || user_agent || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify specific RMM clients by their unique HTTP User-Agent strings on the suspect hosts.",
+        "expected_signal": "Hits on these User-Agent strings strongly suggest the presence of unauthorized NetSupport or Syncro agents."
+      },
+      "parents": [
+        {
+          "id": "rmm-dns-leads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "HTTP User-Agent inspection",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "user_agent",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, user_agent, time FROM hb_http_activity WHERE instr(',' || '{{rmm_user_agents}}' || ',', ',' || user_agent || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hits on these User-Agent strings strongly suggest the presence of unauthorized NetSupport or Syncro agents.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-rmm-network",
+      "type": "analytic",
+      "label": "Analyze RMM network patterns",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "rmm-dns-leads",
+          "rmm-dns-prevalence",
+          "rmm-http-user-agents"
+        ],
+        "objective": "Determine if any host is running an unauthorized RMM tool based on the rarity of the C2 domain and the presence of identifying User-Agent strings. Differentiate between sanctioned IT tools and malicious deployments.",
+        "description": "Evaluate whether the identified RMM network activity is consistent with sanctioned IT activity or an intrusion.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict citing specific rows and comparing prevalence data.",
+        "success_criteria": "A verdict for each host with supporting citations from the DNS and HTTP results."
+      },
+      "parents": [
+        {
+          "id": "rmm-dns-prevalence",
+          "kind": "merge"
+        },
+        {
+          "id": "rmm-http-user-agents",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "rmm-decision",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-rmm-network verdict is malicious for at least one host",
+        "condition": "the triage-rmm-network verdict is malicious for at least one host",
+        "blind_spot": "no-http-telemetry",
+        "confidence": "high",
+        "description": "Route the hunt based on the agent's findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-rmm-network"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Neutralize the threat while preserving evidence.",
+        "instructions": "Isolate the host immediately. Collect the RMM configuration files (e.g. client32.ini or token files) before clearing the binary.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "rmm-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform deep dive analysis on suspicious hosts.",
+        "instructions": "Examine the host for the RMM binary. Check its metadata and signature. Determine if it was installed by a legitimate IT process or dropped by a suspicious parent like PowerShell."
+      },
+      "parents": [
+        {
+          "id": "rmm-decision",
+          "branch": "default"
+        },
+        {
+          "id": "rmm-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update policies.",
+        "instructions": "Record the sanctioned RMM tools identified. Update the organizational allowed software list and consider blocking unused RMM domains."
+      },
+      "parents": [
+        {
+          "id": "rmm-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

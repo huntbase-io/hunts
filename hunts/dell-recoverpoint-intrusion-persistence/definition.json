@@ -1,0 +1,636 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Exploitation of a CVSS 10.0 zero-day in edge appliances allows root-level persistence that bypasses traditional OS security controls."
+      },
+      "name": "Dell RecoverPoint Appliance Intrusion and Persistence",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1133",
+        "attack.t1505.003",
+        "attack.t1071"
+      ],
+      "series": {
+        "slug": "unc6201-exploiting-a-dell-recoverpoint-zero-day",
+        "index": 1,
+        "title": "UNC6201 exploiting a Dell RecoverPoint zero-day",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "vmware-infrastructure-pivoting",
+          "reason": "Compromised appliances are used as a beachhead to create Ghost NICs on the virtual infrastructure.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt correlates vulnerability status with rare file-system behavior and HTTP traffic patterns using a gated approach, allowing it to find intrusion even when specific web shell filenames rotate.",
+      "coverage": [
+        {
+          "stage": "tomcat-manager-zero-day-exploit",
+          "steps": [
+            "vulnerable-appliances",
+            "http-exploitation"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "webshell-war-persistence",
+          "steps": [
+            "rare-persistence-markers"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "boot-script-backdoor-persistence",
+          "steps": [
+            "rare-persistence-markers"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "stealthy-iptables-proxying",
+          "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "c2-doh-communication",
+          "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "vmware-infrastructure-pivoting",
+          "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Tomcat Manager Zero-Day Exploitation",
+            "slug": "tomcat-manager-zero-day-exploit",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190",
+              "T1133"
+            ],
+            "observables": [
+              "CVE-2026-22769",
+              "HTTP PUT /manager/text/deploy?path=/",
+              "admin user authentication to Apache Tomcat Manager",
+              "/home/kos/tomcat9/tomcat-users.xml",
+              "/home/kos/auditlog/fapi_cl_audit_log.log"
+            ]
+          },
+          {
+            "name": "SLAYSTYLE Web Shell Deployment",
+            "slug": "webshell-war-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "Malicious WAR file upload to /var/lib/tomcat9",
+              "org.apache.catalina.startup.HostConfig.deployWAR",
+              "/var/cache/tomcat9/Catalina",
+              "java.io",
+              "Base64.getDecoder",
+              "Runtime.getRuntime().exec"
+            ]
+          },
+          {
+            "name": "Backdoor Persistence via Boot Script",
+            "slug": "boot-script-backdoor-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "Modification of /home/kos/kbox/src/installation/distribution/convert_hosts.sh",
+              "Execution via /etc/rc.local at boot",
+              "GRIMBOLT C# Native AOT binary packed with UPX",
+              "BRICKSTORM binary replacement"
+            ]
+          },
+          {
+            "name": "Stealthy Proxying via IPTables",
+            "slug": "stealthy-iptables-proxying",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "iptables -I INPUT -i eth0 -p tcp --dport 443 -m string --hex-string",
+              "iptables REDIRECT --to-ports 10443",
+              "Monitoring port 443 for Single Packet Authorization (SPA)",
+              "Systemd Journal command recovery"
+            ]
+          },
+          {
+            "name": "C2 via DNS-over-HTTPS",
+            "slug": "c2-doh-communication",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071"
+            ],
+            "observables": [
+              "DNS-over-HTTPS queries to Google, Cloudflare, and Amazon DNS services",
+              "C2 traffic associated with GRIMBOLT and BRICKSTORM"
+            ]
+          },
+          {
+            "name": "Lateral Movement via Ghost NICs",
+            "slug": "vmware-infrastructure-pivoting",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Creation of temporary network ports (Ghost NICs) on virtual machines",
+              "Pivoting from ESXi servers to internal or SaaS infrastructure"
+            ]
+          }
+        ],
+        "summary": "Suspected PRC-nexus actor UNC6201 exploited a zero-day (CVE-2026-22769) in Dell RecoverPoint for Virtual Machines using hardcoded Tomcat Manager credentials. They established persistent access via SLAYSTYLE web shells and backdoors, utilizing modified boot scripts and complex iptables rules for stealthy network proxying and Single Packet Authorization."
+      },
+      "severity": "critical",
+      "rationale": "Focus on systems running Dell RecoverPoint software. If CVE telemetry is delayed, search hb_software_inventory for the RecoverPoint package name.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is exploiting hardcoded credentials (CVE-2026-22769) to deploy SLAYSTYLE web shells and persistent GRIMBOLT backdoors on Dell RecoverPoint for Virtual Machines appliances.",
+      "parameters": {
+        "target_cve": {
+          "type": "string",
+          "default": "CVE-2026-22769",
+          "description": "The specific Dell RecoverPoint vulnerability ID."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus on, typically derived from the scoping step."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "30",
+          "description": "Days of history to examine for exploitation and persistence markers."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://cloud.google.com/blog/topics/threat-intelligence/unc6201-exploiting-dell-recoverpoint-zero-day",
+          "name": "UNC6201 exploiting a Dell RecoverPoint zero-day"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-vulnerability-telemetry",
+          "risk": "A host may be exploited before it is flagged by vulnerability scanners, causing the gate to close prematurely.",
+          "stage": "tomcat-manager-zero-day-exploit",
+          "question": "whether an appliance is vulnerable before the scanner updates",
+          "requires": "hb_vulnerability_finding with CVE-2026-22769 coverage"
+        },
+        {
+          "id": "insufficient-telemetry-for-verdict",
+          "risk": "If endpoint auditing excludes the Tomcat cache directories, the deployment of SLAYSTYLE might remain invisible.",
+          "stage": "webshell-war-persistence",
+          "question": "whether we can see the compilation of the malicious WAR file",
+          "requires": "hb_file_activity covering /var/cache/tomcat9"
+        },
+        {
+          "id": "appliance-audit-logs",
+          "risk": "Standard HTTP logs show the request but not the application-level success or error codes only found in the proprietary audit log.",
+          "stage": "tomcat-manager-zero-day-exploit",
+          "question": "whether the specific deployment command succeeded",
+          "requires": "/home/kos/auditlog/fapi_cl_audit_log.log"
+        }
+      ]
+    },
+    "name": "Dell RecoverPoint Appliance Intrusion and Persistence",
+    "description": "This hunt identifies compromised Dell RecoverPoint appliances using a gated flow. It begins by finding vulnerable assets through vulnerability scan data. If vulnerable hosts exist, the hunt fans out to search for HTTP exploitation attempts against the Apache Tomcat Manager and rare file-system markers. The hunt examines both web shell deployment in Tomcat cache directories and persistent backdoor entries in boot scripts."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "unc6201-exploiting-a-dell-recoverpoint-zero-day",
+          "index": 1,
+          "title": "UNC6201 exploiting a Dell RecoverPoint zero-day",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "tomcat-manager-zero-day-exploit",
+            "steps": [
+              "vulnerable-appliances",
+              "http-exploitation"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "webshell-war-persistence",
+            "steps": [
+              "rare-persistence-markers"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "boot-script-backdoor-persistence",
+            "steps": [
+              "rare-persistence-markers"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "stealthy-iptables-proxying",
+            "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "c2-doh-communication",
+            "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "vmware-infrastructure-pivoting",
+            "reason": "Belongs to another part of the 'UNC6201 exploiting a Dell RecoverPoint zero-day' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is exploiting hardcoded credentials (CVE-2026-22769) to deploy SLAYSTYLE web shells and persistent GRIMBOLT backdoors on Dell RecoverPoint for Virtual Machines appliances.",
+        "blind_spots": [
+          {
+            "id": "missing-vulnerability-telemetry",
+            "risk": "A host may be exploited before it is flagged by vulnerability scanners, causing the gate to close prematurely.",
+            "stage": "tomcat-manager-zero-day-exploit",
+            "question": "whether an appliance is vulnerable before the scanner updates",
+            "requires": "hb_vulnerability_finding with CVE-2026-22769 coverage"
+          },
+          {
+            "id": "insufficient-telemetry-for-verdict",
+            "risk": "If endpoint auditing excludes the Tomcat cache directories, the deployment of SLAYSTYLE might remain invisible.",
+            "stage": "webshell-war-persistence",
+            "question": "whether we can see the compilation of the malicious WAR file",
+            "requires": "hb_file_activity covering /var/cache/tomcat9"
+          },
+          {
+            "id": "appliance-audit-logs",
+            "risk": "Standard HTTP logs show the request but not the application-level success or error codes only found in the proprietary audit log.",
+            "stage": "tomcat-manager-zero-day-exploit",
+            "question": "whether the specific deployment command succeeded",
+            "requires": "/home/kos/auditlog/fapi_cl_audit_log.log"
+          }
+        ],
+        "scoping_notes": "Focus on systems running Dell RecoverPoint software. If CVE telemetry is delayed, search hb_software_inventory for the RecoverPoint package name.",
+        "beyond_detection": "This hunt correlates vulnerability status with rare file-system behavior and HTTP traffic patterns using a gated approach, allowing it to find intrusion even when specific web shell filenames rotate."
+      }
+    },
+    {
+      "id": "vulnerable-appliances",
+      "type": "query",
+      "label": "Identify vulnerable Dell RecoverPoint appliances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT d.hostname AS device_hostname, f.device_uid, f.affected_package_name, f.affected_package_version, f.severity, f.status, f.first_seen FROM hb_vulnerability_finding AS f JOIN hb_devices AS d ON f.device_uid = d.device_uid AND f.provider = d.provider WHERE f.cve_uid = '{{target_cve}}' AND f.status != 'suppressed'",
+        "surface": "hb_vulnerability_finding",
+        "description": "Find Dell RecoverPoint appliances currently reporting the hardcoded credential vulnerability and map them to hostnames.",
+        "expected_signal": "A list of hostnames and device UIDs flagging CVE-2026-22769. Silence proves no vulnerable hosts are currently reporting."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable Dell RecoverPoint appliances",
+        "reads": [
+          "device_uid",
+          "hostname",
+          "provider",
+          "cve_uid"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT d.hostname AS device_hostname, f.device_uid, f.affected_package_name, f.affected_package_version, f.severity, f.status, f.first_seen FROM hb_vulnerability_finding AS f JOIN hb_devices AS d ON f.device_uid = d.device_uid AND f.provider = d.provider WHERE f.cve_uid = '{{target_cve}}' AND f.status != 'suppressed'",
+        "silence": "evidence_of_absence",
+        "expected": "A list of hostnames and device UIDs flagging CVE-2026-22769. Silence proves no vulnerable hosts are currently reporting.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "evaluate-exposure",
+      "type": "analytic",
+      "label": "Evaluate exposure level",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "vulnerable-appliances"
+        ],
+        "objective": "Determine if any Dell RecoverPoint appliances are vulnerable and prioritize them for historical telemetry review.",
+        "description": "Analyze the lead results to determine if a full forensic investigation of the appliance estate is required.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict on whether to proceed with expensive historical queries.",
+        "success_criteria": "A recommendation to fan out or close the hunt."
+      },
+      "parents": [
+        {
+          "id": "vulnerable-appliances"
+        }
+      ]
+    },
+    {
+      "id": "is-vulnerable",
+      "type": "checkpoint",
+      "label": "Should the hunt proceed to deep investigation?",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "vulnerable Dell RecoverPoint appliances were identified",
+        "condition": "vulnerable Dell RecoverPoint appliances were identified",
+        "blind_spot": "missing-vulnerability-telemetry",
+        "confidence": "high",
+        "description": "Gate the expensive fan-out queries on the presence of vulnerable appliances.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-exposure"
+        }
+      ]
+    },
+    {
+      "id": "http-exploitation",
+      "type": "query",
+      "label": "HTTP exploitation of Tomcat Manager",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "web",
+        "content": "SELECT device_hostname, url_full, http_method, src_endpoint_ip, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/manager/text/deploy%' OR LOWER(url_path) LIKE '%/manager/html/deploy%' OR LOWER(url_query) LIKE '%path=/%') AND http_method = 'PUT' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify PUT requests targeting the Tomcat Manager deployment endpoint via both text and HTML APIs.",
+        "expected_signal": "PUT requests to the manager endpoint indicate attempt or success in deploying a malicious WAR file."
+      },
+      "parents": [
+        {
+          "id": "is-vulnerable",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "HTTP exploitation of Tomcat Manager",
+        "reads": [
+          "device_hostname",
+          "url_path",
+          "url_query",
+          "http_method",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_full, http_method, src_endpoint_ip, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/manager/text/deploy%' OR LOWER(url_path) LIKE '%/manager/html/deploy%' OR LOWER(url_query) LIKE '%path=/%') AND http_method = 'PUT' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "PUT requests to the manager endpoint indicate attempt or success in deploying a malicious WAR file.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-persistence-markers",
+      "type": "query",
+      "label": "Rare persistence markers on Dell appliances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT file_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_file_activity WHERE (LOWER(file_path) LIKE '/var/lib/tomcat9/%.war' OR LOWER(file_path) LIKE '/var/cache/tomcat9/catalina/%' OR LOWER(file_path) LIKE '%convert_hosts.sh' OR LOWER(file_path) LIKE '/home/kos/auditlog/fapi_cl_audit_log.log') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY file_path HAVING host_count <= 2",
+        "surface": "hb_file_activity",
+        "description": "Identify rare WAR file deployments, boot script modifications, or audit log tampering across the entire fleet.",
+        "expected_signal": "A file path seen on only one or two appliances fleet-wide indicates a malicious artifact."
+      },
+      "parents": [
+        {
+          "id": "is-vulnerable",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare persistence markers on Dell appliances",
+        "reads": [
+          "file_path",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT file_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_file_activity WHERE (LOWER(file_path) LIKE '/var/lib/tomcat9/%.war' OR LOWER(file_path) LIKE '/var/cache/tomcat9/catalina/%' OR LOWER(file_path) LIKE '%convert_hosts.sh' OR LOWER(file_path) LIKE '/home/kos/auditlog/fapi_cl_audit_log.log') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY file_path HAVING host_count <= 2",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A file path seen on only one or two appliances fleet-wide indicates a malicious artifact.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "file_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-compromise",
+      "type": "analytic",
+      "label": "Triage compromise per host",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "evaluate-exposure",
+          "http-exploitation",
+          "rare-persistence-markers"
+        ],
+        "objective": "Determine if the vulnerable Dell appliances show conclusive signs of exploitation (HTTP PUT) or persistence (rare WARs/scripts).",
+        "description": "Correlate vulnerability exposure with observed HTTP activity and rare file modifications to confirm intrusion.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict citing specific rows of malicious activity.",
+        "success_criteria": "A malicious | suspicious | benign verdict for every host listed in the results."
+      },
+      "parents": [
+        {
+          "id": "http-exploitation",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-persistence-markers",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious or suspicious for at least one host",
+        "condition": "the triage verdict is malicious or suspicious for at least one host",
+        "blind_spot": "insufficient-telemetry-for-verdict",
+        "confidence": "high",
+        "description": "Take action on compromised hosts or route for manual review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-compromise"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised appliance",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat by severing network access to the compromised host.",
+        "instructions": "Isolate the Dell RecoverPoint appliance from the network and revoke any service credentials used by Apache Tomcat.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-review",
+      "type": "task",
+      "label": "Manual analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the agent findings and prepare for deep forensic analysis.",
+        "instructions": "Review the cited rows from the triage step. For compromised hosts, acquire a disk image for analysis of the fapi_cl_audit_log.log and the Tomcat WAR cache."
+      },
+      "parents": [
+        {
+          "id": "is-vulnerable",
+          "branch": "default"
+        },
+        {
+          "id": "is-vulnerable",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and update the vulnerability tracking status.",
+        "instructions": "Document the final count of vulnerable vs. compromised appliances. If vulnerable appliances were found but no intrusion markers were present, notify the infrastructure team to prioritize patching."
+      },
+      "parents": [
+        {
+          "id": "is-vulnerable",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "manual-review"
+        }
+      ]
+    }
+  ]
+}

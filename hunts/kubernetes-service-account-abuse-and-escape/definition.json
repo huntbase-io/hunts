@@ -1,0 +1,612 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Kubernetes container escape allows an attacker to pivot from a single compromised container to the entire physical host, bypassing isolation boundaries."
+      },
+      "name": "Kubernetes Service Account Abuse and Escape",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1613",
+        "attack.t1552.006",
+        "attack.t1610",
+        "attack.t1609",
+        "attack.t1611"
+      ],
+      "related": [
+        {
+          "hunt": "cloud-control-plane-credential-abuse",
+          "reason": "This hunt focuses on the Kubernetes plane; abuse of cloud provider identity (IMDS) is a separate scenario.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "kubernetes": {
+          "name": "kubernetes",
+          "category": "siem",
+          "huntbase": {
+            "product": "kubernetes"
+          }
+        }
+      },
+      "analysis": "A single rule on privileged pods triggers high noise from system pods; a rule on token access misses the context. This hunt joins the 'why' (discovery) and 'how' (token harvest) with 'impact' (privileged deployment) to create a high-fidelity attack chain.",
+      "coverage": [
+        {
+          "stage": "workload-service-account-discovery",
+          "steps": [
+            "discovery-tool-prevalence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "token-credential-harvesting",
+          "steps": [
+            "token-harvesting-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privileged-pod-deployment",
+          "steps": [
+            "privileged-pod-deployment"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "pod-exec-interaction",
+          "reason": "Requires Kubernetes audit logs to see decoded requestURIs for exec commands; not present in available hb_ surfaces.",
+          "status": "not_visible",
+          "blind_spot": "missing-k8s-audit-logs"
+        },
+        {
+          "stage": "container-escape-attempt",
+          "reason": "Escape wrappers nsenter/chroot in URI format require API audit logs; hb_process_activity may see them if run as host processes, but the API interaction is invisible.",
+          "status": "not_visible"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Service account discovery",
+            "slug": "workload-service-account-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1613"
+            ],
+            "observables": [
+              "kubectl get pods",
+              "system:serviceaccount identifier",
+              "API discovery verbs"
+            ]
+          },
+          {
+            "name": "Service account token harvesting",
+            "slug": "token-credential-harvesting",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1552.006"
+            ],
+            "observables": [
+              "/var/run/secrets/kubernetes.io/serviceaccount/token",
+              "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+            ]
+          },
+          {
+            "name": "Privileged pod deployment",
+            "slug": "privileged-pod-deployment",
+            "tactic": "execution",
+            "techniques": [
+              "T1610"
+            ],
+            "observables": [
+              "objectRef.resource: pods",
+              "kubernetes.audit.verb: create",
+              "privileged: true security context"
+            ]
+          },
+          {
+            "name": "Interactive pod shell",
+            "slug": "pod-exec-interaction",
+            "tactic": "execution",
+            "techniques": [
+              "T1609"
+            ],
+            "observables": [
+              "kubernetes.audit.objectRef.subresource: exec",
+              "requestURI containing command list"
+            ]
+          },
+          {
+            "name": "Container escape via host utilities",
+            "slug": "container-escape-attempt",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1611"
+            ],
+            "observables": [
+              "nsenter",
+              "chroot",
+              "requestURI containing escape wrappers"
+            ]
+          }
+        ],
+        "summary": "An attacker leverages a compromised service account to perform discovery and harvest authentication tokens from the container filesystem. Using these credentials, they deploy a privileged pod and attempt a container escape using utilities like nsenter and chroot, a multi-plane attack requiring correlation between runtime telemetry and Kubernetes audit logs."
+      },
+      "severity": "high",
+      "rationale": "Focus on namespaces hosting public-facing services. Use the software inventory step to identify worker nodes running K8s system packages (deb/rpm only).",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has harvested a service account token from a compromised pod and is using it to deploy a privileged pod for container escape, bypassing standard runtime process detection.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hosts to narrow the hunt; leave empty for fleet-wide."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "k8s_secret_paths": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/threat-command/kubernetes-audit-logs-container-escape",
+            "kind": "article",
+            "observed": "2026-09-03"
+          },
+          "type": "list[path]",
+          "default": [
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          ],
+          "description": "Paths to Kubernetes service account secrets."
+        },
+        "discovery_commands": {
+          "type": "list[string]",
+          "default": [
+            "kubectl",
+            "kube-hunter",
+            "kube-bench",
+            "microk8s",
+            "k3s"
+          ],
+          "description": "Common Kubernetes discovery tools and command fragments."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/kubernetes-audit-logs-container-escape",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/kubernetes-audit-logs-container-escape",
+          "name": "Elastic Security Labs \u2014 How to correlate Kubernetes audit logs with container runtime data"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-k8s-audit-logs",
+          "risk": "Attackers can perform interaction and escape without leaving a trace in standard runtime process events if they use API-based methods.",
+          "stage": "pod-exec-interaction",
+          "question": "What commands were executed via 'kubectl exec'?",
+          "requires": "Kubernetes Audit Logs (ResponseComplete stage)",
+          "remediation": "Enable and ingest Kubernetes API audit logs with request detail."
+        },
+        {
+          "id": "ephemeral-pod-visibility",
+          "risk": "Snapshot-based inventory like kubernetes_pod may miss short-lived attack pods used for one-off commands.",
+          "stage": "privileged-pod-deployment",
+          "question": "Did a pod exist only for a few seconds during the escape attempt?",
+          "requires": "Continuous pod inventory (live stream)",
+          "remediation": "Move from periodic inventory snapshots to an event-driven pod creation stream."
+        }
+      ]
+    },
+    "name": "Kubernetes Service Account Abuse and Escape",
+    "description": "This hunt correlates early-stage discovery and credential harvesting inside containers with follow-on control-plane abuse. It moves from process-level discovery and file-level token access to identifying privileged pod configurations that facilitate escape. By joining endpoint telemetry with Kubernetes pod manifests, we identify the complete progression from a beachhead to a potential host-level compromise."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "workload-service-account-discovery",
+            "steps": [
+              "discovery-tool-prevalence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "token-credential-harvesting",
+            "steps": [
+              "token-harvesting-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privileged-pod-deployment",
+            "steps": [
+              "privileged-pod-deployment"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "pod-exec-interaction",
+            "reason": "Requires Kubernetes audit logs to see decoded requestURIs for exec commands; not present in available hb_ surfaces.",
+            "status": "not_visible",
+            "blind_spot": "missing-k8s-audit-logs"
+          },
+          {
+            "stage": "container-escape-attempt",
+            "reason": "Escape wrappers nsenter/chroot in URI format require API audit logs; hb_process_activity may see them if run as host processes, but the API interaction is invisible.",
+            "status": "not_visible"
+          }
+        ],
+        "rationale": "An intruder has harvested a service account token from a compromised pod and is using it to deploy a privileged pod for container escape, bypassing standard runtime process detection.",
+        "blind_spots": [
+          {
+            "id": "missing-k8s-audit-logs",
+            "risk": "Attackers can perform interaction and escape without leaving a trace in standard runtime process events if they use API-based methods.",
+            "stage": "pod-exec-interaction",
+            "question": "What commands were executed via 'kubectl exec'?",
+            "requires": "Kubernetes Audit Logs (ResponseComplete stage)",
+            "remediation": "Enable and ingest Kubernetes API audit logs with request detail."
+          },
+          {
+            "id": "ephemeral-pod-visibility",
+            "risk": "Snapshot-based inventory like kubernetes_pod may miss short-lived attack pods used for one-off commands.",
+            "stage": "privileged-pod-deployment",
+            "question": "Did a pod exist only for a few seconds during the escape attempt?",
+            "requires": "Continuous pod inventory (live stream)",
+            "remediation": "Move from periodic inventory snapshots to an event-driven pod creation stream."
+          }
+        ],
+        "scoping_notes": "Focus on namespaces hosting public-facing services. Use the software inventory step to identify worker nodes running K8s system packages (deb/rpm only).",
+        "beyond_detection": "A single rule on privileged pods triggers high noise from system pods; a rule on token access misses the context. This hunt joins the 'why' (discovery) and 'how' (token harvest) with 'impact' (privileged deployment) to create a high-fidelity attack chain."
+      }
+    },
+    {
+      "id": "k8s-infrastructure-scope",
+      "type": "query",
+      "label": "Identify Kubernetes infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%kube%' OR LOWER(package_name) LIKE '%docker%' OR LOWER(package_name) LIKE '%containerd%') AND (package_type = 'deb' OR package_type = 'rpm') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Locate hosts running Kubernetes or container runtimes to focus the hunt, filtering out unrelated system packages.",
+        "expected_signal": "A list of hostnames hosting Kubernetes components. Silence means no K8s-related system packages are installed."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Kubernetes infrastructure",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_type"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%kube%' OR LOWER(package_name) LIKE '%docker%' OR LOWER(package_name) LIKE '%containerd%') AND (package_type = 'deb' OR package_type = 'rpm') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames hosting Kubernetes components. Silence means no K8s-related system packages are installed.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "discovery-tool-prevalence",
+      "type": "query",
+      "label": "Discovery tool prevalence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%/kubectl' OR LOWER(process_name) LIKE '%/kube-hunter' OR LOWER(process_name) LIKE '%/kube-bench' OR instr(',' || '{{discovery_commands}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR LOWER(process_cmd_line) LIKE '%get pods%' OR LOWER(process_cmd_line) LIKE '%get secrets%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY process_name, process_cmd_line HAVING hosts <= 5 ORDER BY hosts",
+        "surface": "hb_process_activity",
+        "description": "Find evidence of cluster enumeration using common tools, checking for rare executions that indicate manual intervention.",
+        "expected_signal": "A rare process execution indicating manual discovery. Silence suggests no common tools were run via monitored process events."
+      },
+      "parents": [
+        {
+          "id": "k8s-infrastructure-scope"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Discovery tool prevalence",
+        "reads": [
+          "process_name",
+          "process_cmd_line",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%/kubectl' OR LOWER(process_name) LIKE '%/kube-hunter' OR LOWER(process_name) LIKE '%/kube-bench' OR instr(',' || '{{discovery_commands}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR LOWER(process_cmd_line) LIKE '%get pods%' OR LOWER(process_cmd_line) LIKE '%get secrets%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY process_name, process_cmd_line HAVING hosts <= 5 ORDER BY hosts",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A rare process execution indicating manual discovery. Silence suggests no common tools were run via monitored process events.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "process_cmd_line"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "token-harvesting-activity",
+      "type": "query",
+      "label": "Service account token harvesting",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, file_path, time FROM hb_file_activity WHERE instr(',' || '{{k8s_secret_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_file_activity",
+        "description": "Detect access to Kubernetes service account tokens, which are the target for attackers seeking to abuse the API.",
+        "expected_signal": "Processes reading tokens from /var/run/secrets. Access from non-system processes is a high-fidelity indicator."
+      },
+      "parents": [
+        {
+          "id": "k8s-infrastructure-scope"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Service account token harvesting",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, file_path, time FROM hb_file_activity WHERE instr(',' || '{{k8s_secret_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes reading tokens from /var/run/secrets. Access from non-system processes is a high-fidelity indicator.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Triage early-stage activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "kubernetes"
+        ],
+        "context": [
+          "discovery-tool-prevalence",
+          "token-harvesting-activity"
+        ],
+        "objective": "Determine if the same container or host that ran Kubernetes discovery tools also accessed sensitive service account tokens.",
+        "description": "Assess whether discovery and token access are linked through the same host and process context.",
+        "max_iterations": 3,
+        "expected_signal": "Identification of suspicious containers and host context for follow-on investigation.",
+        "success_criteria": "Identification of a compromised pod identity and host context."
+      },
+      "parents": [
+        {
+          "id": "discovery-tool-prevalence",
+          "kind": "merge"
+        },
+        {
+          "id": "token-harvesting-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "privileged-pod-deployment",
+      "type": "query",
+      "label": "Identify privileged pod deployments",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "kubernetes",
+        "content": "SELECT hostname, host_pid, host_network, host_ipc, creation_timestamp, context_name FROM kubernetes_pod WHERE (host_pid = 1 OR host_network = 1 OR host_ipc = 1) AND creation_timestamp >= datetime('now', '-{{lookback_days}} days')",
+        "product": "kubernetes",
+        "surface": "kubernetes_pod",
+        "extension": "kubernetes",
+        "description": "Find pods with high-risk configurations that facilitate container escape by sharing host namespaces.",
+        "expected_signal": "Pods created with host namespace permissions. Silence means no pods with these dangerous settings were detected in the current inventory."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Identify privileged pod deployments",
+        "reads": [
+          "hostname",
+          "host_pid",
+          "host_network",
+          "host_ipc",
+          "creation_timestamp",
+          "context_name"
+        ],
+        "source": "kubernetes_pod",
+        "target": "kubernetes",
+        "content": "SELECT hostname, host_pid, host_network, host_ipc, creation_timestamp, context_name FROM kubernetes_pod WHERE (host_pid = 1 OR host_network = 1 OR host_ipc = 1) AND creation_timestamp >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Pods created with host namespace permissions. Silence means no pods with these dangerous settings were detected in the current inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20",
+        "target_extension": "kubernetes"
+      }
+    },
+    {
+      "id": "final-intrusion-assessment",
+      "type": "analytic",
+      "label": "Final intrusion assessment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "kubernetes"
+        ],
+        "context": [
+          "early-stage-triage",
+          "privileged-pod-deployment"
+        ],
+        "objective": "Weigh the early-stage discovery findings against the appearance of privileged pods. Does the timing and identity suggest the discovery led to this deployment?",
+        "description": "Correlate the early beachhead with the deployment of privileged infrastructure to confirm a complete attack chain.",
+        "max_iterations": 4,
+        "expected_signal": "A unified verdict confirming an escape attempt by a specific identity.",
+        "success_criteria": "A final verdict of malicious | suspicious for the investigated hosts."
+      },
+      "parents": [
+        {
+          "id": "privileged-pod-deployment"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-intrusion-assessment verdict is malicious for at least one host following token harvesting",
+        "condition": "the final-intrusion-assessment verdict is malicious for at least one host following token harvesting",
+        "blind_spot": "missing-k8s-audit-logs",
+        "confidence": "high",
+        "description": "Decide whether to isolate affected assets based on confirmed escape indicators.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-intrusion-assessment"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host and revoke SA",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop the intruder from using host namespaces or further abusing the API.",
+        "instructions": "Isolate the endpoint running the Kubelet. Coordinate with DevOps to delete the privileged pod and revoke the compromised service account token immediately.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the attack path and ensure no persistent access remains.",
+        "instructions": "Review the process timeline leading to token harvesting. Check for other pods created by the same service account. Verify if escape wrappers like nsenter were executed by checking direct host process activity."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document results and tune detection candidates.",
+        "instructions": "Record the findings. If token harvesting was confirmed, promote the file-activity query to a permanent detection rule."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

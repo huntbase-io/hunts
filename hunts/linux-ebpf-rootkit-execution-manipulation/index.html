@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linux eBPF Rootkit Execution and Manipulation · Huntbase Hub</title>
+  <link rel="icon" href="../../static/logo-icon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="../../favicon.ico" sizes="any">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder has deployed an eBPF rootkit that hides network connections and kernel objects by manipulating syscall returns and tampering with Netlink buffers.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/linux-ebpf-rootkit-execution-manipulation/">
+  <meta property="og:site_name" content="Huntbase Hub">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Linux eBPF Rootkit Execution and Manipulation · Huntbase Hub">
+  <meta property="og:description" content="An intruder has deployed an eBPF rootkit that hides network connections and kernel objects by manipulating syscall returns and tampering with Netlink buffers.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/linux-ebpf-rootkit-execution-manipulation/">
+  <meta property="og:image" content="https://hub.huntbase.io/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Huntbase Hub: threat hunts from this week's research">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Linux eBPF Rootkit Execution and Manipulation · Huntbase Hub">
+  <meta name="twitter:description" content="An intruder has deployed an eBPF rootkit that hides network connections and kernel objects by manipulating syscall returns and tampering with Netlink buffers.">
+  <meta name="twitter:image" content="https://hub.huntbase.io/static/og.png"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hub" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+<script defer src="../../static/analytics.js" data-key="phc_NaC68cbX13YbvdvqE5AC1bwHivYSRhcZc6upjVubI8M" data-host="https://eu.i.posthog.com"></script></head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hub">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hub</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Hunts</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="../../feed.xml">Feed</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=nav" rel="noopener" data-track="signup" data-placement="nav">Sign up</a>
+      <a class="btn btn-brand" href="#subscribe" data-track="subscribe-jump" data-placement="nav">Get updates</a>
+    </nav>
+  </header>
+  <main><article class="hunt" data-slug="linux-ebpf-rootkit-execution-manipulation">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← All hunts</a>
+        <span class="badge sev medium">medium</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+      </div>
+      <h1 class="heading-xl">Linux eBPF Rootkit Execution and Manipulation</h1>
+      <p class="hyp-lead">An intruder has deployed an eBPF rootkit that hides network connections and kernel objects by manipulating syscall returns and tampering with Netlink buffers.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/" rel="noopener">Datadog Security Labs</a></span>
+<span>2026-09-20</span>        <span>12 steps · 5 queries</span>
+<span class="mono">T1014 T1090.003 T1204.002 T1562.001</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=linux-ebpf-rootkit-execution-manipulation&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=linux-ebpf-rootkit-execution-manipulation" target="_top" rel="noopener" data-track="run" data-placement="header">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download data-placement="header">Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">12</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why Hunt for eBPF Rootkits?</h3>
+<p>Modern Linux rootkits increasingly use eBPF to achieve stealth. By attaching programs to kernel functions, an adversary can hide files, network connections, and even other eBPF objects. Traditional tools like <code>ps</code> or <code>ss</code> rely on the kernel to tell the truth, but a rootkit can manipulate these responses. This hunt follows research from Datadog Security Labs titled <a href="https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/" rel="noopener noreferrer">Detection primitives for eBPF rootkits</a> to identify these kernel-level lies.</p>
+<h3>How the Hunt Flows</h3>
+<p>The first query identifies active Linux hosts to establish a target scope. This ensures the hunt runs against relevant infrastructure, such as database servers or API gateways, where rootkit persistence provides the highest value for an attacker.</p>
+<p>Next, the hunt searches for early indicators of rootkit deployment in parallel. It monitors for suspicious process execution, specifically looking for binaries running from <code>/tmp</code> or <code>/dev/shm</code>, or the use of <code>bpftool</code> to load kernel objects. Simultaneously, it looks for any process reading from the kernel trace pipe. This file often contains leaked debug strings from rootkits like LinkPro, which can reveal the IDs of hidden objects.</p>
+<p>The third phase examines active evasion behavior. Many eBPF rootkits protect themselves by blocking <code>ptrace</code> calls, which causes diagnostic tools like <code>strace</code>, <code>gdb</code>, or even <code>ps</code> to terminate unexpectedly. The hunt identifies these sudden terminations. It also builds a baseline of network egress to find connections seen on only one or two hosts. This surfaces outbound traffic that a rootkit might be attempting to hide from local Netlink-based enumeration utilities.</p>
+<p>Finally, an automated agent correlates these findings. If a host shows both suspicious loader activity and active evasion signals like <code>ptrace</code> blocking, the agent issues a high-confidence verdict for manual review or isolation.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>This hunt faces two primary challenges. First, if a rootkit is advanced enough to suppress the specific kernel tracepoints our agent uses for telemetry, the host may appear clean. This is an inherent risk when hunting kernel-level threats. Second, if both the local diagnostic tools and the security agent rely on Netlink for socket inventory, a rootkit that manipulates Netlink buffers will hide connections from both the system and the security stack.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i></i><i></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">2</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder has deployed an eBPF rootkit that hides network connections and kernel objects by manipulating syscall returns and tampering with Netlink buffers.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify active Linux hosts where eBPF rootkit activity is possible.", "expected": "A list of active Linux hostnames. This provides the candidate set for subsequent behavioral queries.", "id": "linux-asset-scope", "label": "Scope Linux assets", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT hostname FROM hb_devices WHERE platform = \u0027linux\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_devices", "type": "query"}, {"description": "Find binaries executed from temporary paths or bpftool usage that may load rootkit objects.", "expected": "Process starts for bpftool or binaries in user-writable paths. Rootkits often use bpftool or custom loaders to inject kernel programs.", "id": "loader-execution", "label": "Suspicious rootkit loaders", "parents": [{"branch": null, "id": "linux-asset-scope", "kind": null}], "query": "SELECT device_hostname, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE \u0027/tmp/%\u0027 OR LOWER(process_path) LIKE \u0027/dev/shm/%\u0027 OR LOWER(process_name) LIKE \u0027%bpftool%\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Identify processes reading the trace pipe which reveals rootkit debug strings.", "expected": "Access events to trace_pipe. LinkPro leaves artifacts like \u0027HIDING NEXT_ID\u0027 in this buffer, which tools or attackers may read.", "id": "trace-pipe-activity", "label": "Kernel debug log leakage", "parents": [{"branch": null, "id": "linux-asset-scope", "kind": null}], "query": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE \u0027%/trace_pipe\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "triage", "source": "hb_file_activity", "type": "query"}, {"description": "Evaluate whether loader activity and trace log access suggest rootkit presence.", "expected": "A per-host verdict identifying likely loaders and associated debug artifacts.", "id": "deployment-triage", "label": "Weigh deployment evidence", "parents": [{"branch": null, "id": "loader-execution", "kind": "merge"}, {"branch": null, "id": "trace-pipe-activity", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Identify processes that terminate unexpectedly while performing introspection, a common rootkit defense.", "expected": "Sudden termination of enumeration tools. Rootkits may send SIGKILL to processes attempting to attach via ptrace to hidden PIDs.", "id": "ptrace-blocking-anomalies", "label": "Ptrace-blocking process anomalies", "parents": [{"branch": null, "id": "deployment-triage", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE activity_id = 2 AND (LOWER(process_name) IN (\u0027ss\u0027, \u0027ps\u0027, \u0027bpftool\u0027, \u0027strace\u0027, \u0027gdb\u0027)) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_process_activity", "type": "query"}, {"description": "Identify outbound connections seen on very few hosts that may be hidden from local utilities like ss.", "expected": "A list of IP/port pairs seen on only one or two hosts. This surfaces connections the rootkit attempts to hide from local Netlink-based tools.", "id": "rare-network-egress", "label": "Rare network outbound connections", "parents": [{"branch": null, "id": "deployment-triage", "kind": null}], "query": "SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = \u0027outbound\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count \u003c= 2", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Correlate early deployment indicators with active kernel evasion behavior.", "expected": "A definitive malicious verdict for any host showing both deployment and evasion indicators.", "id": "rootkit-synthesis", "label": "Synthesize rootkit indicators", "parents": [{"branch": null, "id": "ptrace-blocking-anomalies", "kind": "merge"}, {"branch": null, "id": "rare-network-egress", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Route to isolation or manual review based on the agent\u0027s confidence.", "expected": null, "id": "remediation-decision", "label": "Route on rootkit verdict", "parents": [{"branch": null, "id": "rootkit-synthesis", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Prevent command-and-control and lateral movement from a confirmed rootkit beachhead.", "expected": null, "id": "isolate-compromised-host", "label": "Isolate compromised host", "parents": [{"branch": "on_supports", "id": "remediation-decision", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Manually verify the findings and review any discrepancies in host enumeration.", "expected": null, "id": "analyst-forensic-task", "label": "Analyst forensic verification", "parents": [{"branch": "default", "id": "remediation-decision", "kind": null}, {"branch": "on_unavailable", "id": "remediation-decision", "kind": null}, {"branch": "on_refutes", "id": "remediation-decision", "kind": null}, {"branch": null, "id": "isolate-compromised-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Finalize the investigation and document findings.", "expected": null, "id": "hunt-closure", "label": "Hunt closure and tuning", "parents": [{"branch": null, "id": "analyst-forensic-task", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-linux-asset-scope">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope Linux assets</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Identify active Linux hosts where eBPF rootkit activity is possible.</p>          <div class="code"><div class="code-head"><span>reads hb_devices</span><span>sql</span></div><pre><code>SELECT hostname FROM hb_devices WHERE platform = &#39;linux&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of active Linux hostnames. This provides the candidate set for subsequent behavioral queries.</p>        </li>
+        <li class="card step" id="step-loader-execution">
+          <div class="step-head">
+            <h3 class="heading-sm">Suspicious rootkit loaders</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Find binaries executed from temporary paths or bpftool usage that may load rootkit objects.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE &#39;/tmp/%&#39; OR LOWER(process_path) LIKE &#39;/dev/shm/%&#39; OR LOWER(process_name) LIKE &#39;%bpftool%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Process starts for bpftool or binaries in user-writable paths. Rootkits often use bpftool or custom loaders to inject kernel programs.</p>        </li>
+        <li class="card step" id="step-trace-pipe-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Kernel debug log leakage</h3>
+            <span class="chip query">Query · triage</span>
+          </div>
+<p>Identify processes reading the trace pipe which reveals rootkit debug strings.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE &#39;%/trace_pipe&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Access events to trace_pipe. LinkPro leaves artifacts like &#39;HIDING NEXT_ID&#39; in this buffer, which tools or attackers may read.</p>        </li>
+        <li class="card step" id="step-deployment-triage">
+          <div class="step-head">
+            <h3 class="heading-sm">Weigh deployment evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Evaluate whether loader activity and trace log access suggest rootkit presence.</p>        </li>
+        <li class="card step" id="step-ptrace-blocking-anomalies">
+          <div class="step-head">
+            <h3 class="heading-sm">Ptrace-blocking process anomalies</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Identify processes that terminate unexpectedly while performing introspection, a common rootkit defense.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE activity_id = 2 AND (LOWER(process_name) IN (&#39;ss&#39;, &#39;ps&#39;, &#39;bpftool&#39;, &#39;strace&#39;, &#39;gdb&#39;)) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Sudden termination of enumeration tools. Rootkits may send SIGKILL to processes attempting to attach via ptrace to hidden PIDs.</p>        </li>
+        <li class="card step" id="step-rare-network-egress">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare network outbound connections</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify outbound connections seen on very few hosts that may be hidden from local utilities like ss.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = &#39;outbound&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count &lt;= 2</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of IP/port pairs seen on only one or two hosts. This surfaces connections the rootkit attempts to hide from local Netlink-based tools.</p>        </li>
+        <li class="card step" id="step-rootkit-synthesis">
+          <div class="step-head">
+            <h3 class="heading-sm">Synthesize rootkit indicators</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate early deployment indicators with active kernel evasion behavior.</p>        </li>
+        <li class="card step" id="step-remediation-decision">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on rootkit verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Route to isolation or manual review based on the agent&#39;s confidence.</p>        </li>
+        <li class="card step" id="step-isolate-compromised-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate compromised host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Prevent command-and-control and lateral movement from a confirmed rootkit beachhead.</p>        </li>
+        <li class="card step" id="step-analyst-forensic-task">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst forensic verification</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Manually verify the findings and review any discrepancies in host enumeration.</p>        </li>
+        <li class="card step" id="step-hunt-closure">
+          <div class="step-head">
+            <h3 class="heading-sm">Hunt closure and tuning</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Finalize the investigation and document findings.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>eBPF Rootkit Execution<br><span class="mono dim">T1204.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>loader-execution</td></tr>            <tr><td>Network Connection Hiding<br><span class="mono dim">T1014</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-network-egress</td></tr>            <tr><td>eBPF Program Concealment<br><span class="mono dim">T1014</span></td>
+            <td><span class="no">Not visible</span></td>
+            <td>Rootkits using bpf_override_return with -ENOENT truncate the kernel&#39;s own enumeration; these surfaces read the resulting truncated list and cannot see the hidden objects without out-of-band kernel verification.</td></tr>            <tr><td>Anti-Debugging Ptrace Blocking<br><span class="mono dim">T1562.001</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>ptrace-blocking-anomalies</td></tr>            <tr><td>Kernel Debug Log Leakage<br><span class="mono dim">T1014</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>trace-pipe-activity</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs kernel-level introspection that bypasses BPF hooks.</strong> A highly advanced rootkit could suppress the very telemetry used by this hunt, making the host appear clean. <span class="dim">It would answer whether the rootkit has hooked the specific tracepoints our agent uses to report process and file activity.</span></li>          <li class="card"><strong>Needs non-Netlink network telemetry (e.g., from VPC fabric or mirror).</strong> VoidLink specifically manipulates Netlink buffers; if the endpoint agent also uses Netlink for socket inventory, it will be equally blind to the hidden ports. <span class="dim">It would answer whether active connections exist that are completely invisible to both ss and the local endpoint agent.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Optional list of hostnames to scope the hunt; leave empty to scan all Linux hosts.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download data-placement="source">Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download data-placement="source">Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A standard detection rule might alert on a known loader path, but this hunt
+  pivots between execution indicators, kernel debug log artifacts, ptrace-blocking
+  behavior, and network prevalence. It specifically searches for the discrepancies
+  caused by kernel lies that a single rule cannot reconcile.
+blind_spots:
+- id: kernel-telemetry-suppression
+  question: whether the rootkit has hooked the specific tracepoints our agent uses
+    to report process and file activity
+  requires: kernel-level introspection that bypasses BPF hooks
+  risk: A highly advanced rootkit could suppress the very telemetry used by this hunt,
+    making the host appear clean.
+  stage: ebpf-rootkit-deployment
+- id: netlink-blindness
+  question: whether active connections exist that are completely invisible to both
+    ss and the local endpoint agent
+  requires: non-Netlink network telemetry (e.g., from VPC fabric or mirror)
+  risk: VoidLink specifically manipulates Netlink buffers; if the endpoint agent also
+    uses Netlink for socket inventory, it will be equally blind to the hidden ports.
+  stage: netlink-socket-hiding
+coverage:
+- stage: ebpf-rootkit-deployment
+  status: covered
+  steps:
+  - loader-execution
+- stage: netlink-socket-hiding
+  status: covered
+  steps:
+  - rare-network-egress
+- reason: Rootkits using bpf_override_return with -ENOENT truncate the kernel&#39;s own
+    enumeration; these surfaces read the resulting truncated list and cannot see the
+    hidden objects without out-of-band kernel verification.
+  stage: ebpf-object-concealment
+  status: not_visible
+- stage: ptrace-access-denial
+  status: covered
+  steps:
+  - ptrace-blocking-anomalies
+- stage: tracing-log-artifacts
+  status: covered
+  steps:
+  - trace-pipe-activity
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: eBPF rootkits represent a Tier 1 evasion capability that defeats
+    traditional Linux auditing. Identifying kernel-level manipulation and the artifacts
+    left behind is essential for maintaining integrity on critical Linux workloads.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder has deployed an eBPF rootkit that hides network connections
+  and kernel objects by manipulating syscall returns and tampering with Netlink buffers.
+labels:
+- hunt
+- attack.t1204.002
+- attack.t1014
+- attack.t1562.001
+- attack.t1090.003
+name: Linux eBPF Rootkit Execution and Manipulation
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Optional list of hostnames to scope the hunt; leave empty to scan
+      all Linux hosts.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on high-value Linux infrastructure such as database servers and API
+  gateways where network concealment is most likely. Widen the scope to include development
+  environments where custom eBPF code might provide cover for rootkit loading.
+references:
+- name: Detection primitives for eBPF rootkits
+  url: https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/
+related:
+- hunt: rare-linux-kernel-module-load
+  reason: Rootkits may also persist via traditional kernel modules; this hunt focuses
+    specifically on the eBPF mechanism.
+  relation: sibling
+scenario:
+  stages:
+  - name: eBPF Rootkit Execution
+    observables:
+    - Execution of rootkit loaders (LinkPro, VoidLink)
+    - Loading of eBPF programs into the kernel
+    slug: ebpf-rootkit-deployment
+    tactic: execution
+    techniques:
+    - T1204.002
+  - name: Network Connection Hiding
+    observables:
+    - Use of bpf_probe_write_user to inflate nlmsg_len
+    - Tampering with Netlink socket statistics in __sys_recvmsg
+    - Discrepancy between ss output and actual kernel sockets
+    - kretprobe attached to __sys_recvmsg
+    slug: netlink-socket-hiding
+    tactic: defense-evasion
+    techniques:
+    - T1014
+  - name: eBPF Program Concealment
+    observables:
+    - Use of bpf_override_return to inject -ENOENT
+    - Interception of BPF_PROG_GET_NEXT_ID (11)
+    - Interception of BPF_MAP_GET_NEXT_ID (12)
+    - Interception of BPF_LINK_GET_NEXT_ID (31)
+    - Truncated output in bpftool prog list
+    slug: ebpf-object-concealment
+    tactic: defense-evasion
+    techniques:
+    - T1014
+  - name: Anti-Debugging Ptrace Blocking
+    observables:
+    - SIGKILL sent to processes calling PTRACE_ATTACH (0x10)
+    - SIGKILL sent to processes calling PTRACE_SEIZE (0x4206)
+    - Tracepoint attached to sys_enter_ptrace
+    slug: ptrace-access-denial
+    tactic: defense-evasion
+    techniques:
+    - T1562.001
+  - name: Kernel Debug Log Leakage
+    observables:
+    - &#39;BPF cmd: %d, start_id: %u in trace_pipe&#39;
+    - &#39;HIDING NEXT_ID: %u in trace_pipe&#39;
+    - Access to /sys/kernel/debug/tracing/trace_pipe
+    slug: tracing-log-artifacts
+    tactic: defense-evasion
+    techniques:
+    - T1014
+  summary: Linux eBPF rootkits like VoidLink and LinkPro leverage kernel helpers to
+    manipulate system call returns and memory in real-time. These tools hide malicious
+    network connections by tampering with Netlink response buffers and conceal their
+    own eBPF programs from administrative tools by overriding sys_bpf return values.
+severity: medium
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Linux eBPF Rootkit Execution and Manipulation
+
+This hunt identifies modern Linux eBPF rootkits like VoidLink and LinkPro by searching for the behavioral discrepancies they create. It focuses on identifying suspicious loader execution, kernel debug log artifacts from trace pipes, and defense evasion techniques such as ptrace blocking and Netlink manipulation. The hunt follows a phased approach: it first identifies candidate loaders and debug leaks, then examines follow-on behavior like unexpected utility terminations and rare network connections that standard system tools would hide.
+
+## linux-asset-scope
+&lt;!-- Scope Linux assets --&gt;
+Identify active Linux hosts where eBPF rootkit activity is possible.
+
+```sqlite target=endpoint role=scoping params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: A list of active Linux hostnames. This provides the candidate set for subsequent
+  behavioral queries.
+reads:
+- hostname
+- platform
+- time
+silence: not_evidence_of_absence
+source: hb_devices
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT hostname FROM hb_devices WHERE platform = &#39;linux&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## early-indicator-fanout
+&lt;!-- Early stage indicators --&gt;
+parallel:
+- → loader-execution
+- → trace-pipe-activity
+join: → deployment-triage
+
+## loader-execution
+&lt;!-- Suspicious rootkit loaders --&gt;
+Find binaries executed from temporary paths or bpftool usage that may load rootkit objects.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Process starts for bpftool or binaries in user-writable paths. Rootkits
+  often use bpftool or custom loaders to inject kernel programs.
+reads:
+- device_hostname
+- process_path
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT device_hostname, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE &#39;/tmp/%&#39; OR LOWER(process_path) LIKE &#39;/dev/shm/%&#39; OR LOWER(process_name) LIKE &#39;%bpftool%&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## trace-pipe-activity
+&lt;!-- Kernel debug log leakage --&gt;
+Identify processes reading the trace pipe which reveals rootkit debug strings.
+
+```sqlite target=endpoint role=triage params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Access events to trace_pipe. LinkPro leaves artifacts like &#39;HIDING NEXT_ID&#39;
+  in this buffer, which tools or attackers may read.
+reads:
+- device_hostname
+- file_path
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE &#39;%/trace_pipe&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## deployment-triage
+&lt;!-- Weigh deployment evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- loader-execution
+- trace-pipe-activity
+max_iterations: 3
+objective: Determine if any Linux host shows high-confidence evidence of eBPF rootkit
+  deployment based on process execution and debug log access.
+success_criteria: A per-host summary of suspicious behavior.
+tools:
+- endpoint
+- network
+```
+
+## evasion-behavior-fanout
+&lt;!-- Evasion and concealment fan-out --&gt;
+parallel:
+- → ptrace-blocking-anomalies
+- → rare-network-egress
+join: → rootkit-synthesis
+
+## ptrace-blocking-anomalies
+&lt;!-- Ptrace-blocking process anomalies --&gt;
+Identify processes that terminate unexpectedly while performing introspection, a common rootkit defense.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Sudden termination of enumeration tools. Rootkits may send SIGKILL to processes
+  attempting to attach via ptrace to hidden PIDs.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- time
+- activity_id
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE activity_id = 2 AND (LOWER(process_name) IN (&#39;ss&#39;, &#39;ps&#39;, &#39;bpftool&#39;, &#39;strace&#39;, &#39;gdb&#39;)) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## rare-network-egress
+&lt;!-- Rare network outbound connections --&gt;
+Identify outbound connections seen on very few hosts that may be hidden from local utilities like ss.
+
+```sqlite target=network role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A list of IP/port pairs seen on only one or two hosts. This surfaces connections
+  the rootkit attempts to hide from local Netlink-based tools.
+prevalence:
+  by: device_hostname
+  key:
+  - dst_endpoint_ip
+  - dst_endpoint_port
+  rare_below: 3
+reads:
+- dst_endpoint_ip
+- dst_endpoint_port
+- device_hostname
+- direction
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = &#39;outbound&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count &lt;= 2
+```
+
+## rootkit-synthesis
+&lt;!-- Synthesize rootkit indicators --&gt;
+```agent target=hunter
+cite: required
+context:
+- deployment-triage
+- ptrace-blocking-anomalies
+- rare-network-egress
+max_iterations: 5
+objective: Confirm the presence of an active eBPF rootkit by correlating deployment
+  indicators (loaders, trace logs) with active evasion (ptrace blocking, rare connections).
+success_criteria: A high-confidence per-host verdict citing specific evidence from
+  all phases.
+tools:
+- endpoint
+- network
+```
+
+## remediation-decision
+&lt;!-- Route on rootkit verdict --&gt;
+if~: &#34;The synthesis agent identifies correlated evidence of suspicious loader activity, trace pipe logs, and active kernel-level evasion like ptrace blocking.&#34; (confidence: high, judge=hunter)
+then: → isolate-compromised-host
+indeterminate: → analyst-forensic-task
+unavailable: → analyst-forensic-task (blind_spot: kernel-telemetry-suppression)
+else: → analyst-forensic-task
+
+## isolate-compromised-host
+&lt;!-- Isolate compromised host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host from the network. Before re-imaging, capture a full memory dump and the /sys/kernel/debug/tracing/trace buffer to recover eBPF program IDs.
+```
+→ analyst-forensic-task
+
+## analyst-forensic-task
+&lt;!-- Analyst forensic verification --&gt;
+```manual target=analyst
+Review the process terminations and loader execution history. Compare the enumerated network connections from this hunt against standard endpoint socket telemetry to confirm hidden flows.
+```
+→ hunt-closure
+
+## hunt-closure
+&lt;!-- Hunt closure and tuning --&gt;
+```manual target=analyst
+Document the rootkit variants and update the suspicious rootkit loaders query with any newly discovered paths or command patterns.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=linux-ebpf-rootkit-execution-manipulation&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=linux-ebpf-rootkit-execution-manipulation" target="_top" rel="noopener" data-track="run" data-placement="band">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download data-placement="band">Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download data-placement="band">Definition (JSON)</a>
+    </div>
+  </section>
+
+  <aside class="card subscribe">
+    <div>
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts like this one, every week: the research, the hypothesis and the queries.</p>
+    </div>
+    <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="hunt">
+  <label class="sr-only" for="sub-email-hunt">Email address</label>
+  <input id="sub-email-hunt" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+  </aside>
+
+  <aside class="card after-download chrome" id="after-download" hidden aria-live="polite">
+    <button type="button" class="close" aria-label="Dismiss">×</button>
+    <p class="eyebrow"><span>Downloaded</span></p>
+    <p>The file runs anywhere that reads hunt.md. In Huntbase it runs against your own connections.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=linux-ebpf-rootkit-execution-manipulation&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=linux-ebpf-rootkit-execution-manipulation-after-download" target="_top" rel="noopener" data-track="run" data-placement="after-download">Run this in Huntbase<span aria-hidden="true"> →</span></a>      <a href="#subscribe" data-track="subscribe-jump" data-placement="after-download">Get new hunts by email</a>
+    </div>
+  </aside>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+    <div class="foot-subscribe" id="subscribe">
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts from the week's research, in your inbox every Tuesday.</p>
+      <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="footer">
+  <label class="sr-only" for="sub-email-footer">Email address</label>
+  <input id="sub-email-footer" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+    </div>
+    <nav class="foot-links" aria-label="Huntbase">
+      <a href="https://www.huntbase.io" rel="noopener">Huntbase</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=footer" rel="noopener" data-track="signup" data-placement="footer">Sign up free</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md spec</a>
+      <a href="https://github.com/huntbase-io/hunts" rel="noopener">Hunts on GitHub</a>
+      <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener" data-track="subscribe" data-placement="footer-links">Newsletter</a>
+      <a href="https://www.huntbase.io/legal/privacy" rel="noopener">Privacy</a>
+      <a href="https://www.huntbase.io/terms" rel="noopener">Terms</a>
+    </nav>
+  </footer>
+  <script>
+  (() => {
+    // Inline newsletter forms. listmonk's public API sends no CORS headers, so
+    // the POST goes out in no-cors mode and the reply is opaque: the browser has
+    // already validated the address, and the real confirmation is the opt-in
+    // email, so success here means "sent", not "subscribed".
+    const api = "https://news.hub.huntbase.io/api/public/subscription", list = "72c40a64-91cd-4a64-8c41-14c9036a2b18", hosted = "https://news.hub.huntbase.io/subscription/form";
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    document.querySelectorAll('form[data-subscribe]').forEach((form) => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = form.querySelector('input[type=email]');
+        const button = form.querySelector('button');
+        const email = input.value.trim();
+        button.disabled = true;
+        document.dispatchEvent(new CustomEvent('hub:subscribe', { detail: { placement: form.dataset.placement || '' } }));
+        try {
+          await fetch(api, { method: 'POST', mode: 'no-cors', body: new URLSearchParams({ email, l: list }) });
+          form.innerHTML = `<p class="sub-done" role="status"><strong>Almost there.</strong> We've sent a confirmation link to ${esc(email)}. Click it and you're subscribed.</p>`;
+        } catch (err) {
+          button.disabled = false;
+          form.querySelector('.sub-note').innerHTML = `We couldn't reach the newsletter service. <a href="${esc(hosted)}" target="_blank" rel="noopener">Subscribe on the form instead →</a>`;
+        }
+      });
+    });
+    // "Get updates" scrolls to the nearest form and puts the cursor in it: the
+    // hero form on the home page (the list below it grows as you scroll, so an
+    // anchor to the footer lands short), otherwise the footer form.
+    document.querySelectorAll('a[href="#subscribe"]').forEach((a) => a.addEventListener('click', (e) => {
+      const form = document.querySelector('.hero form[data-subscribe]') || document.querySelector('#subscribe form[data-subscribe]');
+      const input = form && form.querySelector('input[type=email]');
+      if (!input) return;
+      e.preventDefault();
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => input.focus({ preventScroll: true }), 450);
+    }));
+  })();
+  </script>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+
+    // A download is not the end of the visit: say where the file can go next.
+    const prompt = document.getElementById('after-download');
+    document.querySelectorAll('a[download]').forEach((a) => a.addEventListener('click', () => { prompt.hidden = false; }));
+    prompt.querySelector('.close').addEventListener('click', () => { prompt.hidden = true; });
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

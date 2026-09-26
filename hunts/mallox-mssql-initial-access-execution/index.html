@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mallox Ransomware MSSQL Authentication and Service Abuse · Huntbase Hub</title>
+  <link rel="icon" href="../../static/logo-icon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="../../favicon.ico" sizes="any">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is brute-forcing the MSSQL sa account to enable administrative features and execute a PowerShell loader from the SQL process.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/mallox-mssql-initial-access-execution/">
+  <meta property="og:site_name" content="Huntbase Hub">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Mallox Ransomware MSSQL Authentication and Service Abuse · Huntbase Hub">
+  <meta property="og:description" content="An adversary is brute-forcing the MSSQL sa account to enable administrative features and execute a PowerShell loader from the SQL process.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/mallox-mssql-initial-access-execution/">
+  <meta property="og:image" content="https://hub.huntbase.io/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Huntbase Hub: threat hunts from this week's research">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Mallox Ransomware MSSQL Authentication and Service Abuse · Huntbase Hub">
+  <meta name="twitter:description" content="An adversary is brute-forcing the MSSQL sa account to enable administrative features and execute a PowerShell loader from the SQL process.">
+  <meta name="twitter:image" content="https://hub.huntbase.io/static/og.png"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hub" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+<script defer src="../../static/analytics.js" data-key="phc_NaC68cbX13YbvdvqE5AC1bwHivYSRhcZc6upjVubI8M" data-host="https://eu.i.posthog.com"></script></head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hub">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hub</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Hunts</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="../../feed.xml">Feed</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=nav" rel="noopener" data-track="signup" data-placement="nav">Sign up</a>
+      <a class="btn btn-brand" href="#subscribe" data-track="subscribe-jump" data-placement="nav">Get updates</a>
+    </nav>
+  </header>
+  <main><article class="hunt" data-slug="mallox-mssql-initial-access-execution">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← All hunts</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 1 of 2</span>      </div>
+      <h1 class="heading-xl">Mallox Ransomware MSSQL Authentication and Service Abuse</h1>
+      <p class="hyp-lead">An adversary is brute-forcing the MSSQL sa account to enable administrative features and execute a PowerShell loader from the SQL process.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/" rel="noopener">Sekoia</a></span>
+<span>2026-09-20</span>        <span>9 steps · 3 queries</span>
+<span class="mono">T1047 T1059.001 T1110 T1190 T1486</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=mallox-mssql-initial-access-execution&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=mallox-mssql-initial-access-execution" target="_top" rel="noopener" data-track="run" data-placement="header">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download data-placement="header">Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why this hunt</h3>
+<p>Recent research from Sekoia, <a href="https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/" rel="noopener noreferrer">Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation</a>, details a consistent pattern of initial access. Adversaries target internet-exposed Microsoft SQL servers with brute-force attacks against the <code>sa</code> account. Once they gain access, they use stored procedures like <code>xp_cmdshell</code> or OLE automation to execute PowerShell commands. This hunt focuses on the transition from authentication abuse to system execution.</p>
+<h3>How the hunt flows</h3>
+<p>The hunt begins by identifying every host in the environment running Microsoft SQL Server. This scoping step uses software inventory data to narrow the field of investigation. This reduces the processing load for the subsequent behavioral queries and focuses the analyst on relevant assets.</p>
+<p>The second phase runs two queries in parallel. One query scans identity logs for high-volume sign-in failures against the <code>sa</code> account or other known administrative users. Simultaneously, another query monitors process activity for <code>sqlservr.exe</code> spawning shells such as <code>cmd.exe</code>, <code>powershell.exe</code>, or <code>wmic.exe</code>. While both events might occur independently in a busy environment, their temporal proximity on a single host indicates a high-fidelity intrusion.</p>
+<p>In the final phase, an analyst correlates these findings. The goal is to determine if a period of intensive brute-force activity precedes the launch of a shell from the SQL service. This correlation identifies the moment the adversary successfully gains execution privileges. If confirmed, the hunt provides instructions for immediate host isolation and forensic auditing of the SQL engine settings.</p>
+<h3>What the hunt cannot see</h3>
+<p>This hunt relies on process creation events and authentication logs. It does not see internal SQL configuration changes that do not result in a process launch, such as enabling the <code>TRUSTWORTHY</code> bit or loading CLR assemblies. These actions require internal SQL trace or audit logs. Additionally, if the adversary uses heavily obfuscated PowerShell script blocks, simple command-line inspection may not reveal the specific download URIs or intent of the secondary payload.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/purecrypter-loader-mallox-execution/index.html">Part 2: PureCrypter Loader and Mallox Ransomware Execution</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 5 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Identity / sign-in telemetry</span><span class="dim">identity</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">3</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is brute-forcing the MSSQL sa account to enable administrative features and execute a PowerShell loader from the SQL process.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Find hosts where Microsoft SQL Server is installed to narrow the scope of the subsequent behavioral queries.", "expected": "A list of hosts currently running SQL Server. Silence indicates no SQL installations were found in the software inventory.", "id": "identify-sql-servers", "label": "Identify active MSSQL installations", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%sql server%\u0027 OR LOWER(vendor_name) LIKE \u0027%microsoft%\u0027) AND asset_scope = \u0027endpoint\u0027", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Detect high-volume login failure patterns targeting the SQL Administrator account.", "expected": "A host showing hundreds of failed sign-ins on the sa account. Silence proves no large-scale brute force occurred during the window.", "id": "sa-account-brute-force", "label": "Brute-force activity against SQL accounts", "parents": [{"branch": null, "id": "identify-sql-servers", "kind": null}], "query": "SELECT dst_endpoint_name, actor_user_name, COUNT(*) as fail_count, MIN(time) as first_fail, MAX(time) as last_fail FROM hb_auth_signin WHERE activity_id = 5 AND instr(\u0027,\u0027 || \u0027{{target_accounts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(actor_user_name) || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || dst_endpoint_name || \u0027,\u0027) \u003e 0) GROUP BY dst_endpoint_name, actor_user_name HAVING fail_count \u003e 100 ORDER BY fail_count DESC", "role": "baseline", "source": "hb_auth_signin", "type": "query"}, {"description": "Identify instances where the SQL service process spawns a shell or WMIC, indicating successful xp_cmdshell or OLE automation abuse.", "expected": "Process rows showing cmd.exe or powershell.exe as children of the MSSQL service. Silence proves the SQL engine did not spawn common shells on the audited hosts.", "id": "sql-server-shell-spawn", "label": "SQL Server spawning shell interpreters", "parents": [{"branch": null, "id": "identify-sql-servers", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE \u0027%sqlservr.exe%\u0027 OR LOWER(process_cmd_line) LIKE \u0027%sqlservr%\u0027) AND instr(\u0027,\u0027 || \u0027{{shell_paths}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Correlate the identity and endpoint evidence to confirm a Mallox-style server breach.", "expected": "A per-host verdict citing rows from both authentication and process activity.", "id": "triage-mallox-activity", "label": "Weigh brute-force and execution results", "parents": [{"branch": null, "id": "sa-account-brute-force", "kind": "merge"}, {"branch": null, "id": "sql-server-shell-spawn", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Route to containment if the evidence confirms the adversary has gained execution privileges on the server.", "expected": null, "id": "is-intrusion-confirmed", "label": "Confirm intrusion on SQL host", "parents": [{"branch": null, "id": "triage-mallox-activity", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Stop the adversary before they can deploy the PureCrypter loader or start the ransomware encryption phase.", "expected": null, "id": "isolate-infected-server", "label": "Isolate the compromised SQL host", "parents": [{"branch": "on_supports", "id": "is-intrusion-confirmed", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Examine internal SQL configurations and logs that the automated hunt could not reach.", "expected": null, "id": "forensic-verification", "label": "Forensic audit of SQL engine", "parents": [{"branch": "default", "id": "is-intrusion-confirmed", "kind": null}, {"branch": "on_unavailable", "id": "is-intrusion-confirmed", "kind": null}, {"branch": null, "id": "isolate-infected-server", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document findings and recommend hardening measures to prevent re-infection.", "expected": null, "id": "close-out", "label": "Hunt close-out and remediation", "parents": [{"branch": "on_refutes", "id": "is-intrusion-confirmed", "kind": null}, {"branch": null, "id": "forensic-verification", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-identify-sql-servers">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify active MSSQL installations</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Find hosts where Microsoft SQL Server is installed to narrow the scope of the subsequent behavioral queries.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%sql server%&#39; OR LOWER(vendor_name) LIKE &#39;%microsoft%&#39;) AND asset_scope = &#39;endpoint&#39;</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts currently running SQL Server. Silence indicates no SQL installations were found in the software inventory.</p>        </li>
+        <li class="card step" id="step-sa-account-brute-force">
+          <div class="step-head">
+            <h3 class="heading-sm">Brute-force activity against SQL accounts</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Detect high-volume login failure patterns targeting the SQL Administrator account.</p>          <div class="code"><div class="code-head"><span>reads hb_auth_signin</span><span>sql</span></div><pre><code>SELECT dst_endpoint_name, actor_user_name, COUNT(*) as fail_count, MIN(time) as first_fail, MAX(time) as last_fail FROM hb_auth_signin WHERE activity_id = 5 AND instr(&#39;,&#39; || &#39;{{target_accounts}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(actor_user_name) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_name || &#39;,&#39;) &gt; 0) GROUP BY dst_endpoint_name, actor_user_name HAVING fail_count &gt; 100 ORDER BY fail_count DESC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A host showing hundreds of failed sign-ins on the sa account. Silence proves no large-scale brute force occurred during the window.</p>        </li>
+        <li class="card step" id="step-sql-server-shell-spawn">
+          <div class="step-head">
+            <h3 class="heading-sm">SQL Server spawning shell interpreters</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify instances where the SQL service process spawns a shell or WMIC, indicating successful xp_cmdshell or OLE automation abuse.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE &#39;%sqlservr.exe%&#39; OR LOWER(process_cmd_line) LIKE &#39;%sqlservr%&#39;) AND instr(&#39;,&#39; || &#39;{{shell_paths}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Process rows showing cmd.exe or powershell.exe as children of the MSSQL service. Silence proves the SQL engine did not spawn common shells on the audited hosts.</p>        </li>
+        <li class="card step" id="step-triage-mallox-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Weigh brute-force and execution results</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate the identity and endpoint evidence to confirm a Mallox-style server breach.</p>        </li>
+        <li class="card step" id="step-is-intrusion-confirmed">
+          <div class="step-head">
+            <h3 class="heading-sm">Confirm intrusion on SQL host</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Route to containment if the evidence confirms the adversary has gained execution privileges on the server.</p>        </li>
+        <li class="card step" id="step-isolate-infected-server">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate the compromised SQL host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Stop the adversary before they can deploy the PureCrypter loader or start the ransomware encryption phase.</p>        </li>
+        <li class="card step" id="step-forensic-verification">
+          <div class="step-head">
+            <h3 class="heading-sm">Forensic audit of SQL engine</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Examine internal SQL configurations and logs that the automated hunt could not reach.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Hunt close-out and remediation</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document findings and recommend hardening measures to prevent re-infection.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>MSSQL Brute-force<br><span class="mono dim">T1110 · T1190</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>sa-account-brute-force</td></tr>            <tr><td>MSSQL Feature Abuse<br><span class="mono dim">T1059.001 · T1047</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>sql-server-shell-spawn, forensic-verification</td></tr>            <tr><td>PureCrypter Retrieval<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation&#39; series.</td></tr>            <tr><td>PureCrypter Evasion and Persistence<br><span class="mono dim">T1059.001 · T1047</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation&#39; series.</td></tr>            <tr><td>Mallox Ransomware Encryption<br><span class="mono dim">T1486</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs MSSQL internal trace/audit logs.</strong> The hunt sees the resulting process but may miss failed exploitation attempts or configuration changes that didn&#39;t lead to a process launch. <span class="dim">It would answer Was the TRUSTWORTHY bit or CLR assembly enabled internally?.</span> <span class="dim">Remediation: Enable MSSQL Audit logging for database-level changes and ship them to the platform.</span></li>          <li class="card"><strong>Needs hb_script_activity with full block de-obfuscation.</strong> Adversaries using Base64 or complex obfuscation may hide the downloader URI from simple command-line inspection. <span class="dim">It would answer What was the intent of the PowerShell loader if it was heavily encoded?.</span> <span class="dim">Remediation: Ensure PowerShell Script Block Logging (ID 4104) is enabled and collected.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Limit the hunt to specific hosts; leave empty for the whole estate.</td></tr>            <tr><td><code>shell_paths</code></td><td class="mono dim">list[path]</td><td class="mono">c:\windows\system32\cmd.exe, c:\windows\system32\windowspowershell\v1.0\powershell.exe, c:\windows\system32\wbem\wmic.exe</td><td>Full paths to shell interpreters used in exploitation.</td></tr>            <tr><td><code>target_accounts</code></td><td class="mono dim">list[string]</td><td class="mono">sa</td><td>Common administrative accounts targeted in MSSQL brute force.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Identity / sign-in telemetry</td><td class="dim">identity</td><td class="mono">identity</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download data-placement="source">Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download data-placement="source">Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple rule might catch sa brute force, but this hunt links those login
+  failures to specific, unauthorized child processes from the SQL service. This correlation
+  across two telemetry surfaces reduces the noise of automated scanners and identifies
+  confirmed human-driven activity.
+blind_spots:
+- id: mssql-internal-logs
+  question: Was the TRUSTWORTHY bit or CLR assembly enabled internally?
+  remediation: Enable MSSQL Audit logging for database-level changes and ship them
+    to the platform.
+  requires: MSSQL internal trace/audit logs
+  risk: The hunt sees the resulting process but may miss failed exploitation attempts
+    or configuration changes that didn&#39;t lead to a process launch.
+  stage: execution-mssql-exploitation
+- id: obfuscated-script-blocks
+  question: What was the intent of the PowerShell loader if it was heavily encoded?
+  remediation: Ensure PowerShell Script Block Logging (ID 4104) is enabled and collected.
+  requires: hb_script_activity with full block de-obfuscation
+  risk: Adversaries using Base64 or complex obfuscation may hide the downloader URI
+    from simple command-line inspection.
+  stage: execution-mssql-exploitation
+coverage:
+- stage: initial-access-mssql-brute-force
+  status: covered
+  steps:
+  - sa-account-brute-force
+- stage: execution-mssql-exploitation
+  status: covered
+  steps:
+  - sql-server-shell-spawn
+  - forensic-verification
+- reason: Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter
+    in MSSQL exploitation&#39; series.
+  stage: command-and-control-payload-download
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter
+    in MSSQL exploitation&#39; series.
+  stage: defense-evasion-purecrypter-loading
+  status: out_of_scope
+- reason: Belongs to another part of the &#39;Mallox ransomware affiliate leverages PureCrypter
+    in MSSQL exploitation&#39; series.
+  stage: impact-mallox-encryption
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: MSSQL servers are primary targets for ransomware affiliates because
+    they often store high-value data and run with administrative privileges. This
+    hunt finds the intrusion at the beachhead, before encryption occurs.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is brute-forcing the MSSQL sa account to enable administrative
+  features and execute a PowerShell loader from the SQL process.
+labels:
+- hunt
+- attack.t1110
+- attack.t1190
+- attack.t1059.001
+- attack.t1047
+- attack.t1486
+name: Mallox Ransomware MSSQL Authentication and Service Abuse
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Limit the hunt to specific hosts; leave empty for the whole estate.
+    type: list[host]
+  shell_paths:
+    default:
+    - c:\windows\system32\cmd.exe
+    - c:\windows\system32\windowspowershell\v1.0\powershell.exe
+    - c:\windows\system32\wbem\wmic.exe
+    description: Full paths to shell interpreters used in exploitation.
+    from:
+      kind: article
+      observed: &#39;2024-05-02&#39;
+      ref: Sekoia Mallox
+    type: list[path]
+  target_accounts:
+    default:
+    - sa
+    description: Common administrative accounts targeted in MSSQL brute force.
+    from:
+      kind: article
+      observed: &#39;2024-05-02&#39;
+      ref: Sekoia Mallox
+    type: list[string]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with SQL servers exposed on port 1433 or those located in DMZ segments.
+  If the software inventory is stale, run the behavioral queries over the whole estate.
+references:
+- name: &#34;Sekoia \u2014 Mallox ransomware affiliate leverages PureCrypter in MSSQL\
+    \ exploitation&#34;
+  url: https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/
+related:
+- hunt: purecrypter-loading-behavior
+  reason: The loading phase of PureCrypter involves anti-analysis and memory reflection
+    common to many malware families beyond Mallox.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: MSSQL Brute-force
+    observables:
+    - Targeting &#39;sa&#39; account
+    - ~320 attempts per minute
+    - Inbound traffic on port 1433
+    - Application name vYMiFrYR
+    slug: initial-access-mssql-brute-force
+    tactic: initial-access
+    techniques:
+    - T1110
+    - T1190
+  - name: MSSQL Feature Abuse
+    observables:
+    - Enable TRUSTWORTHY parameter on master database
+    - Enable clr enabled parameter
+    - Create assembly named &#39;shell&#39; on msdb database
+    - Enable xp_cmdshell
+    - Use sp_oacreate to create wscript.shell OLE object
+    - PowerShell script in C:\ProgramData
+    - WMIC execution of binary
+    slug: execution-mssql-exploitation
+    tactic: execution
+    techniques:
+    - T1059.001
+    - T1047
+  - name: PureCrypter Retrieval
+    observables:
+    - Download of random-named files with media extensions (.mp4, .wav, .pdf)
+    - 3DES encrypted data payload
+    slug: command-and-control-payload-download
+    tactic: command-and-control
+    techniques:
+    - T1090.003
+  - name: PureCrypter Evasion and Persistence
+    observables:
+    - Registry key Software\Microsoft\Windows\CurrentVersion\Run\
+    - WMI query select * from Win32_BIOS
+    - WMI query select * from Win32_ComputerSystem
+    - EtwEventWrite patching
+    - AmsiScanBuffer patching
+    - MpPreference -Exclusion commands
+    - Module load of SbieDll.dll
+    - Reflective code loading of .NET library
+    slug: defense-evasion-purecrypter-loading
+    tactic: defense-evasion
+    techniques:
+    - T1059.001
+    - T1047
+  - name: Mallox Ransomware Encryption
+    observables:
+    - Ydxhjxwf.exe in %appdata%
+    - AES-CBC encrypted file content
+    - Ransomware file encryption activity
+    slug: impact-mallox-encryption
+    tactic: impact
+    techniques:
+    - T1486
+  summary: Mallox ransomware affiliates compromise internet-facing MS-SQL servers
+    through brute-force attacks on the &#39;sa&#39; account. Once inside, they abuse internal
+    SQL features like CLR assemblies and OLE automation to execute PowerShell scripts
+    that deploy PureCrypter, which eventually loads the Mallox ransomware in memory.
+series:
+  index: 1
+  slug: mallox-ransomware-affiliate-leverages-purecrypter-in-mssql-exploitation
+  title: Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation
+  total: 2
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  identity:
+    category: identity
+    name: Identity / sign-in telemetry
+    telemetry:
+    - identity
+tlp: clear
+type: investigation
+---
+
+
+# Mallox Ransomware MSSQL Authentication and Service Abuse
+
+This hunt targets the initial compromise of Microsoft SQL Servers by Mallox ransomware affiliates. It identifies high-volume authentication failures against the sa account and correlates them with the activation of SQL features like xp_cmdshell or OLE automation, which results in the SQL service spawning shells to download second-stage payloads. The hunt pivots between identity logs and endpoint process activity to identify confirmed intrusions.
+
+## identify-sql-servers
+&lt;!-- Identify active MSSQL installations --&gt;
+Find hosts where Microsoft SQL Server is installed to narrow the scope of the subsequent behavioral queries.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts currently running SQL Server. Silence indicates no SQL installations
+  were found in the software inventory.
+reads:
+- device_hostname
+- package_name
+- vendor_name
+- asset_scope
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%sql server%&#39; OR LOWER(vendor_name) LIKE &#39;%microsoft%&#39;) AND asset_scope = &#39;endpoint&#39;
+```
+
+## investigate-compromise
+&lt;!-- Investigate brute-force and execution --&gt;
+parallel:
+- → sa-account-brute-force
+- → sql-server-shell-spawn
+join: → triage-mallox-activity
+
+## sa-account-brute-force
+&lt;!-- Brute-force activity against SQL accounts --&gt;
+Detect high-volume login failure patterns targeting the SQL Administrator account.
+
+```sqlite target=identity role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts, target_accounts=target_accounts)
+~~~yaml
+baseline:
+  compare: prior_equal_window
+  window: &#39;{{lookback_days}}d&#39;
+expected: A host showing hundreds of failed sign-ins on the sa account. Silence proves
+  no large-scale brute force occurred during the window.
+prevalence:
+  by: dst_endpoint_name
+  key:
+  - actor_user_name
+  rare_below: 2
+reads:
+- dst_endpoint_name
+- actor_user_name
+- activity_id
+- time
+silence: not_evidence_of_absence
+source: hb_auth_signin
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT dst_endpoint_name, actor_user_name, COUNT(*) as fail_count, MIN(time) as first_fail, MAX(time) as last_fail FROM hb_auth_signin WHERE activity_id = 5 AND instr(&#39;,&#39; || &#39;{{target_accounts}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(actor_user_name) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || dst_endpoint_name || &#39;,&#39;) &gt; 0) GROUP BY dst_endpoint_name, actor_user_name HAVING fail_count &gt; 100 ORDER BY fail_count DESC
+```
+
+## sql-server-shell-spawn
+&lt;!-- SQL Server spawning shell interpreters --&gt;
+Identify instances where the SQL service process spawns a shell or WMIC, indicating successful xp_cmdshell or OLE automation abuse.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts, shell_paths=shell_paths)
+~~~yaml
+expected: Process rows showing cmd.exe or powershell.exe as children of the MSSQL
+  service. Silence proves the SQL engine did not spawn common shells on the audited
+  hosts.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- parent_process_name
+- time
+silence: evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-20&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE &#39;%sqlservr.exe%&#39; OR LOWER(process_cmd_line) LIKE &#39;%sqlservr%&#39;) AND instr(&#39;,&#39; || &#39;{{shell_paths}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)
+```
+
+## triage-mallox-activity
+&lt;!-- Weigh brute-force and execution results --&gt;
+```agent target=hunter
+cite: required
+context:
+- sa-account-brute-force
+- sql-server-shell-spawn
+max_iterations: 3
+objective: Determine if the brute-force activity against the sa account resulted in
+  successful execution of shells or downloaders on any SQL server.
+success_criteria: A verdict of malicious for any host where shell execution temporally
+  follows a period of login failures.
+tools:
+- endpoint
+- identity
+```
+
+## is-intrusion-confirmed
+&lt;!-- Confirm intrusion on SQL host --&gt;
+if~: &#34;the agent confirms that a high volume of login failures was followed by the SQL service spawning a shell or downloader on the same host&#34; (confidence: high, judge=hunter)
+then: → isolate-infected-server
+indeterminate: → forensic-verification
+unavailable: → forensic-verification (blind_spot: mssql-internal-logs)
+else: → close-out
+
+## isolate-infected-server
+&lt;!-- Isolate the compromised SQL host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host from the network immediately. Stop the MSSQL service and prevent local shell execution until investigation is complete.
+```
+→ forensic-verification
+
+## forensic-verification
+&lt;!-- Forensic audit of SQL engine --&gt;
+```manual target=analyst
+Review SQL Server logs for application name vYMiFrYR. Check the master database for TRUSTWORTHY setting changes. Look for a CLR assembly named shell in the msdb database. Search C:\ProgramData for PowerShell scripts or random-named multimedia files.
+```
+→ close-out
+
+## close-out
+&lt;!-- Hunt close-out and remediation --&gt;
+```manual target=analyst
+Record the results for all SQL servers in scope. If the shell-spawn query found true positives, promote it to a standing detection rule. Recommend rotating the sa password and disabling xp_cmdshell.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=mallox-mssql-initial-access-execution&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=mallox-mssql-initial-access-execution" target="_top" rel="noopener" data-track="run" data-placement="band">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download data-placement="band">Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download data-placement="band">Definition (JSON)</a>
+    </div>
+  </section>
+
+  <aside class="card subscribe">
+    <div>
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts like this one, every week: the research, the hypothesis and the queries.</p>
+    </div>
+    <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="hunt">
+  <label class="sr-only" for="sub-email-hunt">Email address</label>
+  <input id="sub-email-hunt" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+  </aside>
+
+  <aside class="card after-download chrome" id="after-download" hidden aria-live="polite">
+    <button type="button" class="close" aria-label="Dismiss">×</button>
+    <p class="eyebrow"><span>Downloaded</span></p>
+    <p>The file runs anywhere that reads hunt.md. In Huntbase it runs against your own connections.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=mallox-mssql-initial-access-execution&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=mallox-mssql-initial-access-execution-after-download" target="_top" rel="noopener" data-track="run" data-placement="after-download">Run this in Huntbase<span aria-hidden="true"> →</span></a>      <a href="#subscribe" data-track="subscribe-jump" data-placement="after-download">Get new hunts by email</a>
+    </div>
+  </aside>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+    <div class="foot-subscribe" id="subscribe">
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts from the week's research, in your inbox every Tuesday.</p>
+      <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="footer">
+  <label class="sr-only" for="sub-email-footer">Email address</label>
+  <input id="sub-email-footer" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+    </div>
+    <nav class="foot-links" aria-label="Huntbase">
+      <a href="https://www.huntbase.io" rel="noopener">Huntbase</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=footer" rel="noopener" data-track="signup" data-placement="footer">Sign up free</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md spec</a>
+      <a href="https://github.com/huntbase-io/hunts" rel="noopener">Hunts on GitHub</a>
+      <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener" data-track="subscribe" data-placement="footer-links">Newsletter</a>
+      <a href="https://www.huntbase.io/legal/privacy" rel="noopener">Privacy</a>
+      <a href="https://www.huntbase.io/terms" rel="noopener">Terms</a>
+    </nav>
+  </footer>
+  <script>
+  (() => {
+    // Inline newsletter forms. listmonk's public API sends no CORS headers, so
+    // the POST goes out in no-cors mode and the reply is opaque: the browser has
+    // already validated the address, and the real confirmation is the opt-in
+    // email, so success here means "sent", not "subscribed".
+    const api = "https://news.hub.huntbase.io/api/public/subscription", list = "72c40a64-91cd-4a64-8c41-14c9036a2b18", hosted = "https://news.hub.huntbase.io/subscription/form";
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    document.querySelectorAll('form[data-subscribe]').forEach((form) => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = form.querySelector('input[type=email]');
+        const button = form.querySelector('button');
+        const email = input.value.trim();
+        button.disabled = true;
+        document.dispatchEvent(new CustomEvent('hub:subscribe', { detail: { placement: form.dataset.placement || '' } }));
+        try {
+          await fetch(api, { method: 'POST', mode: 'no-cors', body: new URLSearchParams({ email, l: list }) });
+          form.innerHTML = `<p class="sub-done" role="status"><strong>Almost there.</strong> We've sent a confirmation link to ${esc(email)}. Click it and you're subscribed.</p>`;
+        } catch (err) {
+          button.disabled = false;
+          form.querySelector('.sub-note').innerHTML = `We couldn't reach the newsletter service. <a href="${esc(hosted)}" target="_blank" rel="noopener">Subscribe on the form instead →</a>`;
+        }
+      });
+    });
+    // "Get updates" scrolls to the nearest form and puts the cursor in it: the
+    // hero form on the home page (the list below it grows as you scroll, so an
+    // anchor to the footer lands short), otherwise the footer form.
+    document.querySelectorAll('a[href="#subscribe"]').forEach((a) => a.addEventListener('click', (e) => {
+      const form = document.querySelector('.hero form[data-subscribe]') || document.querySelector('#subscribe form[data-subscribe]');
+      const input = form && form.querySelector('input[type=email]');
+      if (!input) return;
+      e.preventDefault();
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => input.focus({ preventScroll: true }), 450);
+    }));
+  })();
+  </script>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+
+    // A download is not the end of the visit: say where the file can go next.
+    const prompt = document.getElementById('after-download');
+    document.querySelectorAll('a[download]').forEach((a) => a.addEventListener('click', () => { prompt.hidden = false; }));
+    prompt.querySelector('.close').addEventListener('click', () => { prompt.hidden = true; });
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

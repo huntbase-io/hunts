@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Correlating Proxy-Obscured Identity and Endpoint Activity · Huntbase Hub</title>
+  <link rel="icon" href="../../static/logo-icon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="../../favicon.ico" sizes="any">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary is using multi-hop proxy infrastructure to authenticate via Okta and subsequently execute discovery commands on an endpoint, obscured by network egress to proxy relay ports.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/proxy-obscured-identity-endpoint-correlation/">
+  <meta property="og:site_name" content="Huntbase Hub">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Correlating Proxy-Obscured Identity and Endpoint Activity · Huntbase Hub">
+  <meta property="og:description" content="An adversary is using multi-hop proxy infrastructure to authenticate via Okta and subsequently execute discovery commands on an endpoint, obscured by network egress to proxy relay ports.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/proxy-obscured-identity-endpoint-correlation/">
+  <meta property="og:image" content="https://hub.huntbase.io/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Huntbase Hub: threat hunts from this week's research">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Correlating Proxy-Obscured Identity and Endpoint Activity · Huntbase Hub">
+  <meta name="twitter:description" content="An adversary is using multi-hop proxy infrastructure to authenticate via Okta and subsequently execute discovery commands on an endpoint, obscured by network egress to proxy relay ports.">
+  <meta name="twitter:image" content="https://hub.huntbase.io/static/og.png"><link rel="stylesheet" href="../../static/xyflow.css">
+<script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script>  <link rel="stylesheet" href="../../static/style.css">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hub" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+<script defer src="../../static/analytics.js" data-key="phc_NaC68cbX13YbvdvqE5AC1bwHivYSRhcZc6upjVubI8M" data-host="https://eu.i.posthog.com"></script></head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../index.html" aria-label="Huntbase Hub">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hub</span>
+    </a>
+    <nav>
+      <a href="../../index.html">Hunts</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="../../feed.xml">Feed</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=nav" rel="noopener" data-track="signup" data-placement="nav">Sign up</a>
+      <a class="btn btn-brand" href="#subscribe" data-track="subscribe-jump" data-placement="nav">Get updates</a>
+    </nav>
+  </header>
+  <main><article class="hunt" data-slug="proxy-obscured-identity-endpoint-correlation">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../index.html">← All hunts</a>
+        <span class="badge sev medium">medium</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+      </div>
+      <h1 class="heading-xl">Correlating Proxy-Obscured Identity and Endpoint Activity</h1>
+      <p class="hyp-lead">An adversary is using multi-hop proxy infrastructure to authenticate via Okta and subsequently execute discovery commands on an endpoint, obscured by network egress to proxy relay ports.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://redcanary.com/blog/threat-detection/threat-hunting-scaled/" rel="noopener">Red Canary</a></span>
+<span>2026-09-21</span>        <span>12 steps · 5 queries</span>
+<span class="mono">T1059 T1078 T1090.003</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=proxy-obscured-identity-endpoint-correlation&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=proxy-obscured-identity-endpoint-correlation" target="_top" rel="noopener" data-track="run" data-placement="header">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download data-placement="header">Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">12</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why this hunt</h3>
+<p>In the article How threat hunting evolves at scale (https://redcanary.com/blog/threat-detection/threat-hunting-scaled/), the author explains that effective hunting requires connecting disparate signals across the environment. This hunt targets identity obfuscation, a common tactic where adversaries use Tor or VPS proxies to mask their location during login. By correlating identity logs with endpoint-level DNS and process activity, we can confirm if a remote session is tied to unauthorized internal actions.</p>
+<h3>How the hunt flows</h3>
+<p>The first phase establishes a baseline by identifying successful Okta logins. The hunt scopes all authentication activity to provide a list of users and source IPs that accessed the environment during the lookback window. This step creates the pool of potential sessions for further analysis. The hunt then initiates two parallel enrichment steps. The first query searches DNS logs for any host resolving domains associated with proxy services like Tor. Simultaneously, the second query flags Okta logins coming from known proxy exit nodes or source IPs that are highly unique across the organization, typically appearing for three or fewer users. An analyst triages these findings by looking for a temporal overlap between a suspicious authentication event and proxy-related DNS resolution on a specific host. This link bridges the identity provider telemetry with host-based behavior, allowing the investigator to deanonymize the session origin. The follow-on phase gathers evidence of activity following the suspected compromise. The hunt queries for network egress to standard proxy ports like 9001 and 9050 and monitors for the execution of discovery tools like whoami, hostname, or ipconfig. This final layer of evidence confirms the full intrusion chain from login to execution.</p>
+<h3>What the hunt cannot see</h3>
+<p>This hunt has two primary blind spots. It cannot detect activity on unmanaged hosts where an EDR agent is missing, as there will be no process or network telemetry to correlate. Additionally, if the adversary uses a private or ephemeral proxy that has not been indexed by threat intelligence, the IP and DNS filters will not trigger.</p>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 4 of 4 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Identity / sign-in telemetry</span><span class="dim">identity</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">5</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">2</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary is using multi-hop proxy infrastructure to authenticate via Okta and subsequently execute discovery commands on an endpoint, obscured by network egress to proxy relay ports.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Establish a baseline of successful Okta logins to identify active users and potential beachhead IPs.", "expected": "A list of successful Okta logins. Silence indicates no Okta telemetry is available for the period.", "id": "scope-okta-logins", "label": "Scope Okta Authentication Activity", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, auth_protocol, time FROM hb_auth_signin WHERE provider = \u0027okta\u0027 AND status_id = 1 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "scoping", "source": "hb_auth_signin", "type": "query"}, {"description": "Detect endpoints resolving domains associated with proxy services like Tor or onion routing.", "expected": "Hosts resolving Tor-related domains. Silence suggests no active use of these proxy gateways via DNS.", "id": "dns-proxy-infra", "label": "DNS Resolutions for Proxy Infrastructure", "parents": [{"branch": null, "id": "scope-okta-logins", "kind": null}], "query": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (instr(\u0027,\u0027 || \u0027{{proxy_domains}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(query_hostname) || \u0027,\u0027) \u003e 0 OR LOWER(query_hostname) LIKE \u0027%.hiddenservice.net\u0027) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_dns_activity", "type": "query"}, {"description": "Identify Okta logins from known proxy IPs or IPs used by very few users across the fleet.", "expected": "Successful logins from known proxy exit nodes or highly unique IPs. Silence suggests no anomalous authentication source IPs.", "id": "auth-suspicious-ips", "label": "Suspicious Okta Login Source IPs", "parents": [{"branch": null, "id": "scope-okta-logins", "kind": null}], "query": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_count FROM hb_auth_signin WHERE provider = \u0027okta\u0027 AND status_id = 1 AND (instr(\u0027,\u0027 || \u0027{{proxy_ips}}\u0027 || \u0027,\u0027, \u0027,\u0027 || src_endpoint_ip || \u0027,\u0027) \u003e 0 OR src_endpoint_ip IN (SELECT src_endpoint_ip FROM hb_auth_signin WHERE provider = \u0027okta\u0027 GROUP BY src_endpoint_ip HAVING COUNT(DISTINCT actor_user_name) \u003c= 3)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY src_endpoint_ip", "role": "baseline", "source": "hb_auth_signin", "type": "query"}, {"description": "Correlate rare identity authentication events with endpoint proxy infrastructure resolution.", "expected": "A per-host verdict linking a specific user login to proxy domain resolution.", "id": "early-stage-triage", "label": "Early Stage Evidence Triage", "parents": [{"branch": null, "id": "dns-proxy-infra", "kind": "merge"}, {"branch": null, "id": "auth-suspicious-ips", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Detect TCP connections to standard proxy ports like 9001 and 9050 that often signal Tor or multi-hop traffic.", "expected": "Established connections to proxy relay ports. Silence means no egress to these specific ports was observed.", "id": "network-proxy-egress", "label": "Network Egress to Proxy Relay Ports", "parents": [{"branch": null, "id": "early-stage-triage", "kind": null}], "query": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE dst_endpoint_port IN (9001, 9050) AND protocol = \u0027tcp\u0027 AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Find discovery commands executed on the host that correlate with the suspected proxy session.", "expected": "Process execution of common discovery tools. Silence suggests no discovery activity was logged.", "id": "endpoint-discovery", "label": "Endpoint Discovery Command Execution", "parents": [{"branch": null, "id": "early-stage-triage", "kind": null}], "query": "SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE (instr(\u0027,\u0027 || \u0027{{discovery_commands}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 OR instr(\u0027,\u0027 || \u0027{{discovery_commands}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_cmd_line) || \u0027,\u0027) \u003e 0) AND (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Finalize the intrusion chain by linking the suspicious login to follow-on network and process activity.", "expected": "A high-confidence malicious verdict for hosts showing the full chain.", "id": "follow-on-triage", "label": "Follow-on Evidence Triage", "parents": [{"branch": null, "id": "network-proxy-egress", "kind": "merge"}, {"branch": null, "id": "endpoint-discovery", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the hunt to containment if a full proxy-to-endpoint chain is confirmed.", "expected": null, "id": "route-verdict", "label": "Route Based on Intrusion Chain", "parents": [{"branch": null, "id": "follow-on-triage", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the threat by isolating the beachhead host and revoking compromised Okta sessions.", "expected": null, "id": "isolate-host", "label": "Isolate Host and Revoke Identity", "parents": [{"branch": "on_supports", "id": "route-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Confirm the findings and verify no lateral movement occurred.", "expected": null, "id": "analyst-validation", "label": "Analyst Final Validation", "parents": [{"branch": "default", "id": "route-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-verdict", "kind": null}, {"branch": null, "id": "isolate-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Final documentation and performance metrics.", "expected": null, "id": "close-out", "label": "Close Out and Record ROI", "parents": [{"branch": "on_refutes", "id": "route-verdict", "kind": null}, {"branch": null, "id": "analyst-validation", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-okta-logins">
+          <div class="step-head">
+            <h3 class="heading-sm">Scope Okta Authentication Activity</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Establish a baseline of successful Okta logins to identify active users and potential beachhead IPs.</p>          <div class="code"><div class="code-head"><span>reads hb_auth_signin</span><span>sql</span></div><pre><code>SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, auth_protocol, time FROM hb_auth_signin WHERE provider = &#39;okta&#39; AND status_id = 1 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of successful Okta logins. Silence indicates no Okta telemetry is available for the period.</p>        </li>
+        <li class="card step" id="step-dns-proxy-infra">
+          <div class="step-head">
+            <h3 class="heading-sm">DNS Resolutions for Proxy Infrastructure</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Detect endpoints resolving domains associated with proxy services like Tor or onion routing.</p>          <div class="code"><div class="code-head"><span>reads hb_dns_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{proxy_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 OR LOWER(query_hostname) LIKE &#39;%.hiddenservice.net&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Hosts resolving Tor-related domains. Silence suggests no active use of these proxy gateways via DNS.</p>        </li>
+        <li class="card step" id="step-auth-suspicious-ips">
+          <div class="step-head">
+            <h3 class="heading-sm">Suspicious Okta Login Source IPs</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Identify Okta logins from known proxy IPs or IPs used by very few users across the fleet.</p>          <div class="code"><div class="code-head"><span>reads hb_auth_signin</span><span>sql</span></div><pre><code>SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_count FROM hb_auth_signin WHERE provider = &#39;okta&#39; AND status_id = 1 AND (instr(&#39;,&#39; || &#39;{{proxy_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || src_endpoint_ip || &#39;,&#39;) &gt; 0 OR src_endpoint_ip IN (SELECT src_endpoint_ip FROM hb_auth_signin WHERE provider = &#39;okta&#39; GROUP BY src_endpoint_ip HAVING COUNT(DISTINCT actor_user_name) &lt;= 3)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY src_endpoint_ip</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Successful logins from known proxy exit nodes or highly unique IPs. Silence suggests no anomalous authentication source IPs.</p>        </li>
+        <li class="card step" id="step-early-stage-triage">
+          <div class="step-head">
+            <h3 class="heading-sm">Early Stage Evidence Triage</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate rare identity authentication events with endpoint proxy infrastructure resolution.</p>        </li>
+        <li class="card step" id="step-network-proxy-egress">
+          <div class="step-head">
+            <h3 class="heading-sm">Network Egress to Proxy Relay Ports</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Detect TCP connections to standard proxy ports like 9001 and 9050 that often signal Tor or multi-hop traffic.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE dst_endpoint_port IN (9001, 9050) AND protocol = &#39;tcp&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Established connections to proxy relay ports. Silence means no egress to these specific ports was observed.</p>        </li>
+        <li class="card step" id="step-endpoint-discovery">
+          <div class="step-head">
+            <h3 class="heading-sm">Endpoint Discovery Command Execution</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Find discovery commands executed on the host that correlate with the suspected proxy session.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{discovery_commands}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR instr(&#39;,&#39; || &#39;{{discovery_commands}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_cmd_line) || &#39;,&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Process execution of common discovery tools. Silence suggests no discovery activity was logged.</p>        </li>
+        <li class="card step" id="step-follow-on-triage">
+          <div class="step-head">
+            <h3 class="heading-sm">Follow-on Evidence Triage</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Finalize the intrusion chain by linking the suspicious login to follow-on network and process activity.</p>        </li>
+        <li class="card step" id="step-route-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route Based on Intrusion Chain</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the hunt to containment if a full proxy-to-endpoint chain is confirmed.</p>        </li>
+        <li class="card step" id="step-isolate-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Host and Revoke Identity</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the threat by isolating the beachhead host and revoking compromised Okta sessions.</p>        </li>
+        <li class="card step" id="step-analyst-validation">
+          <div class="step-head">
+            <h3 class="heading-sm">Analyst Final Validation</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Confirm the findings and verify no lateral movement occurred.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close Out and Record ROI</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Final documentation and performance metrics.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Proxy Infrastructure DNS Resolution<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>dns-proxy-infra</td></tr>            <tr><td>Identity Authentication via Multi-hop Proxy<br><span class="mono dim">T1078 · T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>auth-suspicious-ips</td></tr>            <tr><td>Network Egress to Proxy Nodes<br><span class="mono dim">T1090.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>network-proxy-egress</td></tr>            <tr><td>Identity-Correlated Process Execution<br><span class="mono dim">T1059</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>endpoint-discovery</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_process_activity from all endpoints.</strong> An adversary could authenticate via proxy and access unmanaged infrastructure without detection. <span class="dim">It would answer Did the user execute commands on hosts where no EDR agent is installed?.</span></li>          <li class="card"><strong>Needs Up-to-date threat intelligence on Tor exit nodes.</strong> Static IP lists will miss private relays or fresh VPS infrastructure. <span class="dim">It would answer Was the authentication from a newly stood-up VPS not yet in our IP lists?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>discovery_commands</code></td><td class="mono dim">list[string]</td><td class="mono">whoami, hostname, ipconfig, net user</td><td>Discovery commands often run by adversaries immediately after gaining access.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>proxy_domains</code></td><td class="mono dim">list[domain]</td><td class="mono">torproject.org, bridge.torproject.org, check.torproject.org</td><td>Known proxy infrastructure domains.</td></tr>            <tr><td><code>proxy_ips</code></td><td class="mono dim">list[ip]</td><td class="mono">185.220.101.0, 176.10.99.200</td><td>Known Tor exit node or VPS IP addresses.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Specific hostnames to narrow the hunt.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Identity / sign-in telemetry</td><td class="dim">identity</td><td class="mono">identity</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download data-placement="source">Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download data-placement="source">Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A single detection rule can trigger on a known Tor IP or a specific discovery
+  command, but it cannot verify if that IP was used for a successful Okta login that
+  then led to discovery activity on an internal host. This hunt pivots between Identity,
+  DNS, Network, and Process surfaces to confirm the behavioral link.
+blind_spots:
+- id: missing-endpoint-telemetry
+  question: Did the user execute commands on hosts where no EDR agent is installed?
+  requires: hb_process_activity from all endpoints
+  risk: An adversary could authenticate via proxy and access unmanaged infrastructure
+    without detection.
+  stage: endpoint-identity-execution
+- id: ephemeral-proxy-nodes
+  question: Was the authentication from a newly stood-up VPS not yet in our IP lists?
+  requires: Up-to-date threat intelligence on Tor exit nodes
+  risk: Static IP lists will miss private relays or fresh VPS infrastructure.
+  stage: okta-authentication-via-proxy
+coverage:
+- stage: proxy-infrastructure-resolution
+  status: covered
+  steps:
+  - dns-proxy-infra
+- stage: okta-authentication-via-proxy
+  status: covered
+  steps:
+  - auth-suspicious-ips
+- stage: multi-hop-network-egress
+  status: covered
+  steps:
+  - network-proxy-egress
+- stage: endpoint-identity-execution
+  status: covered
+  steps:
+  - endpoint-discovery
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: Linking identity-provider events to specific host-based activity
+    is the primary way to deanonymize sessions arriving via multi-hop proxies; this
+    hunt provides that correlation across siloed telemetry surfaces.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary is using multi-hop proxy infrastructure to authenticate via
+  Okta and subsequently execute discovery commands on an endpoint, obscured by network
+  egress to proxy relay ports.
+labels:
+- hunt
+- attack.t1090.003
+- attack.t1078
+- attack.t1059
+name: Correlating Proxy-Obscured Identity and Endpoint Activity
+parameters:
+  discovery_commands:
+    default:
+    - whoami
+    - hostname
+    - ipconfig
+    - net user
+    description: Discovery commands often run by adversaries immediately after gaining
+      access.
+    from:
+      kind: article
+      observed: &#39;2026-06-11&#39;
+      ref: red-canary
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  proxy_domains:
+    default:
+    - torproject.org
+    - bridge.torproject.org
+    - check.torproject.org
+    description: Known proxy infrastructure domains.
+    from:
+      kind: article
+      observed: &#39;2026-06-11&#39;
+      ref: red-canary
+    type: list[domain]
+  proxy_ips:
+    default:
+    - 185.220.101.0
+    - 176.10.99.200
+    description: Known Tor exit node or VPS IP addresses.
+    from:
+      kind: manual
+      observed: &#39;2026-06-11&#39;
+      ref: threat-intel
+    type: list[ip]
+  scope_hosts:
+    default: []
+    description: Specific hostnames to narrow the hunt.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://redcanary.com/blog/threat-detection/threat-hunting-scaled/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with high-privilege users in the Okta logs. Focus on authentication
+  events where the source IP does not match the user&#39;s typical office or VPN range.
+references:
+- name: &#34;How threat hunting evolves at scale \u2014 Red Canary&#34;
+  url: https://redcanary.com/blog/threat-detection/threat-hunting-scaled/
+related:
+- hunt: okta-mfa-fatigue-triage
+  reason: This hunt focuses on proxy-obscured source attribution rather than authentication
+    mechanism exploitation.
+  relation: out-of-scope-alternative
+scenario:
+  stages:
+  - name: Proxy Infrastructure DNS Resolution
+    observables:
+    - &#39;query_hostname: torproject.org&#39;
+    - &#39;query_hostname: *.hiddenservice.net&#39;
+    - &#39;query_hostname: bridge.torproject.org&#39;
+    slug: proxy-infrastructure-resolution
+    tactic: command-and-control
+    techniques:
+    - T1090.003
+  - name: Identity Authentication via Multi-hop Proxy
+    observables:
+    - src_endpoint_ip belonging to VPS or known Tor exit node ranges
+    - &#39;auth_protocol: SAML&#39;
+    - &#39;auth_protocol: OAuth&#39;
+    - &#39;provider: okta&#39;
+    slug: okta-authentication-via-proxy
+    tactic: initial-access
+    techniques:
+    - T1078
+    - T1090.003
+  - name: Network Egress to Proxy Nodes
+    observables:
+    - &#39;dst_endpoint_port: 9001&#39;
+    - &#39;dst_endpoint_port: 9050&#39;
+    - &#39;dst_endpoint_ip: known Tor relays&#39;
+    - &#39;protocol: tcp&#39;
+    slug: multi-hop-network-egress
+    tactic: command-and-control
+    techniques:
+    - T1090.003
+  - name: Identity-Correlated Process Execution
+    observables:
+    - &#39;process_cmd_line: whoami&#39;
+    - &#39;process_cmd_line: hostname&#39;
+    - user_name matching actor_user_name from Okta authentication events
+    slug: endpoint-identity-execution
+    tactic: execution
+    techniques:
+    - T1059
+  summary: Adversaries leverage multi-hop proxies to obscure their origin while authenticating
+    to identity providers like Okta, subsequently performing unauthorized actions
+    on endpoints. Detection relies on the difficult task of correlating proxy-anonymized
+    sign-in events with subsequent host-level process and network telemetry.
+severity: medium
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  identity:
+    category: identity
+    name: Identity / sign-in telemetry
+    telemetry:
+    - identity
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Correlating Proxy-Obscured Identity and Endpoint Activity
+
+This hunt bridges identity telemetry with endpoint behavior to deanonymize sessions arriving through multi-hop proxies. It starts by identifying successful Okta logins and correlating them with hosts resolving known proxy infrastructure. The hunt then pivots to find network egress to standard proxy ports (9001, 9050) and the execution of post-authentication discovery commands on those same hosts. By linking these disparate surfaces, the analyst can identify compromised credentials even when the source IP is obscured.
+
+## scope-okta-logins
+&lt;!-- Scope Okta Authentication Activity --&gt;
+Establish a baseline of successful Okta logins to identify active users and potential beachhead IPs.
+
+```sqlite target=identity role=scoping params=(lookback_days=lookback_days)
+~~~yaml
+expected: A list of successful Okta logins. Silence indicates no Okta telemetry is
+  available for the period.
+reads:
+- actor_user_name
+- auth_protocol
+- dst_endpoint_name
+- provider
+- src_endpoint_ip
+- status_id
+- time
+silence: not_evidence_of_absence
+source: hb_auth_signin
+verified: dry-run
+verified_at: &#39;2026-09-21&#39;
+~~~
+SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, auth_protocol, time FROM hb_auth_signin WHERE provider = &#39;okta&#39; AND status_id = 1 AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## early-evidence-gathering
+&lt;!-- Parallel Early Evidence Gathering --&gt;
+parallel:
+- → dns-proxy-infra
+- → auth-suspicious-ips
+join: → early-stage-triage
+
+## dns-proxy-infra
+&lt;!-- DNS Resolutions for Proxy Infrastructure --&gt;
+Detect endpoints resolving domains associated with proxy services like Tor or onion routing.
+
+```sqlite target=endpoint role=enrichment params=(proxy_domains=proxy_domains, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Hosts resolving Tor-related domains. Silence suggests no active use of these
+  proxy gateways via DNS.
+reads:
+- device_hostname
+- process_name
+- query_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_dns_activity
+verified: dry-run
+verified_at: &#39;2026-09-21&#39;
+~~~
+SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (instr(&#39;,&#39; || &#39;{{proxy_domains}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(query_hostname) || &#39;,&#39;) &gt; 0 OR LOWER(query_hostname) LIKE &#39;%.hiddenservice.net&#39;) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## auth-suspicious-ips
+&lt;!-- Suspicious Okta Login Source IPs --&gt;
+Identify Okta logins from known proxy IPs or IPs used by very few users across the fleet.
+
+```sqlite target=identity role=baseline params=(proxy_ips=proxy_ips, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: Successful logins from known proxy exit nodes or highly unique IPs. Silence
+  suggests no anomalous authentication source IPs.
+prevalence:
+  by: actor_user_name
+  key:
+  - src_endpoint_ip
+  rare_below: 3
+reads:
+- actor_user_name
+- provider
+- src_endpoint_ip
+- status_id
+- time
+silence: not_evidence_of_absence
+source: hb_auth_signin
+verified: dry-run
+verified_at: &#39;2026-09-21&#39;
+~~~
+SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_count FROM hb_auth_signin WHERE provider = &#39;okta&#39; AND status_id = 1 AND (instr(&#39;,&#39; || &#39;{{proxy_ips}}&#39; || &#39;,&#39;, &#39;,&#39; || src_endpoint_ip || &#39;,&#39;) &gt; 0 OR src_endpoint_ip IN (SELECT src_endpoint_ip FROM hb_auth_signin WHERE provider = &#39;okta&#39; GROUP BY src_endpoint_ip HAVING COUNT(DISTINCT actor_user_name) &lt;= 3)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY src_endpoint_ip
+```
+
+## early-stage-triage
+&lt;!-- Early Stage Evidence Triage --&gt;
+```agent target=hunter
+cite: required
+context:
+- scope-okta-logins
+- dns-proxy-infra
+- auth-suspicious-ips
+max_iterations: 3
+objective: Identify if any Okta login session from a rare or known proxy IP (auth-suspicious-ips)
+  occurred on a host that was also resolving proxy infrastructure domains (dns-proxy-infra).
+success_criteria: A verdict citing specific hosts and users where both signals occurred
+  in close proximity.
+tools:
+- endpoint
+- identity
+- network
+```
+
+## follow-on-evidence-gathering
+&lt;!-- Parallel Follow-on Evidence Gathering --&gt;
+parallel:
+- → network-proxy-egress
+- → endpoint-discovery
+join: → follow-on-triage
+
+## network-proxy-egress
+&lt;!-- Network Egress to Proxy Relay Ports --&gt;
+Detect TCP connections to standard proxy ports like 9001 and 9050 that often signal Tor or multi-hop traffic.
+
+```sqlite target=network role=baseline params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Established connections to proxy relay ports. Silence means no egress to
+  these specific ports was observed.
+reads:
+- device_hostname
+- dst_endpoint_ip
+- dst_endpoint_port
+- process_name
+- protocol
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-21&#39;
+~~~
+SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, time FROM hb_network_connection WHERE dst_endpoint_port IN (9001, 9050) AND protocol = &#39;tcp&#39; AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## endpoint-discovery
+&lt;!-- Endpoint Discovery Command Execution --&gt;
+Find discovery commands executed on the host that correlate with the suspected proxy session.
+
+```sqlite target=endpoint role=detection-candidate params=(discovery_commands=discovery_commands, scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: Process execution of common discovery tools. Silence suggests no discovery
+  activity was logged.
+reads:
+- device_hostname
+- process_cmd_line
+- process_name
+- time
+- user_name
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-21&#39;
+~~~
+SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{discovery_commands}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR instr(&#39;,&#39; || &#39;{{discovery_commands}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_cmd_line) || &#39;,&#39;) &gt; 0) AND (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## follow-on-triage
+&lt;!-- Follow-on Evidence Triage --&gt;
+```agent target=hunter
+cite: required
+context:
+- early-stage-triage
+- network-proxy-egress
+- endpoint-discovery
+max_iterations: 6
+objective: Confirm whether the suspect users and hosts from early-stage-triage showed
+  subsequent network egress to proxy nodes or discovery command execution on the same
+  endpoint.
+success_criteria: A final malicious | suspicious verdict citing the temporal link
+  between auth, network, and process events.
+tools:
+- endpoint
+- identity
+- network
+```
+
+## route-verdict
+&lt;!-- Route Based on Intrusion Chain --&gt;
+if~: &#34;the follow-on-triage verdict is malicious for at least one host and user&#34; (confidence: high, judge=hunter)
+then: → isolate-host
+indeterminate: → analyst-validation
+unavailable: → analyst-validation (blind_spot: missing-endpoint-telemetry)
+else: → close-out
+
+## isolate-host
+&lt;!-- Isolate Host and Revoke Identity --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the endpoint in the EDR console and revoke all active Okta sessions for the identified user.
+```
+→ analyst-validation
+
+## analyst-validation
+&lt;!-- Analyst Final Validation --&gt;
+```manual target=analyst
+Verify the link between the Okta login IP and the endpoint network/process activity. Investigate any lateral movement (e.g. RDP/SSH) from this host within the same window.
+```
+→ close-out
+
+## close-out
+&lt;!-- Close Out and Record ROI --&gt;
+```manual target=analyst
+Document the findings and update any baseline filters if the activity was determined to be authorized administrative work. Record the detection of a proxy-obscured session as a successful hunt ROI.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=proxy-obscured-identity-endpoint-correlation&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=proxy-obscured-identity-endpoint-correlation" target="_top" rel="noopener" data-track="run" data-placement="band">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download data-placement="band">Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download data-placement="band">Definition (JSON)</a>
+    </div>
+  </section>
+
+  <aside class="card subscribe">
+    <div>
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts like this one, every week: the research, the hypothesis and the queries.</p>
+    </div>
+    <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="hunt">
+  <label class="sr-only" for="sub-email-hunt">Email address</label>
+  <input id="sub-email-hunt" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+  </aside>
+
+  <aside class="card after-download chrome" id="after-download" hidden aria-live="polite">
+    <button type="button" class="close" aria-label="Dismiss">×</button>
+    <p class="eyebrow"><span>Downloaded</span></p>
+    <p>The file runs anywhere that reads hunt.md. In Huntbase it runs against your own connections.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=proxy-obscured-identity-endpoint-correlation&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=proxy-obscured-identity-endpoint-correlation-after-download" target="_top" rel="noopener" data-track="run" data-placement="after-download">Run this in Huntbase<span aria-hidden="true"> →</span></a>      <a href="#subscribe" data-track="subscribe-jump" data-placement="after-download">Get new hunts by email</a>
+    </div>
+  </aside>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+    <div class="foot-subscribe" id="subscribe">
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts from the week's research, in your inbox every Tuesday.</p>
+      <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="footer">
+  <label class="sr-only" for="sub-email-footer">Email address</label>
+  <input id="sub-email-footer" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+    </div>
+    <nav class="foot-links" aria-label="Huntbase">
+      <a href="https://www.huntbase.io" rel="noopener">Huntbase</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=footer" rel="noopener" data-track="signup" data-placement="footer">Sign up free</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md spec</a>
+      <a href="https://github.com/huntbase-io/hunts" rel="noopener">Hunts on GitHub</a>
+      <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener" data-track="subscribe" data-placement="footer-links">Newsletter</a>
+      <a href="https://www.huntbase.io/legal/privacy" rel="noopener">Privacy</a>
+      <a href="https://www.huntbase.io/terms" rel="noopener">Terms</a>
+    </nav>
+  </footer>
+  <script>
+  (() => {
+    // Inline newsletter forms. listmonk's public API sends no CORS headers, so
+    // the POST goes out in no-cors mode and the reply is opaque: the browser has
+    // already validated the address, and the real confirmation is the opt-in
+    // email, so success here means "sent", not "subscribed".
+    const api = "https://news.hub.huntbase.io/api/public/subscription", list = "72c40a64-91cd-4a64-8c41-14c9036a2b18", hosted = "https://news.hub.huntbase.io/subscription/form";
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    document.querySelectorAll('form[data-subscribe]').forEach((form) => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = form.querySelector('input[type=email]');
+        const button = form.querySelector('button');
+        const email = input.value.trim();
+        button.disabled = true;
+        document.dispatchEvent(new CustomEvent('hub:subscribe', { detail: { placement: form.dataset.placement || '' } }));
+        try {
+          await fetch(api, { method: 'POST', mode: 'no-cors', body: new URLSearchParams({ email, l: list }) });
+          form.innerHTML = `<p class="sub-done" role="status"><strong>Almost there.</strong> We've sent a confirmation link to ${esc(email)}. Click it and you're subscribed.</p>`;
+        } catch (err) {
+          button.disabled = false;
+          form.querySelector('.sub-note').innerHTML = `We couldn't reach the newsletter service. <a href="${esc(hosted)}" target="_blank" rel="noopener">Subscribe on the form instead →</a>`;
+        }
+      });
+    });
+    // "Get updates" scrolls to the nearest form and puts the cursor in it: the
+    // hero form on the home page (the list below it grows as you scroll, so an
+    // anchor to the footer lands short), otherwise the footer form.
+    document.querySelectorAll('a[href="#subscribe"]').forEach((a) => a.addEventListener('click', (e) => {
+      const form = document.querySelector('.hero form[data-subscribe]') || document.querySelector('#subscribe form[data-subscribe]');
+      const input = form && form.querySelector('input[type=email]');
+      if (!input) return;
+      e.preventDefault();
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => input.focus({ preventScroll: true }), 450);
+    }));
+  })();
+  </script>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const show = () => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show();
+    }));
+    addEventListener('hashchange', show);
+    show();
+
+    // A download is not the end of the visit: say where the file can go next.
+    const prompt = document.getElementById('after-download');
+    document.querySelectorAll('a[download]').forEach((a) => a.addEventListener('click', () => { prompt.hidden = false; }));
+    prompt.querySelector('.close').addEventListener('click', () => { prompt.hidden = true; });
+  })();
+</script>
+<script type="module" src="../../static/dag.js"></script>
+</body>
+</html>

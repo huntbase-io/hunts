@@ -1,0 +1,686 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries bypass perimeter controls using ORB networks and multi-hop proxies. This phased hunt correlates identity pivots and network obfuscation back to an endpoint beachhead, a cross-surface task that static rules cannot achieve."
+      },
+      "name": "Endpoint-to-Cloud Phased Intrusion Hunt",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1204",
+        "attack.t1021",
+        "attack.t1078",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "tor-egress-monitoring-hunt",
+          "reason": "This hunt focuses on the internal path to the proxy, whereas the Tor hunt focuses strictly on egress to public exit nodes.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single detection rule may fire on a proxy domain, but it cannot weigh whether that domain is linked to an anomalous cloud login from the same host's internal IP. This phased hunt uses two layers of agentic triage to correlate identity, network, and process evidence.",
+      "coverage": [
+        {
+          "stage": "endpoint-alert-forensics",
+          "steps": [
+            "anomalous-process-forensics"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "lateral-movement-discovery",
+          "steps": [
+            "network-lateral-and-proxy-check"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "cloud-identity-pivot",
+          "steps": [
+            "cloud-auth-check"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "multi-hop-proxy-c2",
+          "steps": [
+            "dns-proxy-c2-check"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Windows and macOS Endpoint Intrusion",
+            "slug": "endpoint-alert-forensics",
+            "tactic": "execution",
+            "techniques": [
+              "T1204"
+            ],
+            "observables": [
+              "Windows endpoint alert",
+              "macOS forensic artifacts",
+              "process ancestry tracing"
+            ]
+          },
+          {
+            "name": "Lateral Movement Identification",
+            "slug": "lateral-movement-discovery",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1021"
+            ],
+            "observables": [
+              "lateral movement indicators"
+            ]
+          },
+          {
+            "name": "Identity and Cloud Pivot",
+            "slug": "cloud-identity-pivot",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "Okta investigation logs",
+              "AWS CloudTrail events"
+            ]
+          },
+          {
+            "name": "Multi-hop Proxy Command and Control",
+            "slug": "multi-hop-proxy-c2",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "multi-hop proxy traffic",
+              "Tor onion routing",
+              "operational relay box (ORB) networks"
+            ]
+          }
+        ],
+        "summary": "An intrusion campaign identified through endpoint alerts on Windows and macOS systems, revealing lateral movement and identity pivots involving Okta and AWS resources. The attackers employ multi-hop proxies and onion routing to mask their command-and-control communications."
+      },
+      "severity": "medium",
+      "rationale": "Focus on high-value Windows and macOS assets in administrative zones first. Expand to all developer endpoints if proxy activity is detected.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary establishes a beachhead on an endpoint, moves laterally to obtain administrative access, and pivots to cloud services while maintaining C2 via a multi-hop proxy.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-07-24"
+          },
+          "type": "list[domain]",
+          "default": [
+            "tokens.input",
+            "tokens.output"
+          ],
+          "description": "Suspected proxy or ORB domains observed in multi-hop campaigns."
+        },
+        "admin_ports": {
+          "from": {
+            "ref": "standard-admin-ports",
+            "kind": "manual",
+            "observed": "2025-02-18"
+          },
+          "type": "list[string]",
+          "default": [
+            "22",
+            "445",
+            "3389",
+            "5985",
+            "5986"
+          ],
+          "description": "Ports commonly used for administrative lateral movement."
+        },
+        "proxy_ports": {
+          "from": {
+            "ref": "threat-intelligence",
+            "kind": "manual",
+            "observed": "2025-02-18"
+          },
+          "type": "list[string]",
+          "default": [
+            "9001",
+            "9030",
+            "1080",
+            "8080"
+          ],
+          "description": "Egress ports associated with Tor relays and common proxy services."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-input",
+            "kind": "manual",
+            "observed": "2025-02-18"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Focus on these hostnames; leave empty for a fleet-wide hunt."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "default-retention",
+            "kind": "manual",
+            "observed": "2025-02-18"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of historical telemetry to examine."
+        },
+        "suspected_src_ips": {
+          "from": {
+            "ref": "agent-output-pivot",
+            "kind": "manual",
+            "observed": "2025-02-18"
+          },
+          "type": "list[ip]",
+          "default": [],
+          "description": "Filter cloud sign-ins by these source IPs; usually filled by the analyst from the early triage agent results."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/agentic-soc-token-budget-architecture",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/agentic-soc-token-budget-architecture",
+          "name": "Inside Elastic InfoSec's agentic SOC: When to inline your agent's skills for a 5\u00d7 cost reduction"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "proxy-payload-encryption",
+          "risk": "We identify the connection to the proxy but cannot see the adversary's intent or the stage-two payload content.",
+          "owner": "Network Security",
+          "stage": "multi-hop-proxy-c2",
+          "question": "what commands were sent over the proxy connection",
+          "requires": "TLS decryption at the gateway",
+          "remediation": "Implement TLS interception for administrative egress traffic."
+        },
+        {
+          "id": "macos-file-visibility",
+          "risk": "The absence of macOS file telemetry prevents the hunt from confirming local data staging or credential harvesting on non-Windows endpoints.",
+          "owner": "IT Operations",
+          "stage": "endpoint-alert-forensics",
+          "question": "what local files were modified by the forensic process on macOS",
+          "requires": "hb_file_activity for macOS",
+          "remediation": "Enable full file system monitoring for macOS agents."
+        }
+      ]
+    },
+    "name": "Endpoint-to-Cloud Phased Intrusion Hunt",
+    "description": "This hunt implements a cost-efficient specialized agent workflow to identify long-chain intrusions. It begins by scoping the host environment and identifying early forensic anomalies and lateral movement. A second phase investigates follow-on identity pivots and command-and-control obfuscation through multi-hop proxies and ORB networks. By phasing the hunt, the agentic triage focuses only on high-confidence leads that connect host compromise to cloud exposure."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "endpoint-alert-forensics",
+            "steps": [
+              "anomalous-process-forensics"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "lateral-movement-discovery",
+            "steps": [
+              "network-lateral-and-proxy-check"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "cloud-identity-pivot",
+            "steps": [
+              "cloud-auth-check"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "multi-hop-proxy-c2",
+            "steps": [
+              "dns-proxy-c2-check"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary establishes a beachhead on an endpoint, moves laterally to obtain administrative access, and pivots to cloud services while maintaining C2 via a multi-hop proxy.",
+        "blind_spots": [
+          {
+            "id": "proxy-payload-encryption",
+            "risk": "We identify the connection to the proxy but cannot see the adversary's intent or the stage-two payload content.",
+            "owner": "Network Security",
+            "stage": "multi-hop-proxy-c2",
+            "question": "what commands were sent over the proxy connection",
+            "requires": "TLS decryption at the gateway",
+            "remediation": "Implement TLS interception for administrative egress traffic."
+          },
+          {
+            "id": "macos-file-visibility",
+            "risk": "The absence of macOS file telemetry prevents the hunt from confirming local data staging or credential harvesting on non-Windows endpoints.",
+            "owner": "IT Operations",
+            "stage": "endpoint-alert-forensics",
+            "question": "what local files were modified by the forensic process on macOS",
+            "requires": "hb_file_activity for macOS",
+            "remediation": "Enable full file system monitoring for macOS agents."
+          }
+        ],
+        "scoping_notes": "Focus on high-value Windows and macOS assets in administrative zones first. Expand to all developer endpoints if proxy activity is detected.",
+        "beyond_detection": "A single detection rule may fire on a proxy domain, but it cannot weigh whether that domain is linked to an anomalous cloud login from the same host's internal IP. This phased hunt uses two layers of agentic triage to correlate identity, network, and process evidence."
+      }
+    },
+    {
+      "id": "scope-active-hosts",
+      "type": "query",
+      "label": "Establish Active Host Scope",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT hostname, device_uid, platform, os_version, last_seen FROM hb_devices WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0)",
+        "surface": "hb_devices",
+        "description": "Find the recently active host fleet to provide a target list for forensic and network analysis.",
+        "expected_signal": "A list of active hosts within the lookback window. Silence means the scope filter excludes all reporting hosts."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Establish Active Host Scope",
+        "reads": [
+          "hostname",
+          "device_uid",
+          "platform",
+          "os_version",
+          "last_seen",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname, device_uid, platform, os_version, last_seen FROM hb_devices WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of active hosts within the lookback window. Silence means the scope filter excludes all reporting hosts.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "anomalous-process-forensics",
+      "type": "query",
+      "label": "Detect Anomalous Process Execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, parent_process_name, on_disk, user_name, time FROM hb_process_activity WHERE (on_disk = 0 OR LOWER(process_path) LIKE '%\\temp\\%' OR LOWER(process_path) LIKE '%\\users\\public\\%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_process_activity",
+        "description": "Find processes running from temporary paths or in-memory.",
+        "expected_signal": "A process with no file on disk or a binary executing from a user-writable path. Silence suggests an absence of simple fileless execution."
+      },
+      "parents": [
+        {
+          "id": "scope-active-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect Anomalous Process Execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "process_cmd_line",
+          "parent_process_name",
+          "on_disk",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, parent_process_name, on_disk, user_name, time FROM hb_process_activity WHERE (on_disk = 0 OR LOWER(process_path) LIKE '%\\temp\\%' OR LOWER(process_path) LIKE '%\\users\\public\\%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "evidence_of_absence",
+        "expected": "A process with no file on disk or a binary executing from a user-writable path. Silence suggests an absence of simple fileless execution.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "network-lateral-and-proxy-check",
+      "type": "query",
+      "label": "Admin and Proxy Egress Stack Counting",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, src_endpoint_ip, dst_endpoint_ip, dst_endpoint_port, process_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = 'outbound' AND (instr(',' || '{{admin_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0 OR instr(',' || '{{proxy_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, src_endpoint_ip, dst_endpoint_ip, dst_endpoint_port, process_name HAVING hosts <= 3",
+        "surface": "hb_network_connection",
+        "description": "Stack outbound connections by port to find rare administrative or proxy egress.",
+        "expected_signal": "Outbound connections on administrative or proxy ports. Rarity identifies single-host outliers amidst normal network traffic."
+      },
+      "parents": [
+        {
+          "id": "scope-active-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Admin and Proxy Egress Stack Counting",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, src_endpoint_ip, dst_endpoint_ip, dst_endpoint_port, process_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS connections, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = 'outbound' AND (instr(',' || '{{admin_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0 OR instr(',' || '{{proxy_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, src_endpoint_ip, dst_endpoint_ip, dst_endpoint_port, process_name HAVING hosts <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Outbound connections on administrative or proxy ports. Rarity identifies single-host outliers amidst normal network traffic.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-triage-agent",
+      "type": "analytic",
+      "label": "Early Intrusion Triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "anomalous-process-forensics",
+          "network-lateral-and-proxy-check"
+        ],
+        "objective": "Analyze the anomalous process results and lateral movement patterns to decide if a host is currently a beachhead. Explicitly extract and output the source IP addresses of hosts with suspicious activity to filter the next phase.",
+        "description": "An agent weighs the forensic process data and lateral movement rows to confirm a beachhead.",
+        "max_iterations": 4,
+        "expected_signal": "A verdict indicating which hosts are likely compromised.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign citing specific process and network rows."
+      },
+      "parents": [
+        {
+          "id": "anomalous-process-forensics",
+          "kind": "merge"
+        },
+        {
+          "id": "network-lateral-and-proxy-check",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "cloud-auth-check",
+      "type": "query",
+      "label": "Cloud Identity Success from Beachheads",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, provider, auth_protocol, time FROM hb_auth_signin WHERE status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{suspected_src_ips}}' = '' OR instr(',' || '{{suspected_src_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0)",
+        "surface": "hb_auth_signin",
+        "description": "Filter sign-in events by the IP addresses identified in the early-triage-agent step.",
+        "expected_signal": "Successful authentications correlated with suspected compromised source IPs. Silence means no cloud logins were recorded for the identified hosts."
+      },
+      "parents": [
+        {
+          "id": "early-triage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Cloud Identity Success from Beachheads",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "provider",
+          "auth_protocol",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, provider, auth_protocol, time FROM hb_auth_signin WHERE status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{suspected_src_ips}}' = '' OR instr(',' || '{{suspected_src_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Successful authentications correlated with suspected compromised source IPs. Silence means no cloud logins were recorded for the identified hosts.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "dns-proxy-c2-check",
+      "type": "query",
+      "label": "Proxy and ORB Domain Lookups",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, COUNT(*) as lookup_count FROM hb_dns_activity WHERE (instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR query_hostname LIKE '%.onion%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, query_hostname, process_name",
+        "surface": "hb_dns_activity",
+        "description": "Detect DNS resolutions to known proxy domains or Tor gateways.",
+        "expected_signal": "Any lookup to an ORB domain or Tor gateway."
+      },
+      "parents": [
+        {
+          "id": "early-triage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Proxy and ORB Domain Lookups",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, COUNT(*) as lookup_count FROM hb_dns_activity WHERE (instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR query_hostname LIKE '%.onion%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, query_hostname, process_name",
+        "silence": "evidence_of_absence",
+        "expected": "Any lookup to an ORB domain or Tor gateway.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "full-chain-analysis-agent",
+      "type": "analytic",
+      "label": "Full Chain Synthesis Agent",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "early-triage-agent",
+          "cloud-auth-check",
+          "dns-proxy-c2-check"
+        ],
+        "objective": "Review the early-triage-agent verdict and combine it with cloud-auth-check and dns-proxy-c2-check results to confirm a high-confidence intrusion.",
+        "description": "A second agent synthesizes the entire intrusion path by linking host compromise to follow-on cloud and network signals.",
+        "max_iterations": 6,
+        "expected_signal": "A comprehensive verdict linking initial compromise to a broader intrusion chain.",
+        "success_criteria": "A definitive verdict of malicious for hosts that show both a beachhead signature and follow-on pivots."
+      },
+      "parents": [
+        {
+          "id": "cloud-auth-check",
+          "kind": "merge"
+        },
+        {
+          "id": "dns-proxy-c2-check",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "final-routing-decision",
+      "type": "checkpoint",
+      "label": "Routing Decision for Intrusion Chain",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the full-chain-analysis-agent confirms a malicious host linked to cloud pivots or multi-hop proxy C2",
+        "condition": "the full-chain-analysis-agent confirms a malicious host linked to cloud pivots or multi-hop proxy C2",
+        "blind_spot": "proxy-payload-encryption",
+        "confidence": "high",
+        "description": "Route the hunt based on the synthesized full-chain verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "full-chain-analysis-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate Compromised Endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Isolate the confirmed host to stop further lateral movement and C2 communication.",
+        "instructions": "Isolate the host identified by the triage agent as the beachhead.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "final-routing-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-incident-review",
+      "type": "task",
+      "label": "Analyst Intrusion Verification",
+      "config": {
+        "assignee": "analyst",
+        "description": "An analyst verifies the full-chain evidence and confirms the incident findings.",
+        "instructions": "Verify the agent's synthesis. Confirm that the cloud sign-ins originated from the suspicious host and correlate the proxy DNS queries with the observed process ancestry. Record findings for IR."
+      },
+      "parents": [
+        {
+          "id": "final-routing-decision",
+          "branch": "default"
+        },
+        {
+          "id": "final-routing-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out-negative",
+      "type": "task",
+      "label": "Hunt Closure",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record a negative result and archive the hunt.",
+        "instructions": "Document that no full intrusion chain was identified for the scoped hosts. Schedule a follow-on hunt if suspicious but incomplete signals were found."
+      },
+      "parents": [
+        {
+          "id": "final-routing-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

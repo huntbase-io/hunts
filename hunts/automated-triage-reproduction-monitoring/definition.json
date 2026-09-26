@@ -1,0 +1,632 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Automated triage systems introduce a new attack surface by executing untrusted researcher code. Monitoring this lifecycle is essential to prevent bug bounty submissions from becoming a successful initial access vector."
+      },
+      "name": "Automated Triage Reproduction Monitoring",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1203",
+        "attack.t1059",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "gcp-compute-instance-forensics",
+          "reason": "If a compromise is confirmed, forensic analysis of the ephemeral disk is the next logical step.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt correlates ingestion metadata (HackerOne report state) with ephemeral infrastructure lifecycle (GCP machine types) and behavioral execution context (researcher scripts). A single rule cannot distinguish between a researcher running environment discovery to prove a point and an attacker attempting a sandbox escape.",
+      "coverage": [
+        {
+          "stage": "hackerone-report-ingestion",
+          "steps": [
+            "validated-h1-reports"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "reproduction-environment-provisioning",
+          "steps": [
+            "triage-vm-provisioning"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "sandboxed-exploit-reproduction",
+          "steps": [
+            "docker-tester-startup",
+            "reproduction-script-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "monitored-network-egress",
+          "steps": [
+            "unauthorized-dns-prevalence"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "HackerOne Report Ingestion",
+            "slug": "hackerone-report-ingestion",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "HackerOne vulnerability reports",
+              "send_to_validation tag",
+              "Elasticsearch alert rule trigger"
+            ]
+          },
+          {
+            "name": "Reproduction VM Provisioning",
+            "slug": "reproduction-environment-provisioning",
+            "tactic": "execution",
+            "techniques": [
+              "T1203"
+            ],
+            "observables": [
+              "e2-standard-4 VM",
+              "e2-standard-2 VM",
+              "ephemeral GCP virtual machines",
+              "30-minute auto-shutdown timer"
+            ]
+          },
+          {
+            "name": "Sandboxed Exploit Reproduction",
+            "slug": "sandboxed-exploit-reproduction",
+            "tactic": "execution",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "Docker Compose",
+              "tester container",
+              "researcher-provided scripts",
+              "reproduction-described steps"
+            ]
+          },
+          {
+            "name": "Monitored Network Egress",
+            "slug": "monitored-network-egress",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Squid proxy egress",
+              "reindex.remote.whitelist",
+              "xpack.http.whitelist",
+              "Elasticsearch HTTP requests"
+            ]
+          }
+        ],
+        "summary": "Elastic's automated bug bounty triage system utilizes AI to analyze HackerOne reports and reproduces them in ephemeral, sandboxed GCP environments. The architecture employs isolated VMs for analysis and reproduction, executing untrusted researcher code within Docker containers while monitoring for malicious network activity through a Squid proxy and specific whitelist configurations."
+      },
+      "severity": "high",
+      "rationale": "Identify all HackerOne reports tagged for validation in the last 14 days. Use the timestamps to isolate GCP e2-standard VM inventory changes.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker has submitted an exploit in a HackerOne report that successfully escapes the ephemeral reproduction sandbox or bypasses network egress filters during automated triage.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-provisioning-read",
+            "kind": "manual",
+            "observed": "2026-08-04"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific GCP VM hostnames to focus on; leave empty to hunt across all ephemeral hosts."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-retention",
+            "kind": "manual",
+            "observed": "2026-08-04"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "whitelist_domains": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/blog/ai-vulnerability-triage-bug-bounty-hackerone",
+            "kind": "article",
+            "observed": "2026-08-04"
+          },
+          "type": "list[domain]",
+          "default": [
+            "reindex.remote.whitelist",
+            "xpack.http.whitelist"
+          ],
+          "description": "Authorized HTTP request destinations for reindex and xpack features."
+        },
+        "h1_validation_status": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/blog/ai-vulnerability-triage-bug-bounty-hackerone",
+            "kind": "article",
+            "observed": "2026-08-04"
+          },
+          "type": "string",
+          "default": "send_to_validation",
+          "description": "HackerOne status value that triggers the internal triage pipeline."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/ai-vulnerability-triage-bug-bounty-hackerone",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/ai-vulnerability-triage-bug-bounty-hackerone",
+          "name": "Elastic Security Labs \u2014 Agents vs. Agents"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-container-visibility",
+          "risk": "A kernel or container engine exploit may occur without triggering the high-level script monitoring on the VM host.",
+          "stage": "sandboxed-exploit-reproduction",
+          "question": "what processes ran inside the reproduction sandbox that did not generate host-level logs",
+          "requires": "endpoint agent inside the docker container"
+        },
+        {
+          "id": "egress-proxy-blindness",
+          "risk": "If host-level DNS activity misses a local metadata request, the proxy is the last line of defense; without its logs, the egress check is incomplete.",
+          "stage": "monitored-network-egress",
+          "question": "whether encrypted traffic reached internal GCP services via the proxy",
+          "requires": "squid proxy access logs"
+        }
+      ]
+    },
+    "name": "Automated Triage Reproduction Monitoring",
+    "description": "This hunt examines the lifecycle of an automated bug bounty triage system. It correlates the ingestion of validated HackerOne reports with the provisioning of ephemeral GCP virtual machines and the subsequent execution of researcher-provided scripts. By monitoring the 30-minute reproduction window and comparing network egress against a strict whitelist, the hunt identifies sandbox escapes where untrusted code reaches internal services or unauthorized external destinations."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "hackerone-report-ingestion",
+            "steps": [
+              "validated-h1-reports"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "reproduction-environment-provisioning",
+            "steps": [
+              "triage-vm-provisioning"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "sandboxed-exploit-reproduction",
+            "steps": [
+              "docker-tester-startup",
+              "reproduction-script-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "monitored-network-egress",
+            "steps": [
+              "unauthorized-dns-prevalence"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker has submitted an exploit in a HackerOne report that successfully escapes the ephemeral reproduction sandbox or bypasses network egress filters during automated triage.",
+        "blind_spots": [
+          {
+            "id": "no-container-visibility",
+            "risk": "A kernel or container engine exploit may occur without triggering the high-level script monitoring on the VM host.",
+            "stage": "sandboxed-exploit-reproduction",
+            "question": "what processes ran inside the reproduction sandbox that did not generate host-level logs",
+            "requires": "endpoint agent inside the docker container"
+          },
+          {
+            "id": "egress-proxy-blindness",
+            "risk": "If host-level DNS activity misses a local metadata request, the proxy is the last line of defense; without its logs, the egress check is incomplete.",
+            "stage": "monitored-network-egress",
+            "question": "whether encrypted traffic reached internal GCP services via the proxy",
+            "requires": "squid proxy access logs"
+          }
+        ],
+        "scoping_notes": "Identify all HackerOne reports tagged for validation in the last 14 days. Use the timestamps to isolate GCP e2-standard VM inventory changes.",
+        "beyond_detection": "This hunt correlates ingestion metadata (HackerOne report state) with ephemeral infrastructure lifecycle (GCP machine types) and behavioral execution context (researcher scripts). A single rule cannot distinguish between a researcher running environment discovery to prove a point and an attacker attempting a sandbox escape."
+      }
+    },
+    {
+      "id": "validated-h1-reports",
+      "type": "query",
+      "label": "Validated HackerOne report ingestion",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT resource_uid, finding_uid, title, status, collected_at FROM hb_vulnerability_finding WHERE (LOWER(title) LIKE '%hackerone%' OR LOWER(provider) = 'github') AND LOWER(status) = LOWER('{{h1_validation_status}}') AND collected_at >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_vulnerability_finding",
+        "description": "Identify which reports reached the internal triage pipeline based on the status mapping for validation.",
+        "expected_signal": "Vulnerability findings that reached the triage workflow. Their collected_at timestamps must match the subsequent GCP VM creation times."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Validated HackerOne report ingestion",
+        "reads": [
+          "collected_at",
+          "finding_uid",
+          "provider",
+          "resource_uid",
+          "status",
+          "title"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT resource_uid, finding_uid, title, status, collected_at FROM hb_vulnerability_finding WHERE (LOWER(title) LIKE '%hackerone%' OR LOWER(provider) = 'github') AND LOWER(status) = LOWER('{{h1_validation_status}}') AND collected_at >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Vulnerability findings that reached the triage workflow. Their collected_at timestamps must match the subsequent GCP VM creation times.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-vm-provisioning",
+      "type": "query",
+      "label": "Ephemeral triage VM provisioning",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT hostname, hardware_model, cloud_instance_id, time FROM hb_devices WHERE (LOWER(hardware_model) LIKE '%e2-standard-2%' OR LOWER(hardware_model) LIKE '%e2-standard-4%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_devices",
+        "description": "Identify the provisioning of e2-standard-2 and e2-standard-4 instances used by the triage pipeline.",
+        "expected_signal": "Device inventory rows naming the specific triage machine types. None means no such VMs were provisioned."
+      },
+      "parents": [
+        {
+          "id": "validated-h1-reports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Ephemeral triage VM provisioning",
+        "reads": [
+          "cloud_instance_id",
+          "hardware_model",
+          "hostname",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname, hardware_model, cloud_instance_id, time FROM hb_devices WHERE (LOWER(hardware_model) LIKE '%e2-standard-2%' OR LOWER(hardware_model) LIKE '%e2-standard-4%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Device inventory rows naming the specific triage machine types. None means no such VMs were provisioned.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "docker-tester-startup",
+      "type": "query",
+      "label": "Docker tester container startup",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(process_cmd_line) LIKE '%docker-compose%' AND LOWER(process_cmd_line) LIKE '%tester%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the specific Docker Compose execution for the sandboxed reproduction environment.",
+        "expected_signal": "Process activity showing the startup of the tester container. Silence suggests no reproduction attempts occurred."
+      },
+      "parents": [
+        {
+          "id": "validated-h1-reports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Docker tester container startup",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(process_cmd_line) LIKE '%docker-compose%' AND LOWER(process_cmd_line) LIKE '%tester%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process activity showing the startup of the tester container. Silence suggests no reproduction attempts occurred.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-stage-triage-assessment",
+      "type": "analytic",
+      "label": "Correlate reports and provisioning",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "validated-h1-reports",
+          "triage-vm-provisioning",
+          "docker-tester-startup"
+        ],
+        "objective": "Correlate the collected_at time of HackerOne reports with the provisioning of e2-standard VMs and the execution of tester containers. Confirm each session occurred within a 30-minute window of the report ingestion.",
+        "description": "Verify that provisioned VMs correspond to ingested reports and strictly adhere to the 30-minute window.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict on whether the VM session is legitimate and timed correctly.",
+        "success_criteria": "A verdict of legitimate | rogue | late-shutdown for each host."
+      },
+      "parents": [
+        {
+          "id": "triage-vm-provisioning",
+          "kind": "merge"
+        },
+        {
+          "id": "docker-tester-startup",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "reproduction-script-execution",
+      "type": "query",
+      "label": "Researcher-provided script activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%/proc/%' OR LOWER(script_content) LIKE '%docker.sock%' OR LOWER(script_content) LIKE '%nsenter%' OR LOWER(script_content) LIKE '%mount %') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Identify scripts that attempt environment discovery or escape the Docker sandbox.",
+        "expected_signal": "Scripts performing environment enumeration or container breakout attempts. Legitimate reproductions may use these; correlation is required."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage-assessment"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Researcher-provided script activity",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "script_type",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%/proc/%' OR LOWER(script_content) LIKE '%docker.sock%' OR LOWER(script_content) LIKE '%nsenter%' OR LOWER(script_content) LIKE '%mount %') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Scripts performing environment enumeration or container breakout attempts. Legitimate reproductions may use these; correlation is required.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "unauthorized-dns-prevalence",
+      "type": "query",
+      "label": "Unauthorized DNS resolution prevalence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(query_hostname) AS domain, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE NOT (instr(',' || '{{whitelist_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY LOWER(query_hostname) ORDER BY hosts ASC",
+        "surface": "hb_dns_activity",
+        "description": "Detect DNS queries to non-whitelisted domains that may indicate tunneling or exfiltration, stack-counted across the fleet.",
+        "expected_signal": "DNS queries to external domains not in the approved policy. Rare domains seen on single triage VMs indicate potential exfiltration."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage-assessment"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Unauthorized DNS resolution prevalence",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(query_hostname) AS domain, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE NOT (instr(',' || '{{whitelist_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY LOWER(query_hostname) ORDER BY hosts ASC",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "DNS queries to external domains not in the approved policy. Rare domains seen on single triage VMs indicate potential exfiltration.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "follow-on-reproduction-assessment",
+      "type": "analytic",
+      "label": "Analyze reproduction outcomes",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "early-stage-triage-assessment",
+          "reproduction-script-execution",
+          "unauthorized-dns-prevalence"
+        ],
+        "objective": "Analyze the script activity and rare DNS egress to determine if the reproduction phase was used to escape the sandbox or reach unauthorized resources, building on the initial environment verdict.",
+        "description": "Synthesize early environment data with execution behavior to identify sandbox escapes.",
+        "max_iterations": 5,
+        "expected_signal": "A final verdict per host on the safety of the triage session.",
+        "success_criteria": "A per-host verdict of compromised | safe | rogue-egress."
+      },
+      "parents": [
+        {
+          "id": "reproduction-script-execution",
+          "kind": "merge"
+        },
+        {
+          "id": "unauthorized-dns-prevalence",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "compromise-decision",
+      "type": "checkpoint",
+      "label": "Route on compromise verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the follow-on-reproduction-assessment verdict is compromised for at least one host",
+        "condition": "the follow-on-reproduction-assessment verdict is compromised for at least one host",
+        "blind_spot": "no-container-visibility",
+        "confidence": "high",
+        "description": "Isolate the environment if the triage session is judged as malicious.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "follow-on-reproduction-assessment"
+        }
+      ]
+    },
+    {
+      "id": "shutdown-vm",
+      "type": "action",
+      "label": "Shutdown compromised triage VM",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately terminate the suspected VM and revoke session credentials.",
+        "instructions": "Shut down the GCP VM instance identified in the verdict. Revoke any temporary API credentials provided to the triage orchestrator for that specific session.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "compromise-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-triage-review",
+      "type": "task",
+      "label": "Analyst triage review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the threat and update whitelists if the egress was part of a valid reproduction.",
+        "instructions": "Review the researcher's report and the script logs. Determine if the observed behavior was a necessary part of a legitimate reproduction or a genuine threat. Update the domain whitelist if the egress was authorized."
+      },
+      "parents": [
+        {
+          "id": "compromise-decision",
+          "branch": "default"
+        },
+        {
+          "id": "compromise-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "shutdown-vm"
+        }
+      ]
+    },
+    {
+      "id": "hunt-closeout",
+      "type": "task",
+      "label": "Hunt closeout",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and verify auto-shutdown reliability.",
+        "instructions": "Record the results. If no compromise was found, verify that the 30-minute auto-shutdown timer correctly terminated every triage VM in the lookback window."
+      },
+      "parents": [
+        {
+          "id": "compromise-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-triage-review"
+        }
+      ]
+    }
+  ]
+}
