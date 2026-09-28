@@ -1,0 +1,630 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The ClickFix social engineering technique bypasses traditional web filters by using the user's keyboard input to execute local commands. A negative result confirms that your users are either not visiting these lures or are not falling for the social engineering."
+      },
+      "name": "Exvicy ClickFix Social Engineering and PowerShell Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001",
+        "attack.t1071.001",
+        "attack.t1115",
+        "attack.t1190"
+      ],
+      "related": [
+        {
+          "hunt": "errtraffic-clickfix-framework",
+          "reason": "Exvicy is a copycat of ErrTraffic but uses Win+R instead of Win+X; both frameworks occupy the same niche.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "Standard rules miss the temporal link between a specific web lure and PowerShell execution. This hunt adds the temporal context and the rarity of the domains to confirm malicious intent across the full infection chain.",
+      "coverage": [
+        {
+          "stage": "compromised-wordpress-injection",
+          "steps": [
+            "scoping-hosts",
+            "exvicy-http-patterns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "clickfix-lure-loading",
+          "steps": [
+            "exvicy-http-patterns",
+            "rare-dns-lookups",
+            "early-stage-triage"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "clipboard-malicious-capture",
+          "reason": "Endpoint telemetry does not capture JavaScript clipboard write events.",
+          "status": "not_visible",
+          "blind_spot": "clipboard-invisibility"
+        },
+        {
+          "stage": "powershell-downloader-execution",
+          "steps": [
+            "powershell-downloader-activity",
+            "final-assessment"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-telemetry-and-payload-delivery",
+          "steps": [
+            "exvicy-http-patterns",
+            "powershell-downloader-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Compromised WordPress Injection",
+            "slug": "compromised-wordpress-injection",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Obfuscated JavaScript snippet in WordPress sites",
+              "Base64 encoded and XOR encrypted JS payload",
+              "Randomized variable names in script content"
+            ]
+          },
+          {
+            "name": "ClickFix Lure Loading",
+            "slug": "clickfix-lure-loading",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001"
+            ],
+            "observables": [
+              "iframe titled 'Security Check'",
+              "url_path: /embed/",
+              "url_hostname: cloudflare-check.net",
+              "url_hostname: 94.26.90.126",
+              "query parameter: host=<WP_SITE>"
+            ]
+          },
+          {
+            "name": "Clipboard Malicious Capture",
+            "slug": "clipboard-malicious-capture",
+            "tactic": "collection",
+            "techniques": [
+              "T1115"
+            ],
+            "observables": [
+              "JS copyText function writing to clipboard",
+              "Social engineering instructions for Win+R and Ctrl+V",
+              "Fake Cloudflare Turnstile human verification prompt"
+            ]
+          },
+          {
+            "name": "PowerShell Downloader Execution",
+            "slug": "powershell-downloader-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "powershell.exe",
+              "process_cmd_line: IEX(New-Object Net.WebClient).DownloadString",
+              "process_cmd_line: us-addnewdevice.com"
+            ]
+          },
+          {
+            "name": "C2 Telemetry and Payload Delivery",
+            "slug": "c2-telemetry-and-payload-delivery",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001"
+            ],
+            "observables": [
+              "url_path: /api.php",
+              "url_path: /panel/html-event/",
+              "dst_endpoint_ip: 89.34.90.159",
+              "MSI installer for putty.exe from Cloudflare R2 bucket"
+            ]
+          }
+        ],
+        "summary": "Exvicy is a ClickFix Malware-as-a-Service that compromises WordPress websites to host deceptive Cloudflare Turnstile challenges. Victims are tricked into copying a malicious PowerShell command to their clipboard and executing it via the Windows Run dialog to download an MSI-based payload."
+      },
+      "severity": "high",
+      "rationale": "Focus on Windows environments with heavy external web browsing activity. Narrow scope to hosts that resolved Exvicy domains or accessed the specific /embed/ path to prioritize the follow-on PowerShell analysis.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using compromised WordPress sites to deliver Exvicy ClickFix lures that trick users into executing a PowerShell downloader via social engineering keyboard shortcuts.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "sekoia-exvicy",
+            "kind": "article",
+            "observed": "2026-09-14"
+          },
+          "type": "list[domain]",
+          "default": [
+            "us-addnewdevice.com",
+            "cloudflare-check.net",
+            "exploit.in",
+            "cloudflare.com"
+          ],
+          "description": "Known Exvicy infrastructure domains for scoping."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames identified in the scoping phase to focus subsequent queries."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.sekoia.com/blog/exvicy-a-copycat-of-the-errtraffic-malware-distribution-framework",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.sekoia.com/blog/exvicy-a-copycat-of-the-errtraffic-malware-distribution-framework",
+          "name": "Sekoia — Exvicy: A Copycat of the ErrTraffic Malware Distribution Framework"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-network-telemetry",
+          "risk": "A host missing osquery or similar endpoint socket correlation will not contribute rows to the execution query.",
+          "stage": "powershell-downloader-execution",
+          "question": "whether the PowerShell process successfully established a connection",
+          "requires": "hb_network_connection with process context"
+        },
+        {
+          "id": "clipboard-invisibility",
+          "risk": "We can only infer the 'Ctrl+V' interaction from subsequent execution; we cannot prove it occurred directly.",
+          "stage": "clipboard-malicious-capture",
+          "question": "whether the copyText function successfully wrote the payload to the clipboard",
+          "requires": "clipboard event monitoring"
+        }
+      ]
+    },
+    "name": "Exvicy ClickFix Social Engineering and PowerShell Execution",
+    "description": "Exvicy is a Malware-as-a-Service framework that copies the ErrTraffic ClickFix technique to infect users via compromised WordPress sites. The lure deceptive victims into pressing Win+R and pasting a command that executes a PowerShell downloader. This hunt uses a phased approach: identifying the initial web lure interaction through rare URI patterns and DNS lookups, then correlating those hosts with outbound PowerShell network activity to identify successful infections."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "compromised-wordpress-injection",
+            "steps": [
+              "scoping-hosts",
+              "exvicy-http-patterns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "clickfix-lure-loading",
+            "steps": [
+              "exvicy-http-patterns",
+              "rare-dns-lookups",
+              "early-stage-triage"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "clipboard-malicious-capture",
+            "reason": "Endpoint telemetry does not capture JavaScript clipboard write events.",
+            "status": "not_visible",
+            "blind_spot": "clipboard-invisibility"
+          },
+          {
+            "stage": "powershell-downloader-execution",
+            "steps": [
+              "powershell-downloader-activity",
+              "final-assessment"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-telemetry-and-payload-delivery",
+            "steps": [
+              "exvicy-http-patterns",
+              "powershell-downloader-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using compromised WordPress sites to deliver Exvicy ClickFix lures that trick users into executing a PowerShell downloader via social engineering keyboard shortcuts.",
+        "blind_spots": [
+          {
+            "id": "no-network-telemetry",
+            "risk": "A host missing osquery or similar endpoint socket correlation will not contribute rows to the execution query.",
+            "stage": "powershell-downloader-execution",
+            "question": "whether the PowerShell process successfully established a connection",
+            "requires": "hb_network_connection with process context"
+          },
+          {
+            "id": "clipboard-invisibility",
+            "risk": "We can only infer the 'Ctrl+V' interaction from subsequent execution; we cannot prove it occurred directly.",
+            "stage": "clipboard-malicious-capture",
+            "question": "whether the copyText function successfully wrote the payload to the clipboard",
+            "requires": "clipboard event monitoring"
+          }
+        ],
+        "scoping_notes": "Focus on Windows environments with heavy external web browsing activity. Narrow scope to hosts that resolved Exvicy domains or accessed the specific /embed/ path to prioritize the follow-on PowerShell analysis.",
+        "beyond_detection": "Standard rules miss the temporal link between a specific web lure and PowerShell execution. This hunt adds the temporal context and the rarity of the domains to confirm malicious intent across the full infection chain."
+      }
+    },
+    {
+      "id": "scoping-hosts",
+      "type": "query",
+      "label": "Scope hosts by domain and URI patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_dns_activity WHERE (instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND (time >= datetime('now', '-{{lookback_days}} days') OR time IS NULL) UNION SELECT DISTINCT device_hostname FROM hb_http_activity WHERE (LOWER(url_path) LIKE '/embed/%' OR LOWER(url_path) = '/api.php') AND (time >= datetime('now', '-{{lookback_days}} days'))",
+        "surface": "hb_dns_activity",
+        "description": "Identify hosts that have either resolved known Exvicy domains or accessed the specific ClickFix URI patterns to narrow the estate.",
+        "expected_signal": "A list of hostnames representing the potential victim pool. Silence suggests no immediate evidence of lure interaction."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope hosts by domain and URI patterns",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_dns_activity WHERE (instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND (time >= datetime('now', '-{{lookback_days}} days') OR time IS NULL) UNION SELECT DISTINCT device_hostname FROM hb_http_activity WHERE (LOWER(url_path) LIKE '/embed/%' OR LOWER(url_path) = '/api.php') AND (time >= datetime('now', '-{{lookback_days}} days'))",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames representing the potential victim pool. Silence suggests no immediate evidence of lure interaction.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "exvicy-http-patterns",
+      "type": "query",
+      "label": "Rare domains hosting ClickFix URIs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT url_hostname, url_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_http_activity WHERE (LOWER(url_path) LIKE '/embed/%' OR LOWER(url_path) = '/api.php') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_hostname, url_path HAVING host_count < 5",
+        "surface": "hb_http_activity",
+        "description": "Implement a prevalence-based search to identify rare hostnames serving the Exvicy /embed/ and /api.php paths, which indicates compromised WordPress sites or C2.",
+        "expected_signal": "Rare domains acting as lures. Silence implies no matching paths were observed on low-prevalence domains."
+      },
+      "parents": [
+        {
+          "id": "scoping-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare domains hosting ClickFix URIs",
+        "reads": [
+          "device_hostname",
+          "time",
+          "url_hostname",
+          "url_path"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT url_hostname, url_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_http_activity WHERE (LOWER(url_path) LIKE '/embed/%' OR LOWER(url_path) = '/api.php') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_hostname, url_path HAVING host_count < 5",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare domains acting as lures. Silence implies no matching paths were observed on low-prevalence domains.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_hostname"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "rare-dns-lookups",
+      "type": "query",
+      "label": "Anomalous DNS for Exvicy domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND (time >= datetime('now', '-{{lookback_days}} days') OR time IS NULL) GROUP BY query_hostname HAVING host_count < 5",
+        "surface": "hb_dns_activity",
+        "description": "Stack-count domain lookups to ensure interaction with Exvicy infrastructure stands out from regular fleet traffic.",
+        "expected_signal": "A list of hosts resolving Exvicy domains that are rare in this fleet."
+      },
+      "parents": [
+        {
+          "id": "scoping-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Anomalous DNS for Exvicy domains",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND (time >= datetime('now', '-{{lookback_days}} days') OR time IS NULL) GROUP BY query_hostname HAVING host_count < 5",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of hosts resolving Exvicy domains that are rare in this fleet.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Analyze lure exposure",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network",
+          "web"
+        ],
+        "context": [
+          "exvicy-http-patterns",
+          "rare-dns-lookups"
+        ],
+        "objective": "Identify and prioritize hosts that interacted with low-prevalence domains hosting specific lure URIs like /embed/ and /api.php.",
+        "description": "Establish which hosts were highly likely exposed to the Exvicy social engineering lure based on the prevalence of the hosting domains.",
+        "max_iterations": 3,
+        "expected_signal": "A prioritized list of hosts showing confirmed interaction with rare lure URIs.",
+        "success_criteria": "A per-host verdict of suspicious or exposed, citing the rare hostname and URI path."
+      },
+      "parents": [
+        {
+          "id": "exvicy-http-patterns",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-dns-lookups",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "powershell-downloader-activity",
+      "type": "query",
+      "label": "PowerShell outbound connections to external IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE LOWER(process_name) LIKE '%\\\\powershell.exe' AND NOT (dst_endpoint_ip LIKE '10.%' OR dst_endpoint_ip LIKE '192.168.%' OR dst_endpoint_ip LIKE '172.1[6-9].%' OR dst_endpoint_ip LIKE '172.2[0-9].%' OR dst_endpoint_ip LIKE '172.3[0-1].%' OR dst_endpoint_ip = '127.0.0.1') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Detect the execution phase where PowerShell connects to external infrastructure, following the social engineering lure.",
+        "expected_signal": "PowerShell establishing network connections to non-internal IP addresses. This provides evidence that the user executed the pasted command."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "PowerShell outbound connections to external IPs",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE LOWER(process_name) LIKE '%\\\\powershell.exe' AND NOT (dst_endpoint_ip LIKE '10.%' OR dst_endpoint_ip LIKE '192.168.%' OR dst_endpoint_ip LIKE '172.1[6-9].%' OR dst_endpoint_ip LIKE '172.2[0-9].%' OR dst_endpoint_ip LIKE '172.3[0-1].%' OR dst_endpoint_ip = '127.0.0.1') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "PowerShell establishing network connections to non-internal IP addresses. This provides evidence that the user executed the pasted command.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "final-assessment",
+      "type": "analytic",
+      "label": "Chain correlation and infection verdict",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network",
+          "web"
+        ],
+        "context": [
+          "early-stage-triage",
+          "powershell-downloader-activity"
+        ],
+        "objective": "Determine if any host progressed from the web lure to successful execution by correlating timelines between suspicious HTTP lure loading and subsequent PowerShell outbound network activity.",
+        "description": "Correlate the suspicious web interaction with the follow-on PowerShell activity to identify confirmed victims.",
+        "max_iterations": 5,
+        "expected_signal": "Malicious verdicts for hosts where a lure interaction precedes an outbound PowerShell connection.",
+        "success_criteria": "A final malicious verdict per host with a timestamped timeline of events."
+      },
+      "parents": [
+        {
+          "id": "powershell-downloader-activity"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on infection status",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-assessment verdict is malicious for at least one host",
+        "condition": "the final-assessment verdict is malicious for at least one host",
+        "blind_spot": "no-network-telemetry",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's final determination.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-assessment"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the attack chain immediately upon confirmation of the social engineering success.",
+        "instructions": "Isolate the endpoint and revoke all active cloud/identity sessions for the user account identified in the triage steps.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review and forensic search",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's findings and search for secondary payloads like putty.exe.",
+        "instructions": "Review the timeline generated by the agent. Search the file system for putty.exe and MSI installers in AppData or Temp directories created within minutes of the outbound PowerShell connection. Identify and record the compromised WordPress domain for blocklisting."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update defensive controls.",
+        "instructions": "Record the compromised domains and target IPs in the threat intelligence platform. Note any new PowerShell command variants for detection engineering."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
