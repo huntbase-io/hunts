@@ -1,0 +1,654 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "GammaLoad is the persistent gateway for Gamaredon's stealers and wipers. Identifying it prevents long-term espionage and potentially destructive actions."
+      },
+      "name": "Gamaredon GammaLoad Intrusion Lifecycle",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001",
+        "attack.t1053.005",
+        "attack.t1041",
+        "attack.t1555"
+      ],
+      "related": [
+        {
+          "hunt": "gamaredon-gammaphish-initial-access",
+          "reason": "GammaPhish is the initial delivery mechanism for GammaLoad.",
+          "relation": "precedes"
+        },
+        {
+          "hunt": "gamaredon-gammasteel-data-theft",
+          "reason": "GammaLoad is used to deploy the final GammaSteel data stealer.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt uses a phased approach to link registry configuration caching with persistent ADS-based tasks and insecure PowerShell execution. A single rule cannot easily correlate these events across multiple surfaces over a persistent 11-minute execution cycle.",
+      "coverage": [
+        {
+          "stage": "vbs-c2-discovery-registry",
+          "steps": [
+            "registry-c2-caching",
+            "ddr-http-discovery"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-ads-task",
+          "steps": [
+            "ads-scheduled-tasks"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "powershell-memory-loader",
+          "steps": [
+            "powershell-memory-loaders"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-exfiltration-anomalies",
+          "steps": [
+            "ddr-http-discovery"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "VBScript C2 Discovery and Registry Caching",
+            "slug": "vbs-c2-discovery-registry",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "Registry keys: HKCU\\Console\\HistoryURL, HKCU\\Console\\WindowsResponby, HKCU\\Console\\CloudURL, HKCU\\Console\\IpURL",
+              "Fingerprinting via %COMPUTERNAME% and drive serial number",
+              "Hardcoded DDR URLs: te.legra.ph/fxpppscdlw-12-27, telegram.me/s/akatachi, check-host.net/ip-info?host=snterval.selltosell.ru",
+              "User-Agent separators: ##, !!, ??, ==, ::"
+            ]
+          },
+          {
+            "name": "Persistence via ADS and Scheduled Task",
+            "slug": "persistence-ads-task",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.005"
+            ],
+            "observables": [
+              "File path using ADS: %TEMP%\\:divedz0f",
+              "Scheduled task name: \\Windows\\ApplicationData\\DsSvcCleanup",
+              "Task frequency: every 11 minutes",
+              "Hardcoded C2s written to registry: vids-road-christina-guards.trycloudflare.com, 172.86.72.243"
+            ]
+          },
+          {
+            "name": "In-Memory PowerShell Execution",
+            "slug": "powershell-memory-loader",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "Command line: powershell.exe -nol -nop -encodedcommand",
+              "Script content: [System.Net.ServicePointManager]::ServerCertificateValidationCallback={$true}",
+              "Script content: $webClient.DownloadString",
+              "Use of ROT13 de-obfuscation in parent VBScript"
+            ]
+          },
+          {
+            "name": "C2 Communication and Fingerprint Exfiltration",
+            "slug": "c2-exfiltration-anomalies",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "HTTP GET requests with Content-Length: 2114",
+              "URL path keywords: sat, component, misfortune, endanger, menace, reproof, artistic, mosquito",
+              "Randomized file extensions: .ato, .spl, .rmvb, .gtp, .dbc, .kfx, .brk",
+              "Fingerprint data embedded in User-Agent header"
+            ]
+          }
+        ],
+        "summary": "Gamaredon (UAC-0010) uses GammaLoad, a modular series of VBScript loaders, to maintain persistence and deploy follow-on stealers. The infection chain utilizes registry-based configuration caching, Dead Drop Resolvers on legitimate platforms, and Alternate Data Streams paired with scheduled tasks to execute obfuscated PowerShell payloads."
+      },
+      "severity": "high",
+      "rationale": "Start with general Windows workstations. Focus on hosts showing unusual registry activity in the HKCU\\Console path.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using multi-stage VBScript loaders to maintain persistent access by caching C2 configuration in HKCU registry keys and executing payloads from Alternate Data Streams via scheduled tasks.",
+      "parameters": {
+        "ddr_domains": {
+          "from": {
+            "ref": "sekoia",
+            "kind": "article",
+            "observed": "2026-06-11"
+          },
+          "type": "list[domain]",
+          "default": [
+            "te.legra.ph",
+            "telegram.me",
+            "check-host.net",
+            "huaweicloud.com",
+            "workers.dev",
+            "trycloudflare.com"
+          ],
+          "description": "Known Dead Drop Resolvers and staging domains used by GammaLoad."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Target hosts for the hunt; leave empty to scan the full estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "path_keywords": {
+          "from": {
+            "ref": "sekoia",
+            "kind": "article",
+            "observed": "2026-06-11"
+          },
+          "type": "list[string]",
+          "default": [
+            "follow",
+            "sat",
+            "component",
+            "misfortune",
+            "endanger",
+            "menace",
+            "reproof",
+            "artistic",
+            "list",
+            "mosquito"
+          ],
+          "description": "Keywords typically found in the randomized URL paths of Gammaload."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.sekoia.com/blog/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.sekoia.com/blog/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload",
+          "name": "FSB’s matryoshka #2/3: Gamaredon's Gammaload Malware"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-registry-visibility",
+          "risk": "Registry writes to user hives are often missed by default telemetry, hiding the persistent configuration mechanism.",
+          "stage": "vbs-c2-discovery-registry",
+          "question": "whether C2 configuration was cached in the user's registry hive",
+          "requires": "logging for HKCU registry hive modifications"
+        },
+        {
+          "id": "no-ads-telemetry",
+          "risk": "Without NTFS stream visibility, the presence of the hidden dropper payload cannot be confirmed through file events alone.",
+          "stage": "persistence-ads-task",
+          "question": "whether the dropper wrote the payload to an ADS under %TEMP%",
+          "requires": "hb_file_activity tracking of NTFS Alternate Data Streams"
+        }
+      ]
+    },
+    "name": "Gamaredon GammaLoad Intrusion Lifecycle",
+    "description": "This hunt targets the GammaLoad malware used by Gamaredon (UAC-0010). The malware is characterized by a multi-stage execution chain that fingerprints hosts and uses Dead Drop Resolvers (DDR) to update C2 configuration stored in the HKCU\\Console registry hive. It establishes persistence by writing payloads to Alternate Data Streams (ADS) and creating scheduled tasks to execute them. The hunt follows this lifecycle from initial C2 discovery through to the regular execution of obfuscated PowerShell memory loaders."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "vbs-c2-discovery-registry",
+            "steps": [
+              "registry-c2-caching",
+              "ddr-http-discovery"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-ads-task",
+            "steps": [
+              "ads-scheduled-tasks"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "powershell-memory-loader",
+            "steps": [
+              "powershell-memory-loaders"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-exfiltration-anomalies",
+            "steps": [
+              "ddr-http-discovery"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using multi-stage VBScript loaders to maintain persistent access by caching C2 configuration in HKCU registry keys and executing payloads from Alternate Data Streams via scheduled tasks.",
+        "blind_spots": [
+          {
+            "id": "no-registry-visibility",
+            "risk": "Registry writes to user hives are often missed by default telemetry, hiding the persistent configuration mechanism.",
+            "stage": "vbs-c2-discovery-registry",
+            "question": "whether C2 configuration was cached in the user's registry hive",
+            "requires": "logging for HKCU registry hive modifications"
+          },
+          {
+            "id": "no-ads-telemetry",
+            "risk": "Without NTFS stream visibility, the presence of the hidden dropper payload cannot be confirmed through file events alone.",
+            "stage": "persistence-ads-task",
+            "question": "whether the dropper wrote the payload to an ADS under %TEMP%",
+            "requires": "hb_file_activity tracking of NTFS Alternate Data Streams"
+          }
+        ],
+        "scoping_notes": "Start with general Windows workstations. Focus on hosts showing unusual registry activity in the HKCU\\Console path.",
+        "beyond_detection": "This hunt uses a phased approach to link registry configuration caching with persistent ADS-based tasks and insecure PowerShell execution. A single rule cannot easily correlate these events across multiple surfaces over a persistent 11-minute execution cycle."
+      }
+    },
+    {
+      "id": "scope-windows-software",
+      "type": "query",
+      "label": "Scope Windows endpoints",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%windows%' OR LOWER(vendor_name) LIKE '%microsoft%')",
+        "surface": "hb_software_inventory",
+        "description": "Identify Windows assets where the VBScript and PowerShell lifecycle is expected to run.",
+        "expected_signal": "A list of Windows hostnames. Silence indicates no Windows systems are in the inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope Windows endpoints",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%windows%' OR LOWER(vendor_name) LIKE '%microsoft%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of Windows hostnames. Silence indicates no Windows systems are in the inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "registry-c2-caching",
+      "type": "query",
+      "label": "Registry configuration caching",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, COUNT(*) AS write_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\console\\%' AND (instr(LOWER(reg_target), 'historyurl') > 0 OR instr(LOWER(reg_target), 'windowsresponby') > 0 OR instr(LOWER(reg_target), 'cloudurl') > 0 OR instr(LOWER(reg_target), 'ipurl') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, reg_target, reg_value_data HAVING COUNT(DISTINCT device_hostname) <= 5",
+        "surface": "hb_registry_activity",
+        "description": "Detect VBScripts storing C2 URLs in HKCU\\Console registry keys, a signature Gammaload behavior.",
+        "expected_signal": "Specific registry keys in the Console hive being updated with URL data. Prevalence highlights rare C2 infrastructure."
+      },
+      "parents": [
+        {
+          "id": "scope-windows-software"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Registry configuration caching",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, COUNT(*) AS write_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\console\\%' AND (instr(LOWER(reg_target), 'historyurl') > 0 OR instr(LOWER(reg_target), 'windowsresponby') > 0 OR instr(LOWER(reg_target), 'cloudurl') > 0 OR instr(LOWER(reg_target), 'ipurl') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, reg_target, reg_value_data HAVING COUNT(DISTINCT device_hostname) <= 5",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Specific registry keys in the Console hive being updated with URL data. Prevalence highlights rare C2 infrastructure.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "reg_target",
+            "reg_value_data"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "ddr-http-discovery",
+      "type": "query",
+      "label": "DDR lookups and path anomalies",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, status_code, response_bytes, time FROM hb_http_activity WHERE (instr(',' || '{{ddr_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 OR instr(',' || '{{path_keywords}}' || ',', ',' || LOWER(REPLACE(url_path, '/', '')) || ',') > 0 OR (status_code = 200 AND response_bytes > 1000) OR (status_code = 404 AND LOWER(url_path) LIKE '%.php%')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify HTTP requests targeting DDR domains or using GammaLoad randomized path keywords.",
+        "expected_signal": "Requests to Telegram/Telegraph services or paths using report-matched keywords. Large 200 responses may indicate payload delivery."
+      },
+      "parents": [
+        {
+          "id": "scope-windows-software"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DDR lookups and path anomalies",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "url_path",
+          "user_agent",
+          "status_code",
+          "response_bytes",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, status_code, response_bytes, time FROM hb_http_activity WHERE (instr(',' || '{{ddr_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 OR instr(',' || '{{path_keywords}}' || ',', ',' || LOWER(REPLACE(url_path, '/', '')) || ',') > 0 OR (status_code = 200 AND response_bytes > 1000) OR (status_code = 404 AND LOWER(url_path) LIKE '%.php%')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Requests to Telegram/Telegraph services or paths using report-matched keywords. Large 200 responses may indicate payload delivery.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "early-stage-agent",
+      "type": "analytic",
+      "label": "Evaluate early staging",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "registry-c2-caching",
+          "ddr-http-discovery"
+        ],
+        "objective": "Determine if any host shows both registry configuration caching in HKCU\\Console and matching HTTP traffic to DDR domains or path keywords.",
+        "description": "Correlate registry configuration caching with network discovery patterns to identify potential GammaLoad infections.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict on whether early-stage loader activity is confirmed.",
+        "success_criteria": "A verdict citing specific hosts and their correlated registry/HTTP rows."
+      },
+      "parents": [
+        {
+          "id": "registry-c2-caching",
+          "kind": "merge"
+        },
+        {
+          "id": "ddr-http-discovery",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "ads-scheduled-tasks",
+      "type": "query",
+      "label": "ADS-based persistence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_definition_path, time FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE '%dssvccleanup%' OR job_cmd_line LIKE '%:%' OR LOWER(job_cmd_line) LIKE '%\\temp\\%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_scheduled_job",
+        "description": "Detect scheduled tasks configured to execute Alternate Data Streams, which GammaLoad uses for persistence.",
+        "expected_signal": "A task named DsSvcCleanup or a command line executing a file containing a colon (indicating an ADS)."
+      },
+      "parents": [
+        {
+          "id": "early-stage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "ADS-based persistence",
+        "reads": [
+          "device_hostname",
+          "job_name",
+          "job_cmd_line",
+          "job_definition_path",
+          "time"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_definition_path, time FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE '%dssvccleanup%' OR job_cmd_line LIKE '%:%' OR LOWER(job_cmd_line) LIKE '%\\temp\\%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A task named DsSvcCleanup or a command line executing a file containing a colon (indicating an ADS).",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "powershell-memory-loaders",
+      "type": "query",
+      "label": "PowerShell memory loaders",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, process_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%servercertificatevalidationcallback%' AND LOWER(script_content) LIKE '%downloadstring%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Identify PowerShell scripts that disable certificate validation and download strings, typical of GammaLoad's third stage.",
+        "expected_signal": "Script blocks performing insecure HTTPS downloads for in-memory execution."
+      },
+      "parents": [
+        {
+          "id": "early-stage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "PowerShell memory loaders",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, process_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%servercertificatevalidationcallback%' AND LOWER(script_content) LIKE '%downloadstring%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks performing insecure HTTPS downloads for in-memory execution.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "full-chain-agent",
+      "type": "analytic",
+      "label": "Synthesize full GammaLoad chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "early-stage-agent",
+          "ads-scheduled-tasks",
+          "powershell-memory-loaders"
+        ],
+        "objective": "Analyze the early staging results alongside the persistent task and PowerShell activity to confirm a persistent GammaLoad infection.",
+        "description": "Evaluate all collected evidence to confirm a complete GammaLoad intrusion lifecycle per host.",
+        "max_iterations": 5,
+        "expected_signal": "A high-confidence final verdict for any host matching multiple lifecycle stages.",
+        "success_criteria": "A final verdict of malicious | suspicious | benign per host citing the full chain of evidence."
+      },
+      "parents": [
+        {
+          "id": "ads-scheduled-tasks",
+          "kind": "merge"
+        },
+        {
+          "id": "powershell-memory-loaders",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent confirms malicious activity involving persistent tasks and C2 caching on a host",
+        "condition": "the agent confirms malicious activity involving persistent tasks and C2 caching on a host",
+        "blind_spot": "no-registry-visibility",
+        "confidence": "high",
+        "description": "Route the confirmed threat to containment or further forensic review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "full-chain-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the infection by isolating the host before data exfiltration occurs.",
+        "instructions": "Isolate the host, terminate suspicious PowerShell processes, and remove the DsSvcCleanup task. Collect the ADS payload from %TEMP% for analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-forensic-review",
+      "type": "task",
+      "label": "Analyst forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Examine the compromised host to confirm the full scope of activity and identify final payloads.",
+        "instructions": "Review registry data in HKCU\\Console. Verify the presence of the ADS in %TEMP%. Check for follow-on stealer activity (GammaSteel)."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and document findings.",
+        "instructions": "Document the outcome for each host. Record any blind spots encountered."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-forensic-review"
+        }
+      ]
+    }
+  ]
+}

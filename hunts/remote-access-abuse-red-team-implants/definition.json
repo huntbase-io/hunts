@@ -1,0 +1,549 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "External remote services are the primary entry point for the ransomware actors described in the Talos research. Validating that these services are protected by MFA and free of red-team implants is a critical baseline defense."
+      },
+      "name": "Remote access abuse and red-team implants",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1133",
+        "attack.t1071.001",
+        "attack.t1078"
+      ],
+      "series": {
+        "slug": "should-you-care-about-an-ai-slowdown",
+        "index": 1,
+        "title": "Should you care about an “AI slowdown?”",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "lateral-movement-red-team-tools",
+          "reason": "This hunt focuses on initial access via VPN; lateral movement would require analysis of internal authentication and SMB traffic.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple rule triggers on a filename; this hunt correlates the absence of identity controls (MFA) with the prevalence-weighted execution of those tools across a scoped asset inventory, providing the context an analyst needs to confirm an intrusion.",
+      "coverage": [
+        {
+          "stage": "initial-access-external-remote-services",
+          "steps": [
+            "find-vpn-endpoints",
+            "rare-unprotected-logons"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-red-team-tooling",
+          "steps": [
+            "detect-implant-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-and-defense-evasion-patchers",
+          "reason": "Belongs to another part of the 'Should you care about an “AI slowdown?”' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "execution-ai-generated-scripts",
+          "reason": "Belongs to another part of the 'Should you care about an “AI slowdown?”' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "impact-double-extortion-ransomware",
+          "reason": "Belongs to another part of the 'Should you care about an “AI slowdown?”' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "VPN Access and Credential Abuse",
+            "slug": "initial-access-external-remote-services",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "External-facing VPN services",
+              "Administrative account logins",
+              "Sign-ins without multi-factor authentication (MFA)"
+            ]
+          },
+          {
+            "name": "AdaptixC2 Command and Control",
+            "slug": "c2-red-team-tooling",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071"
+            ],
+            "observables": [
+              "AdaptixC2 framework",
+              "VID001.exe",
+              "WCInstaller_NonAdmin.exe",
+              "w32.9f1f11a708-100.sbx.tg",
+              "w32.c4dd71e347-95.sbx.tg"
+            ]
+          },
+          {
+            "name": "System Patching and Bypass Tools",
+            "slug": "persistence-and-defense-evasion-patchers",
+            "tactic": "persistence",
+            "techniques": [
+              "T1562"
+            ],
+            "observables": [
+              "SECOH-QAD.exe",
+              "AAct.exe",
+              "win.tool.procpatcher",
+              "w32.fed979f93b-95.sbx.tg"
+            ]
+          },
+          {
+            "name": "AI-Driven Destructive Scripting",
+            "slug": "execution-ai-generated-scripts",
+            "tactic": "execution",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "content.js",
+              "w32.38d053135d-95.sbx.tg",
+              "LLM-generated destructive scripts"
+            ]
+          },
+          {
+            "name": "Data Encryption and Double Extortion",
+            "slug": "impact-double-extortion-ransomware",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "Encryption of local and remote drives",
+              "Attempts to disable backup systems",
+              "Double-extortion communications"
+            ]
+          }
+        ],
+        "summary": "The Qilin and The Gentlemen ransomware groups are targeting Japanese SMEs using a combination of AI-generated destructive scripts and the AdaptixC2 red-teaming framework. Initial access is typically gained via external remote services like VPNs, leading to lateral movement, data theft, and double-extortion ransomware attacks."
+      },
+      "severity": "high",
+      "rationale": "Start by identifying hosts running Cisco AnyConnect or other VPN software to narrow the scope of remote access investigations.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder accessed the environment via an external remote service using a single-factor credential and deployed red-team framework implants to maintain command and control.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Target hosts found in the scoping step; leave empty to hunt across the full estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for sign-ins and process execution."
+        },
+        "malicious_filenames": {
+          "from": {
+            "ref": "talos-ai-slowdown-2026",
+            "kind": "article",
+            "observed": "2026-09-17"
+          },
+          "type": "list[string]",
+          "default": [
+            "vid001.exe",
+            "wcinstaller_nonadmin.exe",
+            "secoh-qad.exe",
+            "aact.exe",
+            "content.js"
+          ],
+          "description": "Implant and tool filenames identified in Talos telemetry."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.talosintelligence.com/should-you-care-about-an-ai-slowdown/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.talosintelligence.com/should-you-care-about-an-ai-slowdown/",
+          "name": "Talos — Should you care about an AI slowdown?"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "mfa-reporting-gap",
+          "risk": "Some providers do not export MFA status in authentication logs, which could lead to false positives if the hunt assumes absence of the field means absence of the control.",
+          "stage": "initial-access-external-remote-services",
+          "question": "whether MFA was actually bypassed or just not reported",
+          "requires": "VPN provider MFA status fields"
+        },
+        {
+          "id": "ephemeral-tooling",
+          "risk": "Adversaries often rename tools like AdaptixC2 components; the hunt relies on known filenames which may be rotated.",
+          "stage": "c2-red-team-tooling",
+          "question": "whether the adversary used non-prevalent filenames",
+          "requires": "hb_process_activity or hb_file_activity"
+        }
+      ]
+    },
+    "name": "Remote access abuse and red-team implants",
+    "description": "This hunt examines the intersection of identity and endpoint security following research into ransomware actors that use AI-assisted scripts and red-team frameworks like AdaptixC2. The hunt first identifies hosts running VPN clients, then searches for successful sign-ins without multi-factor authentication and the execution of specific implants identified by Talos. An agent weighs these independent signals to identify potential beachheads where defensive fundamentals were bypassed. Analysts then review the findings to isolate confirmed threats."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "should-you-care-about-an-ai-slowdown",
+          "index": 1,
+          "title": "Should you care about an “AI slowdown?”",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "initial-access-external-remote-services",
+            "steps": [
+              "find-vpn-endpoints",
+              "rare-unprotected-logons"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-red-team-tooling",
+            "steps": [
+              "detect-implant-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-and-defense-evasion-patchers",
+            "reason": "Belongs to another part of the 'Should you care about an “AI slowdown?”' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "execution-ai-generated-scripts",
+            "reason": "Belongs to another part of the 'Should you care about an “AI slowdown?”' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "impact-double-extortion-ransomware",
+            "reason": "Belongs to another part of the 'Should you care about an “AI slowdown?”' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder accessed the environment via an external remote service using a single-factor credential and deployed red-team framework implants to maintain command and control.",
+        "blind_spots": [
+          {
+            "id": "mfa-reporting-gap",
+            "risk": "Some providers do not export MFA status in authentication logs, which could lead to false positives if the hunt assumes absence of the field means absence of the control.",
+            "stage": "initial-access-external-remote-services",
+            "question": "whether MFA was actually bypassed or just not reported",
+            "requires": "VPN provider MFA status fields"
+          },
+          {
+            "id": "ephemeral-tooling",
+            "risk": "Adversaries often rename tools like AdaptixC2 components; the hunt relies on known filenames which may be rotated.",
+            "stage": "c2-red-team-tooling",
+            "question": "whether the adversary used non-prevalent filenames",
+            "requires": "hb_process_activity or hb_file_activity"
+          }
+        ],
+        "scoping_notes": "Start by identifying hosts running Cisco AnyConnect or other VPN software to narrow the scope of remote access investigations.",
+        "beyond_detection": "A simple rule triggers on a filename; this hunt correlates the absence of identity controls (MFA) with the prevalence-weighted execution of those tools across a scoped asset inventory, providing the context an analyst needs to confirm an intrusion."
+      }
+    },
+    {
+      "id": "find-vpn-endpoints",
+      "type": "query",
+      "label": "Find hosts with VPN software",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(vendor_name) LIKE '%cisco%' OR LOWER(package_name) LIKE '%anyconnect%' OR LOWER(package_name) LIKE '%secure client%' OR LOWER(package_name) LIKE '%vpn%')",
+        "surface": "hb_software_inventory",
+        "description": "Identify the hosts most likely to be targets for external remote service abuse by looking for installed VPN clients.",
+        "expected_signal": "The query lists hosts running VPN clients. These hosts represent the primary attack surface for external access abuse."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Find hosts with VPN software",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(vendor_name) LIKE '%cisco%' OR LOWER(package_name) LIKE '%anyconnect%' OR LOWER(package_name) LIKE '%secure client%' OR LOWER(package_name) LIKE '%vpn%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "The query lists hosts running VPN clients. These hosts represent the primary attack surface for external access abuse.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "rare-unprotected-logons",
+      "type": "query",
+      "label": "Rare remote sign-ins without MFA",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, device_hostname, logon_type, MIN(time) AS first_seen, COUNT(DISTINCT device_hostname) AS host_count FROM hb_auth_signin WHERE (mfa = 'false' OR mfa IS NULL) AND status_id = 1 AND (LOWER(logon_type) IN ('remote interactive', 'network') OR LOWER(event_type) LIKE '%vpn%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip HAVING host_count <= 2",
+        "surface": "hb_auth_signin",
+        "description": "Find successful remote logons that lacked MFA and are rare across the fleet, suggesting a possible beachhead.",
+        "expected_signal": "A row identifies a user and IP that logged in successfully without MFA to only one or two hosts. Fleet-wide logins are likely authorized exceptions."
+      },
+      "parents": [
+        {
+          "id": "find-vpn-endpoints"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare remote sign-ins without MFA",
+        "reads": [
+          "actor_user_name",
+          "device_hostname",
+          "event_type",
+          "logon_type",
+          "mfa",
+          "src_endpoint_ip",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, device_hostname, logon_type, MIN(time) AS first_seen, COUNT(DISTINCT device_hostname) AS host_count FROM hb_auth_signin WHERE (mfa = 'false' OR mfa IS NULL) AND status_id = 1 AND (LOWER(logon_type) IN ('remote interactive', 'network') OR LOWER(event_type) LIKE '%vpn%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip HAVING host_count <= 2",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A row identifies a user and IP that logged in successfully without MFA to only one or two hosts. Fleet-wide logins are likely authorized exceptions.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "actor_user_name",
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "detect-implant-execution",
+      "type": "query",
+      "label": "Implant execution from Talos research",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, process_original_file_name, user_name, time FROM hb_process_activity WHERE (instr(',' || LOWER('{{malicious_filenames}}') || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || LOWER('{{malicious_filenames}}') || ',', ',' || LOWER(process_original_file_name) || ',') > 0 OR instr(LOWER(process_cmd_line), 'content.js') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify the execution of specific binaries and red-team tools used by ransomware actors.",
+        "expected_signal": "Process events for known AdaptixC2 or Procpatcher filenames. Any hit on a host from the scoping step is a high-confidence lead."
+      },
+      "parents": [
+        {
+          "id": "find-vpn-endpoints"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Implant execution from Talos research",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "process_name",
+          "process_original_file_name",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, process_original_file_name, user_name, time FROM hb_process_activity WHERE (instr(',' || LOWER('{{malicious_filenames}}') || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || LOWER('{{malicious_filenames}}') || ',', ',' || LOWER(process_original_file_name) || ',') > 0 OR instr(LOWER(process_cmd_line), 'content.js') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process events for known AdaptixC2 or Procpatcher filenames. Any hit on a host from the scoping step is a high-confidence lead.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "triage-verdict",
+      "type": "analytic",
+      "label": "Triage access and execution",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "rare-unprotected-logons",
+          "detect-implant-execution"
+        ],
+        "objective": "Determine if any host showing unprotected VPN sign-ins subsequently executed malicious binaries identified in the Talos report within a 24-hour window.",
+        "description": "The agent evaluates whether the rare, unprotected sign-ins and the execution of red-team tools on the same host indicate a successful intrusion.",
+        "max_iterations": 4,
+        "expected_signal": "A verdict citing specific rows from the auth and process queries.",
+        "success_criteria": "A per-host verdict of malicious, suspicious, or benign based on temporal correlation between access and execution."
+      },
+      "parents": [
+        {
+          "id": "rare-unprotected-logons",
+          "kind": "merge"
+        },
+        {
+          "id": "detect-implant-execution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host correlating remote access and red-team tooling",
+        "condition": "the triage verdict is malicious for at least one host correlating remote access and red-team tooling",
+        "blind_spot": "mfa-reporting-gap",
+        "confidence": "high",
+        "description": "Direct the hunt to containment or manual review based on the agent verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-verdict"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop the adversary from moving laterally or deploying ransomware by network-isolating the host.",
+        "instructions": "Isolate the host and revoke the credentials of the user account found in the sign-in query. Collect the malicious binary for further analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify the threat and document the attack path.",
+        "instructions": "Review the cited rows. Verify if the source IP of the sign-in is known-malicious or geolocates to an unusual region. Check for secondary persistence like new services or scheduled tasks."
+      },
+      "parents": [
+        {
+          "id": "route",
+          "branch": "default"
+        },
+        {
+          "id": "route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Summarize the hunt and record gaps in security hygiene.",
+        "instructions": "Document the findings. If the hunt was negative, confirm that remote services are strictly following MFA policies and identify any administrative accounts that should be enrolled."
+      },
+      "parents": [
+        {
+          "id": "route",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

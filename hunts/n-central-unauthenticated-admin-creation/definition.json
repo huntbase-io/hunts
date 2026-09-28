@@ -1,0 +1,555 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "N-central is a high-privilege RMM tool; an unauthenticated administrator account creation on such a node represents a systemic compromise of the entire managed estate."
+      },
+      "name": "Unauthenticated N-central Administrator Account Creation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1556",
+        "attack.t1136.001"
+      ],
+      "related": [
+        {
+          "hunt": "n-central-unauthenticated-file-access",
+          "reason": "This hunt focuses on administrative persistence; a similar bypass can lead to arbitrary file reads via the legacy SOAP API.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "While a detection rule might flag the URI semicolon pattern, this hunt uses a gated inventory lead to target RMM nodes and a prevalence baseline to differentiate administrative takeover from legitimate maintenance or scanning noise.",
+      "coverage": [
+        {
+          "stage": "web-access-control-bypass",
+          "steps": [
+            "detect-bypass-uris"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "soap-authentication-bypass",
+          "reason": "The SOAP operation occurs in the POST body, which is not captured by hb_http_activity.",
+          "status": "not_visible",
+          "blind_spot": "soap-body-not-visible"
+        },
+        {
+          "stage": "administrator-account-creation",
+          "steps": [
+            "rare-account-creation"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Envoy/Jetty Access Control Bypass",
+            "slug": "web-access-control-bypass",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "POST /dms;/services/ServerUI",
+              "POST /internal;/dms/services2/ServerUI2",
+              "Forwarded: for=\"127.0.0.\\1\"",
+              "TCP 8443",
+              "n-central-proxy-4.5.6-5",
+              "jetty-http-9.4.56.v20240826.jar"
+            ]
+          },
+          {
+            "name": "SOAP Two-Factor Authentication Bypass",
+            "slug": "soap-authentication-bypass",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1556"
+            ],
+            "observables": [
+              "SOAP operation: UserTwoFactorLogin",
+              "Target UserID: 1 (N-able Administrator)"
+            ]
+          },
+          {
+            "name": "Persistent Admin Account Creation",
+            "slug": "administrator-account-creation",
+            "tactic": "persistence",
+            "techniques": [
+              "T1136.001"
+            ],
+            "observables": [
+              "Creation of new System administrator accounts",
+              "dmsservice-11.0.1-SNAPSHOT.jar"
+            ]
+          }
+        ],
+        "summary": "Attackers chain an Envoy/Jetty URI parsing discrepancy (CVE-2026-86206) with a logic flaw in N-central's legacy two-factor authentication (CVE-2026-86207) to bypass authentication. This allows remote unauthenticated actors to assume the identity of built-in administrative accounts and create new, persistent System administrator users."
+      },
+      "severity": "high",
+      "rationale": "Scoping targets any server running N-able N-central. If no software inventory is available, the hunt will run against all monitored web-facing endpoints.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has exploited a routing discrepancy between Envoy and Jetty in an N-central server to bypass authentication and create a new administrative account for persistence.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts to analyze; leave empty to run against the full estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "n_central_packages": {
+          "from": {
+            "ref": "Rapid7 CVE-2026-86206",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[string]",
+          "default": [
+            "n-central-proxy",
+            "dmsservice",
+            "n-central"
+          ],
+          "description": "Known package names or fragments for N-central installations."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/ve-cve-2026-86206-cve-2026-86207-n-able-n-central-authentication-bypass-fixed",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/ve-cve-2026-86206-cve-2026-86207-n-able-n-central-authentication-bypass-fixed",
+          "name": "Rapid7 — CVE-2026-86206, CVE-2026-86207: N-able N-central Authentication Bypass (FIXED)"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "scoping-inventory-missing",
+          "risk": "A host missing software inventory might be skipped by the scoping lead, leading to a false negative for that host.",
+          "stage": "web-access-control-bypass",
+          "question": "whether N-central servers can be correctly identified",
+          "requires": "hb_software_inventory on the N-central host"
+        },
+        {
+          "id": "http-telemetry-blind-spot",
+          "risk": "The hb_http_activity surface does not record the Forwarded header, so the bypass is inferred only from the URI pattern.",
+          "stage": "web-access-control-bypass",
+          "question": "whether the spoofed local-address header (127.0.0.\\1) was present",
+          "requires": "hb_http_activity capturing the Forwarded header"
+        },
+        {
+          "id": "soap-body-not-visible",
+          "risk": "The operation name is carried in the POST body, which is not captured by hb_http_activity. Triage must rely on the subsequent account creation.",
+          "stage": "soap-authentication-bypass",
+          "question": "whether the UserTwoFactorLogin SOAP operation was invoked",
+          "requires": "POST body telemetry"
+        }
+      ]
+    },
+    "name": "Unauthenticated N-central Administrator Account Creation",
+    "description": "This hunt targets the authentication bypass chain in N-able N-central (CVE-2026-86206 and CVE-2026-86207). It uses a gated flow to first identify hosts running the N-central RMM platform. Once confirmed, it parallelizes a behavioral search for semicolon-decorated URIs—which evade Envoy proxy rules—and a prevalence-based search for rare account creations across those same hosts. An agent then correlates these signals to identify successful administrative takeover."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "web-access-control-bypass",
+            "steps": [
+              "detect-bypass-uris"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "soap-authentication-bypass",
+            "reason": "The SOAP operation occurs in the POST body, which is not captured by hb_http_activity.",
+            "status": "not_visible",
+            "blind_spot": "soap-body-not-visible"
+          },
+          {
+            "stage": "administrator-account-creation",
+            "steps": [
+              "rare-account-creation"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has exploited a routing discrepancy between Envoy and Jetty in an N-central server to bypass authentication and create a new administrative account for persistence.",
+        "blind_spots": [
+          {
+            "id": "scoping-inventory-missing",
+            "risk": "A host missing software inventory might be skipped by the scoping lead, leading to a false negative for that host.",
+            "stage": "web-access-control-bypass",
+            "question": "whether N-central servers can be correctly identified",
+            "requires": "hb_software_inventory on the N-central host"
+          },
+          {
+            "id": "http-telemetry-blind-spot",
+            "risk": "The hb_http_activity surface does not record the Forwarded header, so the bypass is inferred only from the URI pattern.",
+            "stage": "web-access-control-bypass",
+            "question": "whether the spoofed local-address header (127.0.0.\\1) was present",
+            "requires": "hb_http_activity capturing the Forwarded header"
+          },
+          {
+            "id": "soap-body-not-visible",
+            "risk": "The operation name is carried in the POST body, which is not captured by hb_http_activity. Triage must rely on the subsequent account creation.",
+            "stage": "soap-authentication-bypass",
+            "question": "whether the UserTwoFactorLogin SOAP operation was invoked",
+            "requires": "POST body telemetry"
+          }
+        ],
+        "scoping_notes": "Scoping targets any server running N-able N-central. If no software inventory is available, the hunt will run against all monitored web-facing endpoints.",
+        "beyond_detection": "While a detection rule might flag the URI semicolon pattern, this hunt uses a gated inventory lead to target RMM nodes and a prevalence baseline to differentiate administrative takeover from legitimate maintenance or scanning noise."
+      }
+    },
+    {
+      "id": "identify-n-central-nodes",
+      "type": "query",
+      "label": "Identify N-central management servers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (instr(',' || '{{n_central_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 OR LOWER(package_name) LIKE '%n-central%')",
+        "surface": "hb_software_inventory",
+        "description": "Find systems running N-central proxy or DMS components to scope the behavioral analysis.",
+        "expected_signal": "A list of hosts acting as RMM management nodes. Silence indicates no N-central software is present on monitored endpoints."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify N-central management servers",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (instr(',' || '{{n_central_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 OR LOWER(package_name) LIKE '%n-central%')",
+        "silence": "evidence_of_absence",
+        "expected": "A list of hosts acting as RMM management nodes. Silence indicates no N-central software is present on monitored endpoints.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "assess-lead",
+      "type": "analytic",
+      "label": "Assess lead presence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "identify-n-central-nodes"
+        ],
+        "objective": "Confirm which hostnames in the inventory results are confirmed N-central servers.",
+        "description": "Confirm if the inventory results represent active RMM nodes that warrant expensive telemetry queries.",
+        "max_iterations": 3,
+        "expected_signal": "A list of validated RMM nodes.",
+        "success_criteria": "A verdict listing active RMM hosts."
+      },
+      "parents": [
+        {
+          "id": "identify-n-central-nodes"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-rmm",
+      "type": "checkpoint",
+      "label": "Gate on RMM presence",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the assess-lead verdict identifies at least one N-central host",
+        "condition": "the assess-lead verdict identifies at least one N-central host",
+        "blind_spot": "scoping-inventory-missing",
+        "confidence": "high",
+        "description": "Avoid running expensive web and account queries unless an RMM server is identified.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "assess-lead"
+        }
+      ]
+    },
+    {
+      "id": "detect-bypass-uris",
+      "type": "query",
+      "label": "Detect semicolon URI bypass",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_path, status_code, time FROM hb_http_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (instr(url_path, ';') > 0) AND (LOWER(url_path) LIKE '%/dms%' OR LOWER(url_path) LIKE '%/internal%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Find HTTP POST requests using semicolons to bypass Envoy's prefix checks while reaching Jetty's servlets.",
+        "expected_signal": "Web requests containing semicolons in paths associated with N-central services. Silence proves absence only if URIs are logged without normalization."
+      },
+      "parents": [
+        {
+          "id": "gate-on-rmm",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect semicolon URI bypass",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "url_path",
+          "status_code",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_path, status_code, time FROM hb_http_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (instr(url_path, ';') > 0) AND (LOWER(url_path) LIKE '%/dms%' OR LOWER(url_path) LIKE '%/internal%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Web requests containing semicolons in paths associated with N-central services. Silence proves absence only if URIs are logged without normalization.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "rare-account-creation",
+      "type": "query",
+      "label": "Stack-count rare account creations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT user_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_account_change WHERE activity_id = 1 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_name HAVING host_count <= 2 ORDER BY host_count ASC",
+        "surface": "hb_account_change",
+        "description": "Identify new local accounts that are unique to the RMM nodes, standing out from fleet-wide standard accounts.",
+        "expected_signal": "Accounts created on very few hosts. Silence suggests no new local account activity occurred in the window."
+      },
+      "parents": [
+        {
+          "id": "gate-on-rmm",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Stack-count rare account creations",
+        "reads": [
+          "user_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_account_change",
+        "target": "endpoint",
+        "content": "SELECT user_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_account_change WHERE activity_id = 1 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_name HAVING host_count <= 2 ORDER BY host_count ASC",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Accounts created on very few hosts. Silence suggests no new local account activity occurred in the window.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "user_name"
+          ],
+          "rare_below": 2
+        },
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "triage-intrusion",
+      "type": "analytic",
+      "label": "Triage correlated intrusion",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "assess-lead",
+          "detect-bypass-uris",
+          "rare-account-creation"
+        ],
+        "objective": "Determine if unauthenticated web bypass requests using semicolons were followed by unauthorized account creations on the same host.",
+        "description": "Correlate the presence of bypass URIs with the creation of rare accounts to determine if an unauthenticated administrative takeover occurred.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict linking the web activity to persistence.",
+        "success_criteria": "A verdict of malicious or suspicious for hosts matching both patterns."
+      },
+      "parents": [
+        {
+          "id": "detect-bypass-uris",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-account-creation",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-triage",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-verdict is malicious for at least one host",
+        "condition": "the triage-verdict is malicious for at least one host",
+        "blind_spot": "http-telemetry-blind-spot",
+        "confidence": "high",
+        "description": "Direct confirmed intrusions to immediate containment.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-intrusion"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised RMM server",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat to prevent the adversary from using the RMM to compromise downstream managed devices.",
+        "instructions": "Isolate the host via the endpoint agent and revoke the newly created account's credentials.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-triage",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Manual forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's correlation and check for lateral movement into the managed fleet.",
+        "instructions": "Review the identified HTTP requests and rare account creations. Determine if the new user performed any downstream RMM actions (script deployment, agent installs)."
+      },
+      "parents": [
+        {
+          "id": "gate-on-rmm",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-rmm",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-triage",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-triage",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the hunt outcome and any observed scanning activity.",
+        "instructions": "Document which N-central hosts were scanned and any behavioral anomalies found. If only bypass attempts were found without account changes, report as unsuccessful scanning."
+      },
+      "parents": [
+        {
+          "id": "gate-on-rmm",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-on-triage",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
