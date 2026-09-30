@@ -1,0 +1,646 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "TeamPCP uses supply chain compromises to harvest secrets that are then validated and abused within hours. Identifying this enumeration phase prevents massive exfiltration of repository contents and database information."
+      },
+      "name": "TeamPCP Credential Validation and Discovery",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1078",
+        "attack.t1087",
+        "attack.t1082",
+        "attack.t1083",
+        "attack.t1090.003",
+        "attack.t1195"
+      ],
+      "series": {
+        "slug": "tracking-teampcp-post-compromise-attacks-seen-in-the-wild",
+        "index": 1,
+        "title": "Tracking TeamPCP: post-compromise attacks seen in the wild",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "github-supply-chain-workflow-abuse",
+          "reason": "Abuse of GitHub Actions and PATs for code execution and repository cloning belongs to a sibling hunt focusing on the VCS plane.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "aws": {
+          "name": "aws",
+          "category": "siem",
+          "huntbase": {
+            "product": "aws"
+          }
+        },
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard rule might detect a single malicious IP or user agent; this hunt correlates the host-side presence of specific packages with the cloud-side behavior of credential validation and broad discovery, which allows for a much more confident triage of valid-account abuse.",
+      "coverage": [
+        {
+          "stage": "credential-validation-trufflehog",
+          "steps": [
+            "rare-auth-origins",
+            "offensive-tool-traffic"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "cloud-infrastructure-discovery",
+          "steps": [
+            "iam-service-recon"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-supply-chain",
+          "reason": "This stage focuses on the initial injection into the target repositories, which is covered by vulnerability scanning and artifact integrity hunts.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "github-workflow-abuse",
+          "reason": "Belongs to another part of the 'Tracking TeamPCP: post-compromise attacks seen in the wild' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "container-command-execution",
+          "reason": "Belongs to another part of the 'Tracking TeamPCP: post-compromise attacks seen in the wild' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "bulk-data-exfiltration",
+          "reason": "Belongs to another part of the 'Tracking TeamPCP: post-compromise attacks seen in the wild' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Supply chain compromise of developer tools",
+            "slug": "initial-access-supply-chain",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195"
+            ],
+            "observables": [
+              "Malicious versions of Trivy, KICS, LiteLLM, and Telnyx packages",
+              "Injected code in GitHub Actions and container images",
+              "Targeted projects: Aqua Security Trivy, Checkmarx KICS, LiteLLM PyPI"
+            ]
+          },
+          {
+            "name": "Automated credential validation via TruffleHog",
+            "slug": "credential-validation-trufflehog",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "sts:GetCallerIdentity API calls",
+              "User agent: Trufflehog",
+              "Source IPs: 105.245.181.120, 185.77.218.4, 209.159.147.239, 23.234.107.104, 34.205.27.48",
+              "Mullvad VPN exit nodes",
+              "InterServer VPS hosts"
+            ]
+          },
+          {
+            "name": "Cloud and identity enumeration",
+            "slug": "cloud-infrastructure-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1087",
+              "T1082",
+              "T1083"
+            ],
+            "observables": [
+              "IAM: ListUsers, ListRoles, ListAttachedUserPolicies",
+              "EC2: DescribeInstances",
+              "S3: ListBuckets, GetBucketPublicAccessBlock",
+              "Secrets Manager: ListSecrets",
+              "ECS: ListClusters, ListTaskDefinitions",
+              "User agent: Boto3/1.42.73 md/Botocore#1.42.73 ua/2.1 os/linux#6.17.10+kali-amd64",
+              "Resource names: pawn, massive-exfil"
+            ]
+          },
+          {
+            "name": "Malicious GitHub workflow execution",
+            "slug": "github-workflow-abuse",
+            "tactic": "persistence",
+            "techniques": [
+              "T1059.007"
+            ],
+            "observables": [
+              "Creation of pull requests with malicious workflows",
+              "Tool: Nord Stream",
+              "Branch name: dev_remote_ea5Eu/test/v1",
+              "Deletion of workflow logs",
+              "Source IP: 138.199.15.172",
+              "Source IP: 163.245.223.12"
+            ]
+          },
+          {
+            "name": "Interactive container access via ECS Exec",
+            "slug": "container-command-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1609"
+            ],
+            "observables": [
+              "ExecuteCommand calls on ECS tasks",
+              "Execution of Bash commands and Python scripts via SSM Agent",
+              "Execution from SSMSession context"
+            ]
+          },
+          {
+            "name": "Mass exfiltration from repositories and cloud storage",
+            "slug": "bulk-data-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041",
+              "T1021.001"
+            ],
+            "observables": [
+              "Mass git.clone operations",
+              "User agent: git/2.43.0",
+              "Bulk GetSecretValue from Secrets Manager",
+              "Bulk GetObject from S3 buckets",
+              "Source IP: 193.32.126.157"
+            ]
+          }
+        ],
+        "summary": "TeamPCP conducts supply chain attacks against developer tools and libraries (Trivy, KICS, LiteLLM) to harvest cloud credentials and CI/CD secrets. Following theft, the actor rapidly validates credentials using TruffleHog and explores victim AWS and GitHub environments to exfiltrate bulk data or execute commands via ECS Exec and malicious workflows."
+      },
+      "severity": "high",
+      "rationale": "First identify build servers, CI/CD runners, and developer workstations where Trivy or KICS might be installed. These are the highest probability targets for initial secret harvesting.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary validates stolen cloud credentials and enumerates cloud infrastructure using offensive tools like TruffleHog or specialized Boto3 scripts following a supply chain compromise.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames discovered in the inventory step to narrow the HTTP signature search."
+        },
+        "teampcp_ips": {
+          "from": {
+            "ref": "https://www.wiz.io/blog/tracking-teampcp-investigating-post-compromise-attacks-seen-in-the-wild",
+            "kind": "article",
+            "observed": "2024-03-27"
+          },
+          "type": "list[ip]",
+          "default": [
+            "105.245.181.120",
+            "138.199.15.172",
+            "154.47.29.12",
+            "163.245.223.12",
+            "170.62.100.245",
+            "185.77.218.4",
+            "193.32.126.157",
+            "209.159.147.239",
+            "23.234.107.104",
+            "34.205.27.48"
+          ],
+          "description": "Known TeamPCP IP addresses and VPN exit nodes."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for post-compromise activity."
+        },
+        "compromised_principals": {
+          "type": "list[string]",
+          "default": [],
+          "description": "Identities discovered in the authentication step to narrow the service access search."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.wiz.io/blog/tracking-teampcp-investigating-post-compromise-attacks-seen-in-the-wild",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.wiz.io/blog/tracking-teampcp-investigating-post-compromise-attacks-seen-in-the-wild",
+          "name": "Tracking TeamPCP: post-compromise attacks seen in the wild"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-aws-audit-visibility",
+          "risk": "While Access Advisor shows that a service was accessed, it does not detail which specific high-value secrets were retrieved, masking the extent of data exfiltration.",
+          "stage": "cloud-infrastructure-discovery",
+          "question": "which specific secrets or objects were accessed in S3 and Secrets Manager",
+          "requires": "detailed CloudTrail and aws_iam_access_advisor"
+        },
+        {
+          "id": "ip-rotation-mullvad",
+          "risk": "The prevalence check helps find rare IPs, but a sophisticated attacker rotating IPs rapidly may evade detection if the baseline is not sufficiently narrow.",
+          "stage": "credential-validation-trufflehog",
+          "question": "whether the adversary has rotated to a new VPN node not in the known list",
+          "requires": "fresh IP intelligence for VPN exit nodes"
+        }
+      ]
+    },
+    "name": "TeamPCP Credential Validation and Discovery",
+    "description": "The adversary validates stolen cloud credentials and enumerates cloud infrastructure using offensive tools like TruffleHog or Boto3 scripts. This hunt targets the early post-compromise activity of TeamPCP by identifying hosts running compromised software, then looks for signs of credential validation and broad AWS infrastructure enumeration. By correlating the presence of the compromised software with anomalous cloud-side activity and known malicious IPs, the analyst identifies where secrets have been harvested and used."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "tracking-teampcp-post-compromise-attacks-seen-in-the-wild",
+          "index": 1,
+          "title": "Tracking TeamPCP: post-compromise attacks seen in the wild",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "credential-validation-trufflehog",
+            "steps": [
+              "rare-auth-origins",
+              "offensive-tool-traffic"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "cloud-infrastructure-discovery",
+            "steps": [
+              "iam-service-recon"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-supply-chain",
+            "reason": "This stage focuses on the initial injection into the target repositories, which is covered by vulnerability scanning and artifact integrity hunts.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "github-workflow-abuse",
+            "reason": "Belongs to another part of the 'Tracking TeamPCP: post-compromise attacks seen in the wild' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "container-command-execution",
+            "reason": "Belongs to another part of the 'Tracking TeamPCP: post-compromise attacks seen in the wild' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "bulk-data-exfiltration",
+            "reason": "Belongs to another part of the 'Tracking TeamPCP: post-compromise attacks seen in the wild' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary validates stolen cloud credentials and enumerates cloud infrastructure using offensive tools like TruffleHog or specialized Boto3 scripts following a supply chain compromise.",
+        "blind_spots": [
+          {
+            "id": "missing-aws-audit-visibility",
+            "risk": "While Access Advisor shows that a service was accessed, it does not detail which specific high-value secrets were retrieved, masking the extent of data exfiltration.",
+            "stage": "cloud-infrastructure-discovery",
+            "question": "which specific secrets or objects were accessed in S3 and Secrets Manager",
+            "requires": "detailed CloudTrail and aws_iam_access_advisor"
+          },
+          {
+            "id": "ip-rotation-mullvad",
+            "risk": "The prevalence check helps find rare IPs, but a sophisticated attacker rotating IPs rapidly may evade detection if the baseline is not sufficiently narrow.",
+            "stage": "credential-validation-trufflehog",
+            "question": "whether the adversary has rotated to a new VPN node not in the known list",
+            "requires": "fresh IP intelligence for VPN exit nodes"
+          }
+        ],
+        "scoping_notes": "First identify build servers, CI/CD runners, and developer workstations where Trivy or KICS might be installed. These are the highest probability targets for initial secret harvesting.",
+        "beyond_detection": "A standard rule might detect a single malicious IP or user agent; this hunt correlates the host-side presence of specific packages with the cloud-side behavior of credential validation and broad discovery, which allows for a much more confident triage of valid-account abuse."
+      }
+    },
+    {
+      "id": "find-potential-beachheads",
+      "type": "query",
+      "label": "Affected supply chain package inventory",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE LOWER(package_name) IN ('trivy', 'kics', 'litellm', 'telnyx')",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts that have the packages targeted by TeamPCP installed, as these are the likely sources of stolen credentials.",
+        "expected_signal": "A list of hosts running the vulnerable scanners or libraries. The analyst uses the resulting hostnames to populate the scope_hosts parameter in the offensive-tool-traffic query."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Affected supply chain package inventory",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE LOWER(package_name) IN ('trivy', 'kics', 'litellm', 'telnyx')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts running the vulnerable scanners or libraries. The analyst uses the resulting hostnames to populate the scope_hosts parameter in the offensive-tool-traffic query.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-auth-origins",
+      "type": "query",
+      "label": "Rare and known-bad authentication origins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT src_endpoint_ip, actor_user_name, COUNT(*) AS auth_events, MIN(time) AS first_auth FROM hb_auth_signin WHERE (instr(',' || '{{teampcp_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0 OR time >= datetime('now', '-1 days')) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, actor_user_name HAVING auth_events > 0 ORDER BY auth_events DESC",
+        "surface": "hb_auth_signin",
+        "description": "Find authentications originating from the reported TeamPCP IPs or other rare sources that only access a few accounts.",
+        "expected_signal": "Authentication attempts from TeamPCP IPs or suspicious one-off IPs. The analyst uses these identities to populate the compromised_principals parameter for service reconnaissance."
+      },
+      "parents": [
+        {
+          "id": "find-potential-beachheads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare and known-bad authentication origins",
+        "reads": [
+          "src_endpoint_ip",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_endpoint_ip, actor_user_name, COUNT(*) AS auth_events, MIN(time) AS first_auth FROM hb_auth_signin WHERE (instr(',' || '{{teampcp_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0 OR time >= datetime('now', '-1 days')) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, actor_user_name HAVING auth_events > 0 ORDER BY auth_events DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "1d",
+          "compare": "new_this_window"
+        },
+        "expected": "Authentication attempts from TeamPCP IPs or suspicious one-off IPs. The analyst uses these identities to populate the compromised_principals parameter for service reconnaissance.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 2
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "offensive-tool-traffic",
+      "type": "query",
+      "label": "TruffleHog and Kali tool signatures",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, user_agent, url_hostname, src_endpoint_ip, time FROM hb_http_activity WHERE (LOWER(user_agent) LIKE '%trufflehog%' OR LOWER(user_agent) LIKE '%kali%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') ORDER BY time DESC",
+        "surface": "hb_http_activity",
+        "description": "Identify network traffic containing signatures of offensive tools used for credential validation, scoped to the vulnerable scanner hosts.",
+        "expected_signal": "Direct hits on TruffleHog or Kali-based Boto3 user agents originating from hosts in the environment or reaching out to cloud APIs."
+      },
+      "parents": [
+        {
+          "id": "find-potential-beachheads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "TruffleHog and Kali tool signatures",
+        "reads": [
+          "device_hostname",
+          "user_agent",
+          "url_hostname",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, user_agent, url_hostname, src_endpoint_ip, time FROM hb_http_activity WHERE (LOWER(user_agent) LIKE '%trufflehog%' OR LOWER(user_agent) LIKE '%kali%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') ORDER BY time DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "Direct hits on TruffleHog or Kali-based Boto3 user agents originating from hosts in the environment or reaching out to cloud APIs.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "iam-service-recon",
+      "type": "query",
+      "label": "AWS IAM service enumeration",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "aws",
+        "content": "SELECT principal_arn, service_name, last_authenticated FROM aws_iam_access_advisor WHERE ('{{compromised_principals}}' = '' OR instr(',' || '{{compromised_principals}}' || ',', ',' || principal_arn || ',') > 0) AND last_authenticated >= datetime('now', '-{{lookback_days}} days') AND LOWER(service_name) IN ('iam', 'ec2', 's3', 'ecs', 'secretsmanager', 'lambda', 'rds', 'route53')",
+        "product": "aws",
+        "surface": "aws_iam_access_advisor",
+        "extension": "aws",
+        "description": "Find AWS principals that have recently authenticated to multiple discovery-related services, specifically filtering for principals involved in the suspicious authentication events.",
+        "expected_signal": "A principal that has recently accessed several discovery services in a short window. The agent will weigh if this principal is also linked to suspicious IPs or user agents."
+      },
+      "parents": [
+        {
+          "id": "find-potential-beachheads"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "AWS IAM service enumeration",
+        "reads": [
+          "principal_arn",
+          "service_name",
+          "last_authenticated"
+        ],
+        "source": "aws_iam_access_advisor",
+        "target": "aws",
+        "content": "SELECT principal_arn, service_name, last_authenticated FROM aws_iam_access_advisor WHERE ('{{compromised_principals}}' = '' OR instr(',' || '{{compromised_principals}}' || ',', ',' || principal_arn || ',') > 0) AND last_authenticated >= datetime('now', '-{{lookback_days}} days') AND LOWER(service_name) IN ('iam', 'ec2', 's3', 'ecs', 'secretsmanager', 'lambda', 'rds', 'route53')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A principal that has recently accessed several discovery services in a short window. The agent will weigh if this principal is also linked to suspicious IPs or user agents.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20",
+        "target_extension": "aws"
+      }
+    },
+    {
+      "id": "investigation-agent",
+      "type": "analytic",
+      "label": "Triage validation and discovery",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "aws",
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "find-potential-beachheads",
+          "rare-auth-origins",
+          "offensive-tool-traffic",
+          "iam-service-recon"
+        ],
+        "objective": "Determine if any identities or hosts show signs of TeamPCP post-compromise activity, specifically looking for broad discovery (IAM, S3, Secrets Manager) linked to validation signatures or known-bad IPs.",
+        "description": "Correlate the inventory presence, suspicious network origins, and cloud service enumeration to confirm a post-compromise scenario.",
+        "max_iterations": 6,
+        "expected_signal": "A per-principal and per-host verdict citing the specific evidence from all queries.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host/principal, citing specific rows for service enumeration and IP/UA matches."
+      },
+      "parents": [
+        {
+          "id": "rare-auth-origins",
+          "kind": "merge"
+        },
+        {
+          "id": "offensive-tool-traffic",
+          "kind": "merge"
+        },
+        {
+          "id": "iam-service-recon",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-triage",
+      "type": "checkpoint",
+      "label": "Route based on investigation verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent verdict is malicious for at least one AWS principal or host",
+        "condition": "the agent verdict is malicious for at least one AWS principal or host",
+        "blind_spot": "missing-aws-audit-visibility",
+        "confidence": "high",
+        "description": "Automate containment if the agent finds clear evidence of credential abuse.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "investigation-agent"
+        }
+      ]
+    },
+    {
+      "id": "revoke-compromised-identities",
+      "type": "action",
+      "label": "Revoke compromised IAM identities",
+      "config": {
+        "target": "identity",
+        "description": "Halt the adversary progress by deactivating the credentials they are using for enumeration.",
+        "instructions": "Revoke the IAM access keys or temporary credentials for the principals identified by the agent. Disable the user or role until a full forensic audit is complete.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-triage",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-forensic-review",
+      "type": "task",
+      "label": "Forensic audit of AWS activity",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform a deep dive into the actions taken by the compromised principal that automated queries cannot fully capture.",
+        "instructions": "Examine AWS CloudTrail for the identified principals. Look for high-volume S3 GetObject, SecretsManager GetSecretValue, and RDS snapshot events. Search for IPs outside the parameter list that exhibit the same pattern."
+      },
+      "parents": [
+        {
+          "id": "route-on-triage",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-triage",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "revoke-compromised-identities"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt for a negative result.",
+        "instructions": "Record that no evidence of TeamPCP post-compromise validation or discovery was found. Schedule a re-run for next month."
+      },
+      "parents": [
+        {
+          "id": "route-on-triage",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,644 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Protecting tenant boundaries and ensuring remote support tools are not abused is a critical security obligation as organizations adopt autonomous AI agents."
+      },
+      "name": "Managed Access and Tenant Integrity",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1078.004",
+        "attack.t1219",
+        "attack.t1059",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "shadow-tenant-discovery",
+          "reason": "This hunt focuses on the abuse of existing cross-tenant access, not the initial creation of shadow tenants.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single rule cannot correlate a third-party sign-in, an unattended remote support session, and autonomous script behavior. This hunt uses a phased flow to build behavioral context across identity, process, and script surfaces.",
+      "coverage": [
+        {
+          "stage": "tenant-governance-abuse",
+          "steps": [
+            "unusual-cross-tenant-signins"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remote-support-persistence",
+          "steps": [
+            "unattended-remote-support"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "autonomous-agent-execution",
+          "steps": [
+            "autonomous-agent-scripts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "multi-hop-proxy-c2",
+          "steps": [
+            "multi-hop-proxy-dns"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Cross-Tenant Identity Manipulation",
+            "slug": "tenant-governance-abuse",
+            "tactic": "persistence",
+            "techniques": [
+              "T1078.004"
+            ],
+            "observables": [
+              "Shadow-tenant creation or discovery",
+              "Unauthorized cross-tenant delegated administration",
+              "Identity policy configuration drift in Entra ID",
+              "Sign-ins from unmanaged or third-party tenants"
+            ]
+          },
+          {
+            "name": "Unattended Support Session Abuse",
+            "slug": "remote-support-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1219"
+            ],
+            "observables": [
+              "Windows Unattended Support with Remote Sign-In sessions without user interaction",
+              "Unauthorized device renames via Windows Autopilot device association",
+              "Remote sessions bypassing compliance checks",
+              "Intune-initiated remote support binary execution"
+            ]
+          },
+          {
+            "name": "Unauthorized AI Agent Activity",
+            "slug": "autonomous-agent-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "AI agent-initiated actions without explicit user approval",
+              "Autonomous agent script execution",
+              "Usage of high-privilege permissions by agentic identities",
+              "Agent-driven process launches on endpoints"
+            ]
+          },
+          {
+            "name": "Obfuscated C2 via Multi-hop Proxy",
+            "slug": "multi-hop-proxy-c2",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion domains",
+              "Network connections to Tor onion routing nodes",
+              "Chained proxy traffic originating from autonomous processes",
+              "Traffic to known multi-hop proxy exit points"
+            ]
+          }
+        ],
+        "summary": "This campaign involves the compromise of cloud identity foundations and the abuse of administrative remote management features to maintain persistence. Adversaries leverage autonomous AI agents to execute unauthorized actions and employ multi-hop proxies to obfuscate command-and-control traffic across hybrid environments."
+      },
+      "severity": "medium",
+      "rationale": "The hunt begins by identifying hosts with Intune-managed support software to narrow the behavioral scope, then pivots to global identity logs.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has established persistence via cross-tenant delegated administration or unattended remote support, subsequently deploying autonomous agents that communicate through multi-hop proxies.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2026-08-27"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the hunt; leave empty to scan the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-retention",
+            "kind": "manual",
+            "observed": "2026-08-27"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "proxy_relay_suffixes": {
+          "from": {
+            "ref": "known-tor-relays",
+            "kind": "manual",
+            "observed": "2026-08-27"
+          },
+          "type": "list[domain]",
+          "default": [
+            "tor2web.org",
+            "onion.pet",
+            "onion.ws",
+            "onion.link"
+          ],
+          "description": "Known public web-to-Tor proxy relay suffixes."
+        },
+        "third_party_providers": {
+          "from": {
+            "ref": "msrc-blog-aug-2026",
+            "kind": "article",
+            "observed": "2026-08-27"
+          },
+          "type": "list[string]",
+          "default": [
+            "aws",
+            "okta",
+            "palo alto"
+          ],
+          "description": "Identity or security providers expected to show external actor activity."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/08/27/whats-new-in-microsoft-security-august-2026/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/08/27/whats-new-in-microsoft-security-august-2026/",
+          "name": "What\u2019s new in Microsoft Security: August 2026"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "session-truncation",
+          "risk": "Large scripts may be truncated, hiding the final C2 destinations or specific data exfiltration targets.",
+          "stage": "autonomous-agent-execution",
+          "question": "What were the full operational parameters of the agent script?",
+          "requires": "untruncated hb_script_activity logs"
+        },
+        {
+          "id": "no-policy-audit",
+          "risk": "We see the sign-in (aftermath) but not the initial policy manipulation that enabled the persistent access.",
+          "stage": "tenant-governance-abuse",
+          "question": "Which specific configuration change enabled the unauthorized cross-tenant sign-in?",
+          "requires": "Entra ID configuration audit logs"
+        }
+      ]
+    },
+    "name": "Managed Access and Tenant Integrity",
+    "description": "This hunt validates tenant boundaries and the integrity of remote access features. It identifies unauthorized cross-tenant sign-ins, abuses of Windows Unattended Support sessions, and autonomous agent behavior that uses multi-hop proxies for command-and-control. The phased flow correlates early access and persistence indicators with follow-on execution and network obfuscation."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "tenant-governance-abuse",
+            "steps": [
+              "unusual-cross-tenant-signins"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remote-support-persistence",
+            "steps": [
+              "unattended-remote-support"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "autonomous-agent-execution",
+            "steps": [
+              "autonomous-agent-scripts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "multi-hop-proxy-c2",
+            "steps": [
+              "multi-hop-proxy-dns"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has established persistence via cross-tenant delegated administration or unattended remote support, subsequently deploying autonomous agents that communicate through multi-hop proxies.",
+        "blind_spots": [
+          {
+            "id": "session-truncation",
+            "risk": "Large scripts may be truncated, hiding the final C2 destinations or specific data exfiltration targets.",
+            "stage": "autonomous-agent-execution",
+            "question": "What were the full operational parameters of the agent script?",
+            "requires": "untruncated hb_script_activity logs"
+          },
+          {
+            "id": "no-policy-audit",
+            "risk": "We see the sign-in (aftermath) but not the initial policy manipulation that enabled the persistent access.",
+            "stage": "tenant-governance-abuse",
+            "question": "Which specific configuration change enabled the unauthorized cross-tenant sign-in?",
+            "requires": "Entra ID configuration audit logs"
+          }
+        ],
+        "scoping_notes": "The hunt begins by identifying hosts with Intune-managed support software to narrow the behavioral scope, then pivots to global identity logs.",
+        "beyond_detection": "A single rule cannot correlate a third-party sign-in, an unattended remote support session, and autonomous script behavior. This hunt uses a phased flow to build behavioral context across identity, process, and script surfaces."
+      }
+    },
+    {
+      "id": "scope-managed-endpoints",
+      "type": "query",
+      "label": "Identify managed support assets",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%intune%' OR LOWER(package_name) LIKE '%remote help%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Find hosts where Intune or remote-support tools are installed to scope the behavior hunt.",
+        "expected_signal": "A list of hosts running managed support software. Silence means no such software is inventoried."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify managed support assets",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%intune%' OR LOWER(package_name) LIKE '%remote help%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts running managed support software. Silence means no such software is inventoried.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "unusual-cross-tenant-signins",
+      "type": "query",
+      "label": "Unusual cross-tenant sign-ins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT actor_user_name, provider, COUNT(DISTINCT dst_endpoint_name) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_auth_signin WHERE instr(',' || '{{third_party_providers}}' || ',', ',' || LOWER(provider) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, provider HAVING host_count <= 3",
+        "surface": "hb_auth_signin",
+        "description": "Find rare sign-ins from integrated third-party providers where an adversary may operate shadow tenants.",
+        "expected_signal": "Rare sign-ins to specific hosts from external providers. Silence means no such sign-ins were recorded."
+      },
+      "parents": [
+        {
+          "id": "scope-managed-endpoints"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Unusual cross-tenant sign-ins",
+        "reads": [
+          "actor_user_name",
+          "provider",
+          "dst_endpoint_name",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, provider, COUNT(DISTINCT dst_endpoint_name) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_auth_signin WHERE instr(',' || '{{third_party_providers}}' || ',', ',' || LOWER(provider) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, provider HAVING host_count <= 3",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare sign-ins to specific hosts from external providers. Silence means no such sign-ins were recorded.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "dst_endpoint_name",
+          "key": [
+            "actor_user_name",
+            "provider"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "unattended-remote-support",
+      "type": "query",
+      "label": "Unattended remote support activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%remotehelp%' OR LOWER(process_name) LIKE '%quickassist%' OR LOWER(process_name) LIKE '%remotesignin%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify remote support sessions launched on endpoints, focusing on those that bypass user confirmation.",
+        "expected_signal": "Process logs for remote support binaries. Silence suggests no such sessions occurred on the scoped hosts."
+      },
+      "parents": [
+        {
+          "id": "scope-managed-endpoints"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Unattended remote support activity",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%remotehelp%' OR LOWER(process_name) LIKE '%quickassist%' OR LOWER(process_name) LIKE '%remotesignin%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process logs for remote support binaries. Silence suggests no such sessions occurred on the scoped hosts.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-early-triage",
+      "type": "analytic",
+      "label": "Triage early access evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "unusual-cross-tenant-signins",
+          "unattended-remote-support"
+        ],
+        "objective": "Identify hosts where a third-party sign-in was followed by the execution of a remote support binary, citing temporal and user overlap.",
+        "description": "Determine if third-party sign-ins correlate with unattended support activity.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict linking external identities to remote support persistence.",
+        "success_criteria": "Confirm malicious or suspicious persistence indicators per host."
+      },
+      "parents": [
+        {
+          "id": "unusual-cross-tenant-signins",
+          "kind": "merge"
+        },
+        {
+          "id": "unattended-remote-support",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "autonomous-agent-scripts",
+      "type": "query",
+      "label": "Autonomous agent script execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%langchain%' OR LOWER(script_content) LIKE '%autogen%' OR LOWER(script_content) LIKE '%openai%' OR LOWER(script_content) LIKE '%agent%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Identify AI-agent framework keywords in script blocks executed after the suspected access events.",
+        "expected_signal": "Script contents suggesting autonomous automation or agent-driven logic. Silence means no matching keywords were captured."
+      },
+      "parents": [
+        {
+          "id": "agent-early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Autonomous agent script execution",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, actor_user_name, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%langchain%' OR LOWER(script_content) LIKE '%autogen%' OR LOWER(script_content) LIKE '%openai%' OR LOWER(script_content) LIKE '%agent%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script contents suggesting autonomous automation or agent-driven logic. Silence means no matching keywords were captured.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "multi-hop-proxy-dns",
+      "type": "query",
+      "label": "Multi-hop proxy DNS lookups",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, time FROM hb_dns_activity WHERE (LOWER(query_hostname) LIKE '%.onion' OR instr(',' || '{{proxy_relay_suffixes}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Identify DNS lookups for .onion domains or known public web-to-Tor proxy relays.",
+        "expected_signal": "DNS queries targeting obfuscation infrastructure. Silence provides evidence of absence for these specific domains."
+      },
+      "parents": [
+        {
+          "id": "agent-early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Multi-hop proxy DNS lookups",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, time FROM hb_dns_activity WHERE (LOWER(query_hostname) LIKE '%.onion' OR instr(',' || '{{proxy_relay_suffixes}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "DNS queries targeting obfuscation infrastructure. Silence provides evidence of absence for these specific domains.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-final-synthesis",
+      "type": "analytic",
+      "label": "Final synthesis of agent behavior",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "agent-early-triage",
+          "autonomous-agent-scripts",
+          "multi-hop-proxy-dns"
+        ],
+        "objective": "Determine if any host identified as suspicious in the access phase also exhibits autonomous script execution or proxy-related DNS lookups.",
+        "description": "Synthesize early access findings with follow-on execution and network activity.",
+        "max_iterations": 5,
+        "expected_signal": "A comprehensive verdict per host confirming a chain from persistence to autonomous C2.",
+        "success_criteria": "A final verdict citing the correlated chain of events across all surfaces."
+      },
+      "parents": [
+        {
+          "id": "autonomous-agent-scripts",
+          "kind": "merge"
+        },
+        {
+          "id": "multi-hop-proxy-dns",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final synthesis verdict is malicious for at least one host",
+        "condition": "the final synthesis verdict is malicious for at least one host",
+        "blind_spot": "session-truncation",
+        "confidence": "high",
+        "description": "Determine whether to contain the host based on the synthesized agent verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-final-synthesis"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat by isolating the affected endpoint.",
+        "instructions": "Isolate the host identified by the agent and revoke any active third-party provider sessions for the involved identity.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Provide human oversight to confirm the autonomous behavior is unauthorized.",
+        "instructions": "Review the script contents and process command lines cited by the agent. Verify if the automation matches any approved administrative scripts or AI agent deployments."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the hunt outcome and record false positives.",
+        "instructions": "Document the identified indicators and any legitimate automation scripts to be added to the exclusions list."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

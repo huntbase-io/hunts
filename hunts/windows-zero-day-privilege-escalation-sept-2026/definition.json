@@ -1,0 +1,549 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The September 2026 Patch Tuesday includes 999 vulnerabilities, with confirmed zero-day exploitation of ALPC and Update Stack mechanisms. Identifying unpatched hosts and verifying they are clean of exploitation is a critical requirement given the high potential for automated ransomware deployment."
+      },
+      "name": "Windows Zero-Day Privilege Escalation and Ransomware",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1068",
+        "attack.t1486",
+        "impact",
+        "initial access",
+        "privilege escalation"
+      ],
+      "related": [
+        {
+          "hunt": "print-spooler-eop-baseline",
+          "reason": "Adversaries frequently use similar privilege escalation patterns across different Windows services like the Print Spooler or Fax Service.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A vulnerability scanner only reports the missing patch. This hunt pivots to look for the rare SYSTEM-integrity processes and symbolic link artifacts that prove the vulnerability is being actively weaponized in this environment, using a prevalence baseline to filter out legitimate system activity.",
+      "coverage": [
+        {
+          "stage": "initial-access-exploit-public-facing",
+          "reason": "Exploit payloads for zero-days in network services are generally not visible in standard hb_http_activity or hb_network_connection without deep packet inspection.",
+          "status": "not_visible",
+          "blind_spot": "encrypted-traffic-payloads"
+        },
+        {
+          "stage": "privilege-escalation-alpc-overflow",
+          "steps": [
+            "vulnerable-endpoints",
+            "rare-system-processes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privilege-escalation-update-stack-link",
+          "steps": [
+            "vulnerable-endpoints",
+            "junction-link-creation"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "impact-ransomware-encryption",
+          "steps": [
+            "high-volume-file-writes"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Exploit Public-Facing Application",
+            "slug": "initial-access-exploit-public-facing",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Inbound exploitation attempts against internet-facing Windows services",
+              "Crashes in network-accessible service processes"
+            ]
+          },
+          {
+            "name": "ALPC Buffer Overflow Elevation",
+            "slug": "privilege-escalation-alpc-overflow",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1068"
+            ],
+            "observables": [
+              "CVE-2026-85880",
+              "Buffer overflow in Advanced Local Procedure Call (ALPC) mechanism",
+              "Out-of-bounds write activity",
+              "Process integrity escalation to SYSTEM from user-mode processes"
+            ]
+          },
+          {
+            "name": "Update Stack Link Resolution Elevation",
+            "slug": "privilege-escalation-update-stack-link",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1068"
+            ],
+            "observables": [
+              "CVE-2026-81963",
+              "Improper link resolution in Windows Update Stack",
+              "Creation of symbolic links or junctions in update paths by low-privileged users",
+              "Elevation to SYSTEM privileges"
+            ]
+          },
+          {
+            "name": "Ransomware Data Encryption",
+            "slug": "impact-ransomware-encryption",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "Bulk file write and rename operations",
+              "Encryption of common user files (Office docs, PDFs, images)",
+              "Presence of ransomware notes",
+              "System-wide file markers or new extensions"
+            ]
+          }
+        ],
+        "summary": "The September 2026 Patch Tuesday released 999 CVEs, featuring two zero-day elevation of privilege vulnerabilities in the Windows ALPC (CVE-2026-85880) and Update Stack (CVE-2026-81963) exploited in the wild. Attackers use these flaws to escalate to SYSTEM privileges on Windows systems, often as a precursor to ransomware deployment and bulk file encryption."
+      },
+      "severity": "high",
+      "rationale": "Prioritize domain controllers and internet-facing application servers. Use device_uid from the first query to identify the specific assets before widening the search to the entire workstation fleet.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "Adversaries are exploiting unpatched Windows ALPC or Update Stack vulnerabilities to escalate to SYSTEM integrity and deploy ransomware, leaving traces of rare process elevations and specific link-resolution artifacts.",
+      "parameters": {
+        "cve_ids": {
+          "from": {
+            "ref": "rapid7 \u2014 https://www.rapid7.com/blog/post/em-patch-tuesday-september-2026",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[string]",
+          "default": [
+            "CVE-2026-81963",
+            "CVE-2026-85880"
+          ],
+          "description": "Vulnerability identifiers for the September zero-days."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "scoping-input",
+            "kind": "manual",
+            "observed": "2026-09-08"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Limit behavioral checks to these hostnames; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard-lookback",
+            "kind": "manual",
+            "observed": "2026-09-08"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/em-patch-tuesday-september-2026",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/em-patch-tuesday-september-2026",
+          "name": "Rapid7 \u2014 Patch Tuesday September 2026"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "kernel-memory-telemetry",
+          "risk": "The hunt only sees the aftermath of elevation; a failed exploit attempt or one that stays in-kernel would be missed.",
+          "owner": "Endpoint Security Team",
+          "stage": "privilege-escalation-alpc-overflow",
+          "question": "whether the ALPC buffer overflow occurred without causing a process launch",
+          "requires": "Kernel-mode memory access monitoring",
+          "remediation": "Deploy EDR policies with kernel-level exploit protection and enable advanced auditing for ALPC events."
+        },
+        {
+          "id": "encrypted-traffic-payloads",
+          "risk": "Initial exploitation attempts against Windows web services are invisible to endpoint logs without traffic inspection.",
+          "owner": "Network Engineering",
+          "stage": "initial-access-exploit-public-facing",
+          "question": "whether specific exploit strings were delivered via HTTPS to internet-facing services",
+          "requires": "HTTPS decryption on edge proxies",
+          "remediation": "Enable SSL/TLS inspection for inbound traffic to critical servers and monitored web endpoints."
+        }
+      ]
+    },
+    "name": "Windows Zero-Day Privilege Escalation and Ransomware",
+    "description": "This hunt targets the zero-day exploits published in September 2026 (CVE-2026-85880 and CVE-2026-81963). The ALPC buffer overflow and Update Stack link resolution flaws allow low-privileged attackers to gain SYSTEM access. Once elevated, the adversary is expected to deploy ransomware. The hunt identifies vulnerable assets, baselines rare SYSTEM-integrity processes, and triages specific file system behaviors such as suspicious symbolic link creation in update directories and high-volume file encryption markers."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-exploit-public-facing",
+            "reason": "Exploit payloads for zero-days in network services are generally not visible in standard hb_http_activity or hb_network_connection without deep packet inspection.",
+            "status": "not_visible",
+            "blind_spot": "encrypted-traffic-payloads"
+          },
+          {
+            "stage": "privilege-escalation-alpc-overflow",
+            "steps": [
+              "vulnerable-endpoints",
+              "rare-system-processes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privilege-escalation-update-stack-link",
+            "steps": [
+              "vulnerable-endpoints",
+              "junction-link-creation"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "impact-ransomware-encryption",
+            "steps": [
+              "high-volume-file-writes"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "Adversaries are exploiting unpatched Windows ALPC or Update Stack vulnerabilities to escalate to SYSTEM integrity and deploy ransomware, leaving traces of rare process elevations and specific link-resolution artifacts.",
+        "blind_spots": [
+          {
+            "id": "kernel-memory-telemetry",
+            "risk": "The hunt only sees the aftermath of elevation; a failed exploit attempt or one that stays in-kernel would be missed.",
+            "owner": "Endpoint Security Team",
+            "stage": "privilege-escalation-alpc-overflow",
+            "question": "whether the ALPC buffer overflow occurred without causing a process launch",
+            "requires": "Kernel-mode memory access monitoring",
+            "remediation": "Deploy EDR policies with kernel-level exploit protection and enable advanced auditing for ALPC events."
+          },
+          {
+            "id": "encrypted-traffic-payloads",
+            "risk": "Initial exploitation attempts against Windows web services are invisible to endpoint logs without traffic inspection.",
+            "owner": "Network Engineering",
+            "stage": "initial-access-exploit-public-facing",
+            "question": "whether specific exploit strings were delivered via HTTPS to internet-facing services",
+            "requires": "HTTPS decryption on edge proxies",
+            "remediation": "Enable SSL/TLS inspection for inbound traffic to critical servers and monitored web endpoints."
+          }
+        ],
+        "scoping_notes": "Prioritize domain controllers and internet-facing application servers. Use device_uid from the first query to identify the specific assets before widening the search to the entire workstation fleet.",
+        "beyond_detection": "A vulnerability scanner only reports the missing patch. This hunt pivots to look for the rare SYSTEM-integrity processes and symbolic link artifacts that prove the vulnerability is being actively weaponized in this environment, using a prevalence baseline to filter out legitimate system activity."
+      }
+    },
+    {
+      "id": "vulnerable-endpoints",
+      "type": "query",
+      "label": "Identify vulnerable Windows endpoints",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_uid, cve_uid, severity, status FROM hb_vulnerability_finding WHERE instr(',' || '{{cve_ids}}' || ',', ',' || cve_uid || ',') > 0 AND status != 'suppressed' AND status != 'fixed'",
+        "surface": "hb_vulnerability_finding",
+        "description": "The hunt identifies unpatched Windows endpoints missing fixes for the ALPC and Update Stack zero-days to establish the scope of exposed assets.",
+        "expected_signal": "A list of device_uids that are unpatched. Silence means the estate is fully patched against these specific CVEs."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable Windows endpoints",
+        "reads": [
+          "device_uid",
+          "cve_uid",
+          "severity",
+          "status"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT device_uid, cve_uid, severity, status FROM hb_vulnerability_finding WHERE instr(',' || '{{cve_ids}}' || ',', ',' || cve_uid || ',') > 0 AND status != 'suppressed' AND status != 'fixed'",
+        "silence": "evidence_of_absence",
+        "expected": "A list of device_uids that are unpatched. Silence means the estate is fully patched against these specific CVEs.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "rare-system-processes",
+      "type": "query",
+      "label": "Baseline rare SYSTEM-integrity processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(integrity_level) = 'system' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "This hunt pivots to look for the rare SYSTEM-integrity processes and symbolic link artifacts that prove the vulnerability is being actively weaponized.",
+        "expected_signal": "A small set of processes running with System privileges on only 1-3 hosts. Legitimate system utilities will show high host counts."
+      },
+      "parents": [
+        {
+          "id": "vulnerable-endpoints"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Baseline rare SYSTEM-integrity processes",
+        "reads": [
+          "process_name",
+          "device_hostname",
+          "integrity_level",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(integrity_level) = 'system' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A small set of processes running with System privileges on only 1-3 hosts. Legitimate system utilities will show high host counts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 4
+        },
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "junction-link-creation",
+      "type": "query",
+      "label": "Update stack symbolic link creation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE file_type = 'symlink' AND LOWER(file_path) LIKE '%\\windows\\softwaredistribution%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "The hunt detects the specific 'improper link resolution' behavior where an adversary creates symbolic links in Windows Update paths to gain SYSTEM privileges.",
+        "expected_signal": "Any symbolic links created within the Windows Update paths (SoftwareDistribution) by non-system processes."
+      },
+      "parents": [
+        {
+          "id": "rare-system-processes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Update stack symbolic link creation",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "actor_user_name",
+          "file_type",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE file_type = 'symlink' AND LOWER(file_path) LIKE '%\\windows\\softwaredistribution%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Any symbolic links created within the Windows Update paths (SoftwareDistribution) by non-system processes.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "high-volume-file-writes",
+      "type": "query",
+      "label": "High-volume file encryption activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, COUNT(*) AS write_count, MAX(time) AS last_write FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(file_name) LIKE '%.crypt%' OR LOWER(file_name) LIKE '%.locked%' OR LOWER(file_name) LIKE 'read_me%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING write_count > 5",
+        "surface": "hb_file_activity",
+        "description": "The hunt identifies high-volume file encryption and rename markers that indicate a successful ransomware impact following the privilege escalation.",
+        "expected_signal": "Hosts showing multiple file writes with known ransomware extensions or note filenames."
+      },
+      "parents": [
+        {
+          "id": "rare-system-processes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "High-volume file encryption activity",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, COUNT(*) AS write_count, MAX(time) AS last_write FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(file_name) LIKE '%.crypt%' OR LOWER(file_name) LIKE '%.locked%' OR LOWER(file_name) LIKE 'read_me%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING write_count > 5",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts showing multiple file writes with known ransomware extensions or note filenames.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "agent-triage",
+      "type": "analytic",
+      "label": "Assess exposure and exploitation",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "vulnerable-endpoints",
+          "rare-system-processes",
+          "junction-link-creation",
+          "high-volume-file-writes"
+        ],
+        "objective": "Analyze the combination of unpatched status, rare system processes, and suspicious file activity to determine if an adversary has compromised any exposed host.",
+        "description": "Analyze the combination of unpatched status, rare system processes, and suspicious file activity to determine if an adversary has compromised a host.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict of 'compromised', 'vulnerable', or 'safe'.",
+        "success_criteria": "A per-host verdict of malicious, suspicious, or benign, citing specific process launches or file paths."
+      },
+      "parents": [
+        {
+          "id": "junction-link-creation",
+          "kind": "merge"
+        },
+        {
+          "id": "high-volume-file-writes",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decision-route",
+      "type": "checkpoint",
+      "label": "Route based on compromise",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent-triage verdict indicates active exploitation or ransomware activity on any exposed host",
+        "condition": "the agent-triage verdict indicates active exploitation or ransomware activity on any exposed host",
+        "blind_spot": "kernel-memory-telemetry",
+        "confidence": "high",
+        "description": "Route the hunt to remediation tasks if active exploitation is found, or general patching if only exposure is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-triage"
+        }
+      ]
+    },
+    {
+      "id": "task-patch-and-verify",
+      "type": "task",
+      "label": "Patch and Verify Remediation",
+      "config": {
+        "assignee": "analyst",
+        "description": "The analyst ensures the vulnerable hosts are patched and confirms no further compromise exists.",
+        "instructions": "For hosts identified as vulnerable or compromised: 1. Deploy the September 2026 security updates for Windows ALPC and Update Stack. 2. Verify patch installation via hb_vulnerability_finding. 3. If the agent identified malicious behavior, escalate to the Incident Response team for host forensic imaging."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_supports"
+        },
+        {
+          "id": "decision-route",
+          "branch": "default"
+        },
+        {
+          "id": "decision-route",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "task-close-out",
+      "type": "task",
+      "label": "Close-out and reporting",
+      "config": {
+        "assignee": "analyst",
+        "description": "The analyst records the final patch status across the estate and documents any false positives found during the baseline.",
+        "instructions": "Record the percentage of the estate currently patched against CVE-2026-85880 and CVE-2026-81963. Document any false positives from the rare-process baseline for future tuning of standing detection rules."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "task-patch-and-verify"
+        }
+      ]
+    }
+  ]
+}

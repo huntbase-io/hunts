@@ -1,0 +1,553 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The abuse of trusted binaries like certutil is a common method to bypass perimeter defenses that ignore signed Microsoft processes; a negative result over the exposed estate provides high confidence that this trust-based bypass is not being exploited."
+      },
+      "name": "Abuse of Trusted System Binaries for Payload Delivery",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001",
+        "attack.t1190",
+        "attack.t1218"
+      ],
+      "related": [
+        {
+          "hunt": "scheduled-task-persistence-via-lolbins",
+          "reason": "Payloads delivered via certutil often use scheduled tasks for persistence, which requires hb_scheduled_job for verification.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule on certutil or encoded PowerShell often generates high volumes of admin false positives. This hunt uses agentic reasoning to correlate proxy downloads with preceding web exploit markers and subsequent rare script execution, providing the full intrusion context needed to confirm a threat.",
+      "coverage": [
+        {
+          "stage": "initial-access-exploit",
+          "steps": [
+            "web-exploit-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "proxy-execution-certutil-download",
+          "steps": [
+            "certutil-dns-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "encoded-powershell-execution",
+          "steps": [
+            "rare-encoded-scripts"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Exploitation of Public-Facing Application",
+            "slug": "initial-access-exploit",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "exploitation of internet-facing host",
+              "web server software bugs"
+            ]
+          },
+          {
+            "name": "System Binary Proxy Execution via Certutil",
+            "slug": "proxy-execution-certutil-download",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1218"
+            ],
+            "observables": [
+              "certutil.exe",
+              "attack.the",
+              "download of base64-encoded payload",
+              "outbound connection to suspicious domain"
+            ]
+          },
+          {
+            "name": "Encoded PowerShell Execution",
+            "slug": "encoded-powershell-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "powershell.exe",
+              "-enc",
+              "-EncodedCommand",
+              "base64-encoded payload execution"
+            ]
+          }
+        ],
+        "summary": "This campaign involves the exploitation of a public-facing application followed by the use of legitimate system binaries (LOLBins) like certutil.exe to download malicious payloads from a suspicious domain. The attack concludes with the execution of base64-encoded PowerShell scripts to establish command and control while bypassing traditional detection mechanisms."
+      },
+      "severity": "medium",
+      "rationale": "The hunt focuses on internet-facing web servers likely to be targets of T1190. Use the certutil DNS lead to identify and prioritize hosts for full-chain correlation within the 14-day lookback window.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is exploiting internet-facing applications to execute certutil.exe for proxying payload downloads, which are then launched via rare, encoded PowerShell script blocks.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[domain]",
+          "default": [
+            "attack.the"
+          ],
+          "description": "Malicious domains named in the report; refresh before running."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts found in the lead query to narrow the follow-on investigation."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/why-2026-is-the-year-to-upgrade-to-an-agentic-ai-soc",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/why-2026-is-the-year-to-upgrade-to-an-agentic-ai-soc",
+          "name": "Why 2026 is the Year to Upgrade to an Agentic AI SOC"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-dns-logs",
+          "risk": "A host that has the domain cached will not emit a DNS query, causing the lead query to miss an active download attempt.",
+          "stage": "proxy-execution-certutil-download",
+          "question": "whether certutil resolved the malicious domain via local cache",
+          "requires": "endpoint DNS logging (hb_dns_activity)"
+        },
+        {
+          "id": "no-script-block-logging",
+          "risk": "If script block logging is disabled, the script content will not be logged, leaving the hunt blind to the final execution payload.",
+          "stage": "encoded-powershell-execution",
+          "question": "what code was executed within the encoded PowerShell block",
+          "requires": "PowerShell Script Block Logging (hb_script_activity)"
+        },
+        {
+          "id": "no-endpoint-telemetry",
+          "risk": "Unmanaged systems in the DMZ may be compromised without emitting behavioral telemetry, leaving a gap in the hunt's visibility.",
+          "question": "whether the download occurred on an unmanaged server",
+          "requires": "full EDR coverage"
+        }
+      ]
+    },
+    "name": "Abuse of Trusted System Binaries for Payload Delivery",
+    "description": "This hunt targets the complete sequence of a Living-off-the-Land attack chain. It begins with a cost-effective lead query on DNS resolutions by certutil.exe to known-malicious infrastructure. If the activity is confirmed suspicious, the hunt fans out to identify the preceding web exploit markers and baseline the presence of rare encoded PowerShell scripts across the fleet. An agent then correlates these multi-surface signals to distinguish legitimate administrative activity from an active intrusion."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-exploit",
+            "steps": [
+              "web-exploit-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "proxy-execution-certutil-download",
+            "steps": [
+              "certutil-dns-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "encoded-powershell-execution",
+            "steps": [
+              "rare-encoded-scripts"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is exploiting internet-facing applications to execute certutil.exe for proxying payload downloads, which are then launched via rare, encoded PowerShell script blocks.",
+        "blind_spots": [
+          {
+            "id": "no-dns-logs",
+            "risk": "A host that has the domain cached will not emit a DNS query, causing the lead query to miss an active download attempt.",
+            "stage": "proxy-execution-certutil-download",
+            "question": "whether certutil resolved the malicious domain via local cache",
+            "requires": "endpoint DNS logging (hb_dns_activity)"
+          },
+          {
+            "id": "no-script-block-logging",
+            "risk": "If script block logging is disabled, the script content will not be logged, leaving the hunt blind to the final execution payload.",
+            "stage": "encoded-powershell-execution",
+            "question": "what code was executed within the encoded PowerShell block",
+            "requires": "PowerShell Script Block Logging (hb_script_activity)"
+          },
+          {
+            "id": "no-endpoint-telemetry",
+            "risk": "Unmanaged systems in the DMZ may be compromised without emitting behavioral telemetry, leaving a gap in the hunt's visibility.",
+            "question": "whether the download occurred on an unmanaged server",
+            "requires": "full EDR coverage"
+          }
+        ],
+        "scoping_notes": "The hunt focuses on internet-facing web servers likely to be targets of T1190. Use the certutil DNS lead to identify and prioritize hosts for full-chain correlation within the 14-day lookback window.",
+        "beyond_detection": "A simple detection rule on certutil or encoded PowerShell often generates high volumes of admin false positives. This hunt uses agentic reasoning to correlate proxy downloads with preceding web exploit markers and subsequent rare script execution, providing the full intrusion context needed to confirm a threat."
+      }
+    },
+    {
+      "id": "certutil-dns-lead",
+      "type": "query",
+      "label": "Certutil DNS resolutions to malicious domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (LOWER(process_name) LIKE '%\\\\certutil.exe' OR LOWER(process_name) = 'certutil.exe') AND instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Identify potential payload delivery by looking for certutil.exe resolving domains observed in the research.",
+        "expected_signal": "Any row indicates certutil.exe resolved a suspicious domain. Silence is evidence of absence for this specific vector within the lookback period."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Certutil DNS resolutions to malicious domains",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (LOWER(process_name) LIKE '%\\\\certutil.exe' OR LOWER(process_name) = 'certutil.exe') AND instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Any row indicates certutil.exe resolved a suspicious domain. Silence is evidence of absence for this specific vector within the lookback period.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "evaluate-dns-lead",
+      "type": "analytic",
+      "label": "Evaluate DNS lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "certutil-dns-lead"
+        ],
+        "objective": "Determine if certutil.exe resolving these domains represents unauthorized download activity rather than administrative tool updates.",
+        "description": "Decide if the certutil DNS activity warrants an expensive multi-surface investigation.",
+        "max_iterations": 3,
+        "expected_signal": "A suspicious or benign verdict for every host identified in the lead query.",
+        "success_criteria": "A verdict per host indicating whether the resolution aligns with reported malicious behavior."
+      },
+      "parents": [
+        {
+          "id": "certutil-dns-lead"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-dns",
+      "type": "checkpoint",
+      "label": "Gate on certutil lead",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-dns-lead verdict is suspicious for at least one host",
+        "condition": "the evaluate-dns-lead verdict is suspicious for at least one host",
+        "blind_spot": "no-dns-logs",
+        "confidence": "high",
+        "description": "Halt the hunt if no suspicious DNS activity is found, preserving analyst resources.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-dns-lead"
+        }
+      ]
+    },
+    {
+      "id": "web-exploit-activity",
+      "type": "query",
+      "label": "Web exploit markers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_path, status_code, user_agent, time FROM hb_http_activity WHERE (status_code >= 200 AND status_code < 300) AND (LOWER(url_path) LIKE '%.php%' OR LOWER(url_path) LIKE '%.jsp%' OR LOWER(url_path) LIKE '%.asp%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify successful requests to dynamic file types that may indicate a preceding web exploit.",
+        "expected_signal": "Successful responses to dynamic file paths on the scoped hosts. Silence suggests a different entry vector."
+      },
+      "parents": [
+        {
+          "id": "gate-on-dns",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Web exploit markers",
+        "reads": [
+          "device_hostname",
+          "status_code",
+          "time",
+          "url_path",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_path, status_code, user_agent, time FROM hb_http_activity WHERE (status_code >= 200 AND status_code < 300) AND (LOWER(url_path) LIKE '%.php%' OR LOWER(url_path) LIKE '%.jsp%' OR LOWER(url_path) LIKE '%.asp%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Successful responses to dynamic file paths on the scoped hosts. Silence suggests a different entry vector.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-encoded-scripts",
+      "type": "query",
+      "label": "Rare encoded PowerShell script blocks",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT script_content, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_script_activity WHERE script_type = 'PowerShell' AND (LOWER(script_content) LIKE '%-enc%' OR LOWER(script_content) LIKE '%-encodedcommand%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY script_content HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_script_activity",
+        "description": "Baseline encoded script execution across the fleet to find unique payloads on compromised hosts.",
+        "expected_signal": "Encoded script blocks appearing on very few hosts. Silence proves no encoded script execution occurred on the scoped hosts."
+      },
+      "parents": [
+        {
+          "id": "gate-on-dns",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare encoded PowerShell script blocks",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "script_type",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT script_content, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_script_activity WHERE script_type = 'PowerShell' AND (LOWER(script_content) LIKE '%-enc%' OR LOWER(script_content) LIKE '%-encodedcommand%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY script_content HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Encoded script blocks appearing on very few hosts. Silence proves no encoded script execution occurred on the scoped hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "script_content"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-intrusion",
+      "type": "analytic",
+      "label": "Triage intrusion chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "evaluate-dns-lead",
+          "web-exploit-activity",
+          "rare-encoded-scripts"
+        ],
+        "objective": "Confirm whether the certutil DNS lead is linked to preceding web exploit attempts and follow-on rare encoded PowerShell execution.",
+        "description": "Correlate the DNS, web, and script evidence to confirm a multi-stage attack.",
+        "max_iterations": 6,
+        "expected_signal": "A malicious verdict for hosts where the timeline aligns across all three surfaces.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host with cited rows for each stage of the chain."
+      },
+      "parents": [
+        {
+          "id": "web-exploit-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-encoded-scripts",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-intrusion verdict is malicious for at least one host",
+        "condition": "the triage-intrusion verdict is malicious for at least one host",
+        "blind_spot": "no-endpoint-telemetry",
+        "confidence": "high",
+        "description": "Execute containment or assign for manual review based on the triage verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-intrusion"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further C2 communication and lateral movement from confirmed compromised assets.",
+        "instructions": "Isolate the host and initiate the standard incident response procedure for host compromise.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Provide final human verification of the agent's correlated attack chain.",
+        "instructions": "Review the cited rows from DNS, HTTP, and Script activity. Verify that the HTTP requests preceded the certutil download and that the PowerShell script content is malicious. Document your findings in the incident ticket."
+      },
+      "parents": [
+        {
+          "id": "gate-on-dns",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-dns",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out-task",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize documentation and record tuning notes for future runs.",
+        "instructions": "Record the hunt results. If benign admin activity was found (e.g., legitimate tool downloads via certutil), record those domains or paths for exclusion in the next hunt cycle."
+      },
+      "parents": [
+        {
+          "id": "gate-on-dns",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
