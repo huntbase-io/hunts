@@ -1,0 +1,584 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "NeedyMantis is a specialized framework for long-term persistence used in targeted operations. Detecting the sideloading and C2 early is the only way to prevent follow-on modular functionality and data theft."
+      },
+      "name": "NeedyMantis Modular Sideloading and WebSocket C2",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1574.002",
+        "attack.t1071.001",
+        "attack.t1021.002",
+        "command and control",
+        "defense evasion",
+        "execution",
+        "lateral movement"
+      ],
+      "related": [
+        {
+          "hunt": "archive-extraction-and-payload-load",
+          "reason": "This hunt focuses on the initial deployment and C2; parsing the custom archive format and shellcode loading is handled in the deeper forensic sequel.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule for WinSparkle.dll or libcurl.dll creates noise when these apps are legitimately updated. This hunt correlates the unusual placement (ProgramData), the execution context (sideloading into a legitimate app), and the external network signal to achieve high-fidelity detection that a rule cannot provide.",
+      "coverage": [
+        {
+          "stage": "lateral-movement-impacket-deployment",
+          "steps": [
+            "impacket-deployment-file-writes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "dll-sideloading-execution",
+          "steps": [
+            "sideloaded-module-execution",
+            "module-rarity-baseline"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-websockets-communication",
+          "steps": [
+            "c2-dns-resolution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "archive-extraction-and-payload-load",
+          "reason": "Not examined by this hunt; belongs to a separate hunt.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Lateral movement and tool deployment",
+            "slug": "lateral-movement-impacket-deployment",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1021.002"
+            ],
+            "observables": [
+              "Impacket toolkit usage",
+              "copying WinSparkle.dll from network share",
+              "copying libcurl.dll from network share",
+              "files placed in %ProgramFiles%\\Poedit",
+              "files placed in %ProgramData%\\USOShared",
+              "files placed in %ProgramData%\\VIM"
+            ]
+          },
+          {
+            "name": "DLL sideloading of legitimate software",
+            "slug": "dll-sideloading-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1574.002"
+            ],
+            "observables": [
+              "Poedit.exe loading WinSparkle.dll",
+              "curl.exe loading libcurl.dll",
+              "vim.exe loading vim64.dll",
+              "TightVNC.exe loading vim64.dll",
+              "nvml.dll",
+              "dbghelp.dll",
+              "jli.dll"
+            ]
+          },
+          {
+            "name": "Encrypted archive extraction and modular loading",
+            "slug": "archive-extraction-and-payload-load",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1027",
+              "T1059.001"
+            ],
+            "observables": [
+              "extensionless archive files (WinSparkle, libcurl)",
+              "encryptbase64.ps1",
+              "dnsapi.dll (malicious config)",
+              "ws2_32.dll (malicious C2 component)",
+              "msvcrt140.dll (malicious loader)",
+              "mutex: <username>-<process_name> (e.g., Contoso-Poedit.exe)"
+            ]
+          },
+          {
+            "name": "WebSockets Command and Control",
+            "slug": "c2-websockets-communication",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001"
+            ],
+            "observables": [
+              "corp.tripswithengine.com",
+              "port 443",
+              "URL path: /library/zip/",
+              "WebSockets communication protocol",
+              "SystemInfo export usage"
+            ]
+          }
+        ],
+        "summary": "China-linked threat actors use the modular NeedyMantis framework for post-compromise persistence in targeted sectors. The malware is deployed via lateral movement tools like Impacket and leverages DLL sideloading in common applications like Poedit and Vim to load encrypted archives containing C2 and modular components."
+      },
+      "severity": "high",
+      "rationale": "Start the hunt by examining workstations that run Poedit, Vim, or curl, particularly in developer and administrative groups.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has established long-term access by sideloading modular components into legitimate processes like Poedit or Vim, using encrypted archives staged in unusual directories to bypass detection.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "msrc-blog",
+            "kind": "article",
+            "observed": "2026-09-28"
+          },
+          "type": "list[domain]",
+          "default": [
+            "corp.tripswithengine.com"
+          ],
+          "description": "Identified C2 domains for NeedyMantis."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to scope the hunt; if empty, the whole estate is scanned."
+        },
+        "target_dlls": {
+          "from": {
+            "ref": "msrc-blog",
+            "kind": "article",
+            "observed": "2026-09-28"
+          },
+          "type": "list[string]",
+          "default": [
+            "winsparkle.dll",
+            "libcurl.dll",
+            "vim64.dll",
+            "dbghelp.dll",
+            "jli.dll",
+            "nvml.dll"
+          ],
+          "description": "Malicious DLL names used by the framework for sideloading."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/09/28/needymantis-unpacking-a-post-compromise-malware-family-used-in-targeted-operations/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/09/28/needymantis-unpacking-a-post-compromise-malware-family-used-in-targeted-operations/",
+          "name": "MSRC Blog — NeedyMantis: Unpacking a post-compromise malware family"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "websocket-visibility-gap",
+          "risk": "Without protocol awareness, persistent 443 traffic might be dismissed as standard encrypted browser traffic or update checks.",
+          "owner": "network-team",
+          "stage": "c2-websockets-communication",
+          "question": "Whether the persistent TCP traffic is an authenticated WebSocket stream",
+          "requires": "Deep packet inspection with WebSocket protocol parsing",
+          "remediation": "Enable WebSocket protocol logging on the perimeter proxy or firewall."
+        },
+        {
+          "id": "archive-content-visibility",
+          "risk": "The framework stages its second and third components inside an encrypted archive that hb_file_activity cannot see inside.",
+          "owner": "endpoint-engineering",
+          "stage": "lateral-movement-impacket-deployment",
+          "question": "What files are contained within the staged extensionless archives",
+          "requires": "Decompression and decryption capability on the host",
+          "remediation": "Implement sandbox detonation for extensionless archives found in ProgramData."
+        }
+      ]
+    },
+    "name": "NeedyMantis Modular Sideloading and WebSocket C2",
+    "description": "NeedyMantis is a modular framework observed in targeted operations against government and telecommunications sectors. It relies on DLL sideloading within common software and maintains a persistent WebSocket-based connection for command and control. This hunt identifies the framework by tracing the initial file deployment via Impacket-style patterns, confirming the execution through rare module loads from non-standard paths, and identifying the low-prevalence DNS resolution of known C2 infrastructure."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "lateral-movement-impacket-deployment",
+            "steps": [
+              "impacket-deployment-file-writes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "dll-sideloading-execution",
+            "steps": [
+              "sideloaded-module-execution",
+              "module-rarity-baseline"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-websockets-communication",
+            "steps": [
+              "c2-dns-resolution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "archive-extraction-and-payload-load",
+            "reason": "Not examined by this hunt; belongs to a separate hunt.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has established long-term access by sideloading modular components into legitimate processes like Poedit or Vim, using encrypted archives staged in unusual directories to bypass detection.",
+        "blind_spots": [
+          {
+            "id": "websocket-visibility-gap",
+            "risk": "Without protocol awareness, persistent 443 traffic might be dismissed as standard encrypted browser traffic or update checks.",
+            "owner": "network-team",
+            "stage": "c2-websockets-communication",
+            "question": "Whether the persistent TCP traffic is an authenticated WebSocket stream",
+            "requires": "Deep packet inspection with WebSocket protocol parsing",
+            "remediation": "Enable WebSocket protocol logging on the perimeter proxy or firewall."
+          },
+          {
+            "id": "archive-content-visibility",
+            "risk": "The framework stages its second and third components inside an encrypted archive that hb_file_activity cannot see inside.",
+            "owner": "endpoint-engineering",
+            "stage": "lateral-movement-impacket-deployment",
+            "question": "What files are contained within the staged extensionless archives",
+            "requires": "Decompression and decryption capability on the host",
+            "remediation": "Implement sandbox detonation for extensionless archives found in ProgramData."
+          }
+        ],
+        "scoping_notes": "Start the hunt by examining workstations that run Poedit, Vim, or curl, particularly in developer and administrative groups.",
+        "beyond_detection": "A single rule for WinSparkle.dll or libcurl.dll creates noise when these apps are legitimately updated. This hunt correlates the unusual placement (ProgramData), the execution context (sideloading into a legitimate app), and the external network signal to achieve high-fidelity detection that a rule cannot provide."
+      }
+    },
+    {
+      "id": "impacket-deployment-file-writes",
+      "type": "query",
+      "label": "Impacket-style Framework Deployment",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, file_path, file_name, time FROM hb_file_activity WHERE (activity_id = 1 OR activity_id = 3) AND (LOWER(file_path) LIKE '%\\\\programdata\\\\%' OR LOWER(file_path) LIKE '%\\\\users\\\\public\\\\%' OR LOWER(file_path) LIKE '%\\\\program files\\\\poedit\\\\%' OR LOWER(file_path) LIKE '%\\\\program files\\\\vim\\\\%') AND instr(',' || '{{target_dlls}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify the initial placement of the sideloading DLLs and accompanying archives in ProgramData or Program Files subfolders, mimicking the lateral movement observed in the report.",
+        "expected_signal": "A row showing a DLL like WinSparkle.dll or libcurl.dll being written to ProgramData. Silence indicates no obvious staging of these components was captured."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Impacket-style Framework Deployment",
+        "reads": [
+          "activity_id",
+          "actor_user_name",
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, file_path, file_name, time FROM hb_file_activity WHERE (activity_id = 1 OR activity_id = 3) AND (LOWER(file_path) LIKE '%\\\\programdata\\\\%' OR LOWER(file_path) LIKE '%\\\\users\\\\public\\\\%' OR LOWER(file_path) LIKE '%\\\\program files\\\\poedit\\\\%' OR LOWER(file_path) LIKE '%\\\\program files\\\\vim\\\\%') AND instr(',' || '{{target_dlls}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A row showing a DLL like WinSparkle.dll or libcurl.dll being written to ProgramData. Silence indicates no obvious staging of these components was captured.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "sideloaded-module-execution",
+      "type": "query",
+      "label": "Sideloaded Module Execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, module_name, module_path, time FROM hb_module_activity WHERE instr(',' || '{{target_dlls}}' || ',', ',' || LOWER(module_name) || ',') > 0 AND (LOWER(module_path) LIKE '%\\\\programdata\\\\%' OR LOWER(module_path) LIKE '%\\\\users\\\\public\\\\%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_module_activity",
+        "description": "Confirm that the target processes (Poedit, curl, etc.) are actually loading the masquerading DLLs from unusual paths.",
+        "expected_signal": "A legitimate process loading a DLL from a path where it does not normally reside. This is the core behavioral indicator of NeedyMantis."
+      },
+      "parents": [
+        {
+          "id": "impacket-deployment-file-writes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Sideloaded Module Execution",
+        "reads": [
+          "device_hostname",
+          "module_name",
+          "module_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_module_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, module_name, module_path, time FROM hb_module_activity WHERE instr(',' || '{{target_dlls}}' || ',', ',' || LOWER(module_name) || ',') > 0 AND (LOWER(module_path) LIKE '%\\\\programdata\\\\%' OR LOWER(module_path) LIKE '%\\\\users\\\\public\\\\%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A legitimate process loading a DLL from a path where it does not normally reside. This is the core behavioral indicator of NeedyMantis.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "c2-dns-resolution",
+      "type": "query",
+      "label": "C2 Domain Resolution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Match the host activity to the known NeedyMantis C2 domain to confirm the nature of the infection.",
+        "expected_signal": "Resolution of corp.tripswithengine.com, specifically originating from a process involved in the sideloading branch."
+      },
+      "parents": [
+        {
+          "id": "impacket-deployment-file-writes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "C2 Domain Resolution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Resolution of corp.tripswithengine.com, specifically originating from a process involved in the sideloading branch.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "module-rarity-baseline",
+      "type": "query",
+      "label": "Module Rarity Baseline",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(module_name) as name, COUNT(DISTINCT device_hostname) as host_count FROM hb_module_activity WHERE (LOWER(module_path) LIKE '%\\\\programdata\\\\%' OR LOWER(module_path) LIKE '%\\\\users\\\\public\\\\%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING host_count <= 3",
+        "surface": "hb_module_activity",
+        "description": "Stack-count the identified modules to ensure the signal is not fleet-wide noise from a standard administrative tool.",
+        "expected_signal": "A low host count for the specific module names identifies the targeted nature of the payload."
+      },
+      "parents": [
+        {
+          "id": "impacket-deployment-file-writes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Module Rarity Baseline",
+        "reads": [
+          "device_hostname",
+          "module_name",
+          "module_path",
+          "time"
+        ],
+        "source": "hb_module_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(module_name) as name, COUNT(DISTINCT device_hostname) as host_count FROM hb_module_activity WHERE (LOWER(module_path) LIKE '%\\\\programdata\\\\%' OR LOWER(module_path) LIKE '%\\\\users\\\\public\\\\%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A low host count for the specific module names identifies the targeted nature of the payload.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "module_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Correlate Framework Signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "impacket-deployment-file-writes",
+          "sideloaded-module-execution",
+          "c2-dns-resolution",
+          "module-rarity-baseline"
+        ],
+        "objective": "Determine if any host shows the correlated pattern of a WinSparkle, libcurl, or vim64 module load from ProgramData alongside DNS resolution to the identified C2 domain.",
+        "description": "Weigh the evidence of file creation, execution, and network traffic per host to confirm a NeedyMantis infection.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict citing specific filenames and process paths.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host."
+      },
+      "parents": [
+        {
+          "id": "sideloaded-module-execution",
+          "kind": "merge"
+        },
+        {
+          "id": "c2-dns-resolution",
+          "kind": "merge"
+        },
+        {
+          "id": "module-rarity-baseline",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Framework Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-agent verdict is malicious for at least one host",
+        "condition": "the triage-agent verdict is malicious for at least one host",
+        "blind_spot": "websocket-visibility-gap",
+        "confidence": "high",
+        "description": "Contain infected hosts or escalate to manual analysis.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Sever C2 communication by isolating the affected host.",
+        "instructions": "Isolate the host and preserve the ProgramData directory for forensic collection.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-payload-analysis",
+      "type": "task",
+      "label": "Forensic Payload Analysis",
+      "config": {
+        "assignee": "analyst",
+        "description": "Analyze the staged files to extract the embedded configuration.",
+        "instructions": "Identify the extensionless archive matching the loader DLL name. Attempt to XOR-decode and decompress the archive to recover the second-stage loader and communications DLL. Check for the SystemInfo export."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "hunt-closeout",
+      "type": "task",
+      "label": "Hunt Close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and tune the sideloading baseline.",
+        "instructions": "Record all confirmed malicious paths and the account involved in the initial file write. Determine if the module-loading detection candidate can be promoted to a rule for specific sensitive environments."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "forensic-payload-analysis"
+        }
+      ]
+    }
+  ]
+}

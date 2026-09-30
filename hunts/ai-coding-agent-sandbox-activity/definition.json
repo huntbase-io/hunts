@@ -1,0 +1,653 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "AI coding agents can rapidly introduce handrolled slop or insecure code into production environments; identifying the operational footprint of these agents ensures automated changes are visible and vetted."
+      },
+      "name": "AI Coding Agent Sandbox Activity",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1610",
+        "attack.t1059.006",
+        "attack.t1204.002",
+        "attack.t1071.001",
+        "command and control",
+        "execution"
+      ],
+      "related": [
+        {
+          "hunt": "unauthorized-llm-data-exfiltration",
+          "reason": "This hunt focuses on codebase modification within a harness, not general data theft via LLM prompts.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single detection rule cannot correlate the sequence of Docker setup, CLAUDE.md instruction updates, RSpec execution, and LLM API traffic. This phased hunt uses the session context to weight the risk of subsequent automated activities that look like standard developer behavior when viewed in isolation.",
+      "coverage": [
+        {
+          "stage": "sandbox-container-provisioning",
+          "steps": [
+            "scope-docker-hosts",
+            "harness-process-baseline"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "automated-code-modification",
+          "steps": [
+            "agent-instruction-writes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "automated-test-validation",
+          "steps": [
+            "rspec-validation-runs"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "agent-llm-communication",
+          "steps": [
+            "llm-api-connections"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Docker Sandbox Initialization",
+            "slug": "sandbox-container-provisioning",
+            "tactic": "execution",
+            "techniques": [
+              "T1610"
+            ],
+            "observables": [
+              "Docker sandbox starts from a pinned commit",
+              "Databases running in container",
+              "rails/lemans harness",
+              "docker_info"
+            ]
+          },
+          {
+            "name": "Automated Codebase Modification",
+            "slug": "automated-code-modification",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.006"
+            ],
+            "observables": [
+              "CLAUDE.md",
+              "schema.rb",
+              "has_secure_token",
+              "generates_token_for",
+              "normalizes",
+              "perform_all_later",
+              "comparison:",
+              "self.token",
+              "invitation.create",
+              ".claude/skills"
+            ]
+          },
+          {
+            "name": "Automated Code Validation",
+            "slug": "automated-test-validation",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "RSpec.describe",
+              "invitation.reload.token",
+              "first.token",
+              "second.token",
+              "invitation.token",
+              "invitation.errors",
+              "bundle exec rspec",
+              "rubocop execution"
+            ]
+          },
+          {
+            "name": "LLM API Coordination",
+            "slug": "agent-llm-communication",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001"
+            ],
+            "observables": [
+              "HTTPS LLM calls",
+              "Anthropic API communication",
+              "Restricted network access lookups"
+            ]
+          }
+        ],
+        "summary": "This scenario describes a research environment where the Claude Fable 5.1 AI model is deployed within a Dockerized Ruby on Rails harness to evaluate its API recall accuracy. The agent modifies the codebase based on natural language tickets, followed by automated validation using RSpec tests and a secondary LLM reviewer, with all activity confined to isolated containers and monitored LLM API communications."
+      },
+      "severity": "medium",
+      "rationale": "Target hosts with Docker installed or those known for development work. Engineering subnets are the highest priority scope.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An unauthorized user is running an AI coding harness to modify production codebases, using automated testing to validate the changes and communicating with external LLM APIs.",
+      "parameters": {
+        "llm_domains": {
+          "from": {
+            "ref": "huntress-fable-api-recall",
+            "kind": "article",
+            "observed": "2026-09-22"
+          },
+          "type": "list[domain]",
+          "default": [
+            "api.anthropic.com",
+            "api.openai.com",
+            "api.mistral.ai",
+            "api.groq.com"
+          ],
+          "description": "Domains of LLM providers commonly used by coding agents."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined-scope",
+            "kind": "manual",
+            "observed": "2026-09-22"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the investigation on."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard-lookback",
+            "kind": "manual",
+            "observed": "2026-09-22"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "harness_keywords": {
+          "from": {
+            "ref": "huntress-fable-api-recall",
+            "kind": "article",
+            "observed": "2026-09-22"
+          },
+          "type": "list[string]",
+          "default": [
+            "lemans",
+            "claude-code",
+            "fable-agent",
+            "anthropic-agent"
+          ],
+          "description": "Process filenames or command-line keywords for coding harnesses."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/claude-fable-api-recall",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/claude-fable-api-recall",
+          "name": "Huntress — Fighting AI Slop in Production Codebases"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "short-lived-containers",
+          "risk": "An agent session lasting only a few minutes might not be captured in hb_software_inventory or hb_process_activity snapshots.",
+          "stage": "sandbox-container-provisioning",
+          "question": "Did a container run and finish between inventory snapshots?",
+          "requires": "Docker event logs"
+        },
+        {
+          "id": "encrypted-prompt-content",
+          "risk": "DNS and network connection logs confirm the destination but hide the content of the LLM interaction, which may leak proprietary code.",
+          "stage": "agent-llm-communication",
+          "question": "What source code or sensitive data was included in the prompt?",
+          "requires": "TLS inspection for LLM domains"
+        }
+      ]
+    },
+    "name": "AI Coding Agent Sandbox Activity",
+    "description": "This hunt identifies the operational footprint of agentic coding harnesses such as rails/lemans. It tracks the lifecycle from Docker sandbox provisioning and the update of agent instructions in CLAUDE.md to the subsequent execution of automated RSpec tests and network calls to LLM providers like Anthropic. By correlating these endpoint and network events, the hunt distinguishes legitimate development activity from unauthorized automated code manipulation."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "sandbox-container-provisioning",
+            "steps": [
+              "scope-docker-hosts",
+              "harness-process-baseline"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "automated-code-modification",
+            "steps": [
+              "agent-instruction-writes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "automated-test-validation",
+            "steps": [
+              "rspec-validation-runs"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "agent-llm-communication",
+            "steps": [
+              "llm-api-connections"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An unauthorized user is running an AI coding harness to modify production codebases, using automated testing to validate the changes and communicating with external LLM APIs.",
+        "blind_spots": [
+          {
+            "id": "short-lived-containers",
+            "risk": "An agent session lasting only a few minutes might not be captured in hb_software_inventory or hb_process_activity snapshots.",
+            "stage": "sandbox-container-provisioning",
+            "question": "Did a container run and finish between inventory snapshots?",
+            "requires": "Docker event logs"
+          },
+          {
+            "id": "encrypted-prompt-content",
+            "risk": "DNS and network connection logs confirm the destination but hide the content of the LLM interaction, which may leak proprietary code.",
+            "stage": "agent-llm-communication",
+            "question": "What source code or sensitive data was included in the prompt?",
+            "requires": "TLS inspection for LLM domains"
+          }
+        ],
+        "scoping_notes": "Target hosts with Docker installed or those known for development work. Engineering subnets are the highest priority scope.",
+        "beyond_detection": "A single detection rule cannot correlate the sequence of Docker setup, CLAUDE.md instruction updates, RSpec execution, and LLM API traffic. This phased hunt uses the session context to weight the risk of subsequent automated activities that look like standard developer behavior when viewed in isolation."
+      }
+    },
+    {
+      "id": "scope-docker-hosts",
+      "type": "query",
+      "label": "Identify Docker-capable hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, device_uid FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%docker%' OR LOWER(vendor_name) LIKE '%docker%') AND asset_scope = 'endpoint'",
+        "surface": "hb_software_inventory",
+        "description": "Scope the hunt to hosts running Docker, which provides the required sandbox infrastructure for AI coding harnesses.",
+        "expected_signal": "A list of hosts with Docker installed. Silence suggests no containerization capability is present via this package manager."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Docker-capable hosts",
+        "reads": [
+          "device_hostname",
+          "device_uid",
+          "package_name",
+          "vendor_name",
+          "asset_scope"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, device_uid FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%docker%' OR LOWER(vendor_name) LIKE '%docker%') AND asset_scope = 'endpoint'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts with Docker installed. Silence suggests no containerization capability is present via this package manager.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "harness-process-baseline",
+      "type": "query",
+      "label": "Harness process prevalence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, process_path, user_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%lemans%' OR LOWER(process_name) LIKE '%claude-code%' OR LOWER(process_name) LIKE '%fable-agent%' OR LOWER(process_cmd_line) LIKE '%lemans%' OR instr(',' || '{{harness_keywords}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, process_path, user_name",
+        "surface": "hb_process_activity",
+        "description": "Stack-count harness processes to identify rare or unauthorized agent activity across the fleet.",
+        "expected_signal": "Harness names or paths seen on very few hosts. Frequent occurrences on many hosts may indicate authorized developer workstations."
+      },
+      "parents": [
+        {
+          "id": "scope-docker-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Harness process prevalence",
+        "reads": [
+          "process_name",
+          "process_path",
+          "user_name",
+          "device_hostname",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, process_path, user_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%lemans%' OR LOWER(process_name) LIKE '%claude-code%' OR LOWER(process_name) LIKE '%fable-agent%' OR LOWER(process_cmd_line) LIKE '%lemans%' OR instr(',' || '{{harness_keywords}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, process_path, user_name",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Harness names or paths seen on very few hosts. Frequent occurrences on many hosts may indicate authorized developer workstations.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "agent-instruction-writes",
+      "type": "query",
+      "label": "Monitor instruction file updates",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE (LOWER(file_name) = 'claude.md' OR LOWER(file_path) LIKE '%/.claude/skills/%') AND activity_id IN (1, 3, 5) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect modifications to the instruction files that agents use to define coding rules and API recall preferences.",
+        "expected_signal": "Creation or modification of CLAUDE.md files. Silence means no agent-specific configuration was observed in this window."
+      },
+      "parents": [
+        {
+          "id": "scope-docker-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Monitor instruction file updates",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE (LOWER(file_name) = 'claude.md' OR LOWER(file_path) LIKE '%/.claude/skills/%') AND activity_id IN (1, 3, 5) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation or modification of CLAUDE.md files. Silence means no agent-specific configuration was observed in this window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "assess-session-start",
+      "type": "analytic",
+      "label": "Assess session establishment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "harness-process-baseline",
+          "agent-instruction-writes"
+        ],
+        "objective": "Determine if the observed process execution and configuration file updates indicate an active AI coding harness session.",
+        "description": "Establish whether the process and file activity confirm the start of an AI-driven coding session.",
+        "max_iterations": 3,
+        "expected_signal": "A high-confidence determination of an active coding session.",
+        "success_criteria": "A verdict on session presence citing specific hosts and process names."
+      },
+      "parents": [
+        {
+          "id": "harness-process-baseline",
+          "kind": "merge"
+        },
+        {
+          "id": "agent-instruction-writes",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "rspec-validation-runs",
+      "type": "query",
+      "label": "Detect automated RSpec runs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%rspec%' OR LOWER(process_cmd_line) LIKE '%rspec%') AND (LOWER(process_cmd_line) LIKE '%invitation.create%' OR LOWER(process_cmd_line) LIKE '%schema.rb%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify the automated testing phase that follows codebase modification in coding harnesses.",
+        "expected_signal": "RSpec command lines targeting artifacts mentioned in the article. Silence suggests the session did not reach the validation phase or used a different test runner."
+      },
+      "parents": [
+        {
+          "id": "assess-session-start"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Detect automated RSpec runs",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%rspec%' OR LOWER(process_cmd_line) LIKE '%rspec%') AND (LOWER(process_cmd_line) LIKE '%invitation.create%' OR LOWER(process_cmd_line) LIKE '%schema.rb%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "RSpec command lines targeting artifacts mentioned in the article. Silence suggests the session did not reach the validation phase or used a different test runner.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "llm-api-connections",
+      "type": "query",
+      "label": "DNS lookups to LLM providers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE instr(',' || '{{llm_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Corroborate the session by finding network traffic to the LLM providers used by coding agents.",
+        "expected_signal": "DNS queries for LLM domains from identified hosts. Silence means the agent may be using a different provider or a local proxy."
+      },
+      "parents": [
+        {
+          "id": "assess-session-start"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS lookups to LLM providers",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE instr(',' || '{{llm_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS queries for LLM domains from identified hosts. Silence means the agent may be using a different provider or a local proxy.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "triage-full-lifecycle",
+      "type": "analytic",
+      "label": "Triage agentic workflow",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "assess-session-start",
+          "rspec-validation-runs",
+          "llm-api-connections"
+        ],
+        "objective": "Determine if the combined evidence of harness setup, RSpec execution, and LLM communication indicates a suspicious or unauthorized automated code modification session.",
+        "description": "Determine if the entire sequence from sandbox start to LLM communication indicates unauthorized activity.",
+        "max_iterations": 6,
+        "expected_signal": "A malicious | suspicious | benign verdict for each host citing the full chain of evidence.",
+        "success_criteria": "A final verdict citing rows from all phases including the initial session establishment."
+      },
+      "parents": [
+        {
+          "id": "rspec-validation-runs",
+          "kind": "merge"
+        },
+        {
+          "id": "llm-api-connections",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-full-lifecycle verdict for any host is malicious or suspicious",
+        "condition": "the triage-full-lifecycle verdict for any host is malicious or suspicious",
+        "blind_spot": "short-lived-containers",
+        "confidence": "high",
+        "description": "Route the findings based on whether the agent activity is confirmed as unauthorized.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-full-lifecycle"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt further automated code manipulation by isolating the host.",
+        "instructions": "Isolate the host and stop all active Docker containers associated with the coding harness.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "review-code-modifications",
+      "type": "task",
+      "label": "Review code modifications",
+      "config": {
+        "assignee": "analyst",
+        "description": "The analyst manually inspects the codebase for changes introduced by the agent to verify their impact and authorization.",
+        "instructions": "Examine the local git repository on the isolated host. Identify new files or modifications to schema.rb, CLAUDE.md, and Ruby model files. Compare these changes against recent engineering tickets."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "document-and-close",
+      "type": "task",
+      "label": "Document and close",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and record whether the session was a legitimate engineering test.",
+        "instructions": "Record the identified session details and update the allow-list for hosts where AI agent experimentation is permitted."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "review-code-modifications"
+        }
+      ]
+    }
+  ]
+}
