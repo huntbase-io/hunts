@@ -1,0 +1,661 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "UAT-11587 is a China-nexus actor targeting high-value institutions. Confirming the presence of their novel M365 dead-drop C2 channel is critical for national security-adjacent environments."
+      },
+      "name": "UAT-11587 Antino Backdoor Phased Infection and M365 C2",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566.002",
+        "attack.t1059.001",
+        "attack.t1059.007",
+        "attack.t1102.002",
+        "attack.t1547.001",
+        "attack.t1053.005",
+        "attack.t1016",
+        "command and control",
+        "discovery",
+        "execution",
+        "initial access",
+        "persistence"
+      ],
+      "related": [
+        {
+          "hunt": "m365-dead-drop-monitoring",
+          "reason": "This hunt focuses on the specific UAT-11587 loader chain; a broader hunt would monitor for any anomalous API access to dead-drop folders regardless of delivery mechanism.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule might catch a known domain, but this hunt correlates the initial phishing click with rare registry persistence and specific M365 API patterns that signify an active dead-drop C2 channel across two distinct telemetry surfaces.",
+      "coverage": [
+        {
+          "stage": "initial-access-phishing-delivery",
+          "steps": [
+            "dns-delivery-lookups"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-script-loaders",
+          "steps": [
+            "process-stager-activity",
+            "script-content-staging"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-antino-host",
+          "steps": [
+            "antino-persistence-rare"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-microsoft-graph-deaddrop",
+          "steps": [
+            "m365-dead-drop-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "discovery-recon-powershell",
+          "reason": "Host reconnaissance details within the Antino binary are difficult to observe without specific script blocks; the hunt relies on the presence of the backdoor itself.",
+          "status": "not_visible"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Spear-phishing with Gmail attachment cloning",
+            "slug": "initial-access-phishing-delivery",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566.002"
+            ],
+            "observables": [
+              "osc-cdn.com",
+              "//my-*.pages.dev/File_download?m=*",
+              "Gmail-cloned attachment widgets"
+            ]
+          },
+          {
+            "name": "Multi-stage script-based loaders",
+            "slug": "execution-script-loaders",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.007",
+              "T1059.001"
+            ],
+            "observables": [
+              "mshta.exe",
+              "wscript.exe",
+              "d32tpl7xt7175h.cloudfront.net",
+              "HTA stagers",
+              "WSF stagers",
+              "JavaScript downloaders"
+            ]
+          },
+          {
+            "name": "Antino backdoor host persistence",
+            "slug": "persistence-antino-host",
+            "tactic": "persistence",
+            "techniques": [
+              "T1547.001",
+              "T1053.005"
+            ],
+            "observables": [
+              "Antino",
+              "Rust-compiled Windows binaries",
+              "rsproxy.cn referencing artifacts",
+              "Registry run keys",
+              "Scheduled tasks"
+            ]
+          },
+          {
+            "name": "Dead-drop C2 via Microsoft Graph",
+            "slug": "c2-microsoft-graph-deaddrop",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1102.002"
+            ],
+            "observables": [
+              "graph.microsoft.com",
+              "Outlook mailbox dead drops",
+              "OneDrive file dead drops"
+            ]
+          },
+          {
+            "name": "Host reconnaissance and PowerShell execution",
+            "slug": "discovery-recon-powershell",
+            "tactic": "discovery",
+            "techniques": [
+              "T1016",
+              "T1059.001"
+            ],
+            "observables": [
+              "PowerShell reconnaissance commands",
+              "In-memory shellcode loading",
+              "on_disk = 0"
+            ]
+          }
+        ],
+        "summary": "UAT-11587, a China-nexus threat actor, targets government and policy organizations in Asia using spear-phishing with spoofed domains and Gmail-styled attachment widgets. The campaign delivers the Rust-compiled 'Antino' backdoor, which utilizes Microsoft Graph (Outlook and OneDrive) as a dead-drop C2 mechanism for stealthy command execution and host reconnaissance."
+      },
+      "severity": "high",
+      "rationale": "Focus on endpoints in executive, diplomatic, and national security departments. Use the delivery DNS lookups as the primary lead for identifying initial targets.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using Cloudflare-hosted stagers to deliver the Rust-compiled Antino backdoor, which then establishes persistence via Run keys and communicates using Microsoft 365 as a dead-drop C2 channel.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to focus on; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "delivery_domains": {
+          "from": {
+            "ref": "https://blog.talosintelligence.com/china-nexus-uat-11587-targets-government-and-policy-organizations-across-asia-with-antino-backdoor/",
+            "kind": "article",
+            "observed": "2026-09-30"
+          },
+          "type": "list[domain]",
+          "default": [
+            "osc-cdn.com",
+            "d32tpl7xt7175h.cloudfront.net"
+          ],
+          "description": "Known delivery and infrastructure domains from UAT-11587 reports."
+        },
+        "parent_launchers": {
+          "type": "list[string]",
+          "default": [
+            "outlook.exe",
+            "chrome.exe",
+            "msedge.exe",
+            "explorer.exe"
+          ],
+          "description": "Common user-facing applications that might launch a script engine after a phishing click."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.talosintelligence.com/china-nexus-uat-11587-targets-government-and-policy-organizations-across-asia-with-antino-backdoor/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.talosintelligence.com/china-nexus-uat-11587-targets-government-and-policy-organizations-across-asia-with-antino-backdoor/",
+          "name": "Cisco Talos — China-nexus UAT-11587 targets government and policy organizations"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "m365-audit-latency",
+          "risk": "Unified Audit Log events can lag by up to 24 hours, meaning immediate C2 activity may be invisible.",
+          "stage": "c2-microsoft-graph-deaddrop",
+          "question": "Was the C2 channel active in the last 2 hours?",
+          "requires": "hb_cloud_api_activity real-time streaming"
+        },
+        {
+          "id": "obfuscated-script-blocks",
+          "risk": "If script logic is obfuscated or downloaded dynamically, the full stager behavior remains hidden without full script block logging.",
+          "stage": "execution-script-loaders",
+          "question": "What were the actual commands executed by the HTA/WSF scripts?",
+          "requires": "hb_script_activity with full block logging"
+        }
+      ]
+    },
+    "name": "UAT-11587 Antino Backdoor Phased Infection and M365 C2",
+    "description": "This phased hunt identifies the UAT-11587 infection chain. It begins by identifying systems resolving Cloudflare Pages and CloudFront staging domains followed by the execution of mshta or wscript stagers. The hunt then pivots to follow-on activity: the installation of the Antino backdoor, identified through rare registry persistence and anomalous Microsoft 365 API activity indicative of dead-drop C2 via Outlook or OneDrive. This phased approach ensures that later-stage cloud activity is triaged with the context of initial host compromise."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-phishing-delivery",
+            "steps": [
+              "dns-delivery-lookups"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-script-loaders",
+            "steps": [
+              "process-stager-activity",
+              "script-content-staging"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-antino-host",
+            "steps": [
+              "antino-persistence-rare"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-microsoft-graph-deaddrop",
+            "steps": [
+              "m365-dead-drop-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "discovery-recon-powershell",
+            "reason": "Host reconnaissance details within the Antino binary are difficult to observe without specific script blocks; the hunt relies on the presence of the backdoor itself.",
+            "status": "not_visible"
+          }
+        ],
+        "rationale": "An adversary is using Cloudflare-hosted stagers to deliver the Rust-compiled Antino backdoor, which then establishes persistence via Run keys and communicates using Microsoft 365 as a dead-drop C2 channel.",
+        "blind_spots": [
+          {
+            "id": "m365-audit-latency",
+            "risk": "Unified Audit Log events can lag by up to 24 hours, meaning immediate C2 activity may be invisible.",
+            "stage": "c2-microsoft-graph-deaddrop",
+            "question": "Was the C2 channel active in the last 2 hours?",
+            "requires": "hb_cloud_api_activity real-time streaming"
+          },
+          {
+            "id": "obfuscated-script-blocks",
+            "risk": "If script logic is obfuscated or downloaded dynamically, the full stager behavior remains hidden without full script block logging.",
+            "stage": "execution-script-loaders",
+            "question": "What were the actual commands executed by the HTA/WSF scripts?",
+            "requires": "hb_script_activity with full block logging"
+          }
+        ],
+        "scoping_notes": "Focus on endpoints in executive, diplomatic, and national security departments. Use the delivery DNS lookups as the primary lead for identifying initial targets.",
+        "beyond_detection": "A single rule might catch a known domain, but this hunt correlates the initial phishing click with rare registry persistence and specific M365 API patterns that signify an active dead-drop C2 channel across two distinct telemetry surfaces."
+      }
+    },
+    {
+      "id": "dns-delivery-lookups",
+      "type": "query",
+      "label": "DNS lookups to delivery domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, MIN(time) AS first_seen, COUNT(*) AS lookup_count FROM hb_dns_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND instr(',' || '{{delivery_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Identify hosts resolving Cloudflare and CloudFront domains used for infection staging; this acts as the scoping lead for the phased hunt.",
+        "expected_signal": "Rare DNS lookups to the reported delivery domains. Silence suggests no interaction with the known UAT-11587 staging infrastructure."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "DNS lookups to delivery domains",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, MIN(time) AS first_seen, COUNT(*) AS lookup_count FROM hb_dns_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND instr(',' || '{{delivery_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rare DNS lookups to the reported delivery domains. Silence suggests no interaction with the known UAT-11587 staging infrastructure.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "process-stager-activity",
+      "type": "query",
+      "label": "Suspicious script stager execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(process_name) LIKE '%\\\\mshta.exe' OR LOWER(process_name) LIKE '%\\\\wscript.exe') AND (LOWER(process_cmd_line) LIKE '%http%') AND (('{{parent_launchers}}' = '') OR (instr(',' || '{{parent_launchers}}' || ',', ',' || LOWER(REPLACE(parent_process_name, RTRIM(parent_process_name, REPLACE(parent_process_name, '\\', '')), '')) || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find mshta and wscript processes launched by user-facing applications to download next-stage payloads.",
+        "expected_signal": "HTA or WSF script engines running from Outlook or web browsers. This identifies the bridge from phishing to execution."
+      },
+      "parents": [
+        {
+          "id": "dns-delivery-lookups"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Suspicious script stager execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(process_name) LIKE '%\\\\mshta.exe' OR LOWER(process_name) LIKE '%\\\\wscript.exe') AND (LOWER(process_cmd_line) LIKE '%http%') AND (('{{parent_launchers}}' = '') OR (instr(',' || '{{parent_launchers}}' || ',', ',' || LOWER(REPLACE(parent_process_name, RTRIM(parent_process_name, REPLACE(parent_process_name, '\\', '')), '')) || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTA or WSF script engines running from Outlook or web browsers. This identifies the bridge from phishing to execution.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "script-content-staging",
+      "type": "query",
+      "label": "Script content referencing staging domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_path, script_content, time FROM hb_script_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(script_content) LIKE '%pages.dev%' OR LOWER(script_content) LIKE '%cloudfront.net%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Confirm the loader logic by searching for Cloudflare and CloudFront URLs inside executed script blocks.",
+        "expected_signal": "Script blocks containing the reported UAT-11587 infrastructure patterns. Any hit is a high-fidelity indicator of stager execution."
+      },
+      "parents": [
+        {
+          "id": "dns-delivery-lookups"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Script content referencing staging domains",
+        "reads": [
+          "device_hostname",
+          "script_path",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_path, script_content, time FROM hb_script_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(script_content) LIKE '%pages.dev%' OR LOWER(script_content) LIKE '%cloudfront.net%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks containing the reported UAT-11587 infrastructure patterns. Any hit is a high-fidelity indicator of stager execution.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "early-infection-triage",
+      "type": "analytic",
+      "label": "Evaluate early infection evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "dns-delivery-lookups",
+          "process-stager-activity",
+          "script-content-staging"
+        ],
+        "objective": "Assess whether the observed DNS, process, and script activity constitutes a successful stager delivery on specific hosts.",
+        "description": "Synthesize initial access and execution telemetry before hunting for the backdoor and C2.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict linking delivery domain resolution to specific loader execution events.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing DNS, process, and script rows."
+      },
+      "parents": [
+        {
+          "id": "process-stager-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "script-content-staging",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "antino-persistence-rare",
+      "type": "query",
+      "label": "Antino persistence via rare Run keys",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT reg_value_data, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND LOWER(reg_target) LIKE '%\\\\software\\\\microsoft\\\\windows\\\\currentversion\\\\run%' AND (LOWER(reg_value_data) LIKE '%\\\\appdata\\\\%' OR LOWER(reg_value_data) LIKE '%\\\\users\\\\public\\\\%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY reg_value_data HAVING host_count <= 3",
+        "surface": "hb_registry_activity",
+        "description": "Identify persistence established via registry Run keys pointing to binaries in user-writable paths.",
+        "expected_signal": "A Run key pointing to a binary in AppData or Users\\Public seen on only a few hosts."
+      },
+      "parents": [
+        {
+          "id": "early-infection-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Antino persistence via rare Run keys",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT reg_value_data, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND LOWER(reg_target) LIKE '%\\\\software\\\\microsoft\\\\windows\\\\currentversion\\\\run%' AND (LOWER(reg_value_data) LIKE '%\\\\appdata\\\\%' OR LOWER(reg_value_data) LIKE '%\\\\users\\\\public\\\\%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY reg_value_data HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A Run key pointing to a binary in AppData or Users\\Public seen on only a few hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "reg_value_data"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "m365-dead-drop-activity",
+      "type": "query",
+      "label": "Anomalous M365 API dead-drop activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT actor_user_name, api_service_name, api_operation, resource_name, resource_uid, src_endpoint_ip, time FROM hb_cloud_api_activity WHERE provider = 'm365' AND (LOWER(api_service_name) IN ('exchange', 'onedrive')) AND (LOWER(api_operation) LIKE '%upload%' OR LOWER(api_operation) LIKE '%create%' OR LOWER(api_operation) LIKE '%write%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Search for M365 API activity related to OneDrive or Outlook that suggests dead-drop C2 communication.",
+        "expected_signal": "Cloud API calls interacting with Outlook or OneDrive in a manner consistent with dead-drop C2. Silence does not exclude C2 if logs are delayed."
+      },
+      "parents": [
+        {
+          "id": "early-infection-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Anomalous M365 API dead-drop activity",
+        "reads": [
+          "actor_user_name",
+          "api_service_name",
+          "api_operation",
+          "resource_name",
+          "resource_uid",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT actor_user_name, api_service_name, api_operation, resource_name, resource_uid, src_endpoint_ip, time FROM hb_cloud_api_activity WHERE provider = 'm365' AND (LOWER(api_service_name) IN ('exchange', 'onedrive')) AND (LOWER(api_operation) LIKE '%upload%' OR LOWER(api_operation) LIKE '%create%' OR LOWER(api_operation) LIKE '%write%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Cloud API calls interacting with Outlook or OneDrive in a manner consistent with dead-drop C2. Silence does not exclude C2 if logs are delayed.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "final-antino-verdict",
+      "type": "analytic",
+      "label": "Final Antino infection assessment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "early-infection-triage",
+          "antino-persistence-rare",
+          "m365-dead-drop-activity"
+        ],
+        "objective": "Confirm the presence of the Antino backdoor by correlating stager execution from the early stage with rare registry persistence and M365 dead-drop patterns.",
+        "description": "Combine host and cloud telemetry to confirm a successful Antino deployment.",
+        "max_iterations": 6,
+        "expected_signal": "A comprehensive verdict covering the full chain from loader delivery to the M365 C2 dead-drop.",
+        "success_criteria": "A final verdict of malicious | suspicious | benign per host, citing evidence from both infection phases."
+      },
+      "parents": [
+        {
+          "id": "antino-persistence-rare",
+          "kind": "merge"
+        },
+        {
+          "id": "m365-dead-drop-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on final verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-antino-verdict is malicious for at least one host",
+        "condition": "the final-antino-verdict is malicious for at least one host",
+        "blind_spot": "m365-audit-latency",
+        "confidence": "high",
+        "description": "Route to containment if the agent confirms a full infection chain.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-antino-verdict"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat and prevent further data exfiltration.",
+        "instructions": "Isolate the host from the network and revoke active sessions for the affected user in Microsoft 365.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-remediation",
+      "type": "task",
+      "label": "Forensic investigation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform manual review and collect forensic artifacts from the host.",
+        "instructions": "Collect the Antino binary from the AppData path identified in registry queries. Search for dead-drop folders in the user's OneDrive and Outlook to identify exfiltrated data."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "hunt-closure",
+      "type": "task",
+      "label": "Hunt closure",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update indicator lists for future detection.",
+        "instructions": "Document what was examined and what was not visible. Update indicator lists for delivery domains and ensure detection-candidate queries are promoted to monitoring rules."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "forensic-remediation"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,596 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Identifying the ingress of web shells on municipal servers prevents the mass harvesting of payment and cardholder data. A negative result confirms the integrity of the application boundary for the recreational platform."
+      },
+      "name": "Web Shell Ingress and Platform Probing",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1110",
+        "attack.t1190",
+        "attack.t1505.003",
+        "collection",
+        "discovery",
+        "execution",
+        "initial access"
+      ],
+      "series": {
+        "slug": "determined-attacker-uploads-malicious-webshells-to-parks-and-rec-management-platform-servers",
+        "index": 1,
+        "title": "Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "web-worker-shell-execution",
+          "reason": "This hunt focuses on ingress; the follow-on hunt examines command execution by the IIS worker process after the shell is established.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single rule for file creation in MemberFiles is prone to noise if users legitimately upload misnamed files. This hunt provides the forensic chain: the boundary probe, then the authentication anomaly from the same IP, then the file write. Correlating across three surfaces confirms the adversarial intent.",
+      "coverage": [
+        {
+          "stage": "web-application-probing-and-brute-force",
+          "steps": [
+            "identify-targeted-web-servers",
+            "brute-force-sign-ins"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "webshell-ingress-via-member-upload",
+          "steps": [
+            "web-shell-file-creations"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "web-worker-shell-execution",
+          "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "iis-and-web-environment-discovery",
+          "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "payment-data-harvesting",
+          "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Web Application Probing and Brute Force",
+            "slug": "web-application-probing-and-brute-force",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1110",
+              "T1190"
+            ],
+            "observables": [
+              "POST /management/login.aspx",
+              "POST /info/household/login.aspx",
+              "GET /a*~1* (IIS 8.3 tilde enumeration)",
+              "WebDAV OPTIONS method",
+              "Upload.ashx::$DATA",
+              "FileUpload.ashx::$DATA"
+            ]
+          },
+          {
+            "name": "Webshell Ingress via Member Upload",
+            "slug": "webshell-ingress-via-member-upload",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190",
+              "T1505.003"
+            ],
+            "observables": [
+              "Path: /documents/MemberFiles/",
+              "aa7d-4056-8061-8f32887196b9.aspx",
+              "5893-4e83-a45c-188a5e4686fd.aspx",
+              "2ae9-4d05-ae6d-ad10ccf25ed9.aspx",
+              "ed12-4938-9661-f4034526d911.aspx",
+              "8362-42b6-8906-4a33eaaa4bb0.aspx",
+              "5ef0-4da3-b162-01844bf0109e.aspx",
+              "791a-4e96-a5ea-e5c7cfd35fd2.jpg"
+            ]
+          },
+          {
+            "name": "Web-Worker Shell Execution",
+            "slug": "web-worker-shell-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1047"
+            ],
+            "observables": [
+              "Parent process w3wp.exe spawning cmd.exe",
+              "Parent process w3wp.exe spawning powershell.exe",
+              "cmd.exe /c whoami",
+              "cmd.exe /c net user",
+              "cmd.exe /c wmic process where \"name='w3wp.exe'\" get ProcessId,CommandLine",
+              "Import-Module WebAdministration; Get-Website"
+            ]
+          },
+          {
+            "name": "IIS and Web Environment Discovery",
+            "slug": "iis-and-web-environment-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1083"
+            ],
+            "observables": [
+              "appcmd.exe list sites",
+              "appcmd.exe list vdirs",
+              "appcmd.exe list app",
+              "dir /b E:\\Content\\info\\App_Code\\*DB*",
+              "dir /b E:\\Content\\info\\App_Code\\*Sql*",
+              "C:\\inetpub\\temp\\appPools",
+              "C:\\Windows\\System32\\drivers\\etc\\hosts"
+            ]
+          },
+          {
+            "name": "Payment Data Harvesting",
+            "slug": "payment-data-harvesting",
+            "tactic": "collection",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "findstr /i /c:\"connectionString\" /c:\"password\" /c:\"Data Source\" E:\\Content\\info\\web.config",
+              "findstr /s /i /m /c:\"CVV\" /c:\"CardNumber\" /c:\"CreditCard\" E:\\Content\\info\\*.aspx",
+              "findstr /s /i /m \"AuthorizeNet Fortis CardConnect BluePay PayPal Braintree Stripe\"",
+              "type E:\\Content\\info\\_fortis\\Webhooks\\*.txt",
+              "findstr /i \"exp_date exp_month exp_year expiration cvv first_six last_four card_number\""
+            ]
+          }
+        ],
+        "summary": "A threat actor, likely based in China, compromised multiple instances of a parks and recreation management platform by abusing a legitimate member registration and file upload feature to plant ASPX webshells. Once established, the attacker performed extensive reconnaissance of the IIS environment and local file system, specifically targeting configuration files and Fortis webhook logs to steal payment card data and credentials."
+      },
+      "severity": "high",
+      "rationale": "Focus the hunt on Windows servers running IIS that host the Parks and Recreation management platform. Narrow the lookback to the last 14 days and prioritize hosts exhibiting high-frequency OPTIONS requests or tilde characters in URIs.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has exploited a file upload vulnerability to drop web shells in member-facing directories after probing the application boundary and brute-forcing credentials.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2026-09-30"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Target web servers to narrow the search; leave empty to scan the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-09-30"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "webshell_indicators": {
+          "from": {
+            "ref": "huntress-parks-rec",
+            "kind": "article",
+            "observed": "2026-09-30"
+          },
+          "type": "list[string]",
+          "default": [
+            "aa7d-4056-8061-8f32887196b9.aspx",
+            "5893-4e83-a45c-188a5e4686fd.aspx",
+            "2ae9-4d05-ae6d-ad10ccf25ed9.aspx",
+            "ed12-4938-9661-f4034526d911.aspx",
+            "8362-42b6-8906-4a33eaaa4bb0.aspx",
+            "5ef0-4da3-b162-01844bf0109e.aspx"
+          ],
+          "description": "Specific web shell filenames observed in the report."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/parks-recreation-platform-webshell-attack",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/parks-recreation-platform-webshell-attack",
+          "name": "Huntress — Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-iis-logs",
+          "risk": "If W3C logging is disabled or hb_http_activity is not ingested, the initial probing lead will be lost, and the source IP correlation will fail.",
+          "owner": "Infrastructure Team",
+          "stage": "web-application-probing-and-brute-force",
+          "question": "Whether the probes were received by the server",
+          "requires": "hb_http_activity logs from the web server",
+          "remediation": "Enable IIS W3C logging with URI Stem, URI Query, and Method fields for all public-facing application servers."
+        },
+        {
+          "id": "no-file-content-visibility",
+          "risk": "Metadata alone cannot distinguish a functional web shell from a benign file misnamed by a user without manual forensic inspection.",
+          "owner": "Security Engineering",
+          "stage": "webshell-ingress-via-member-upload",
+          "question": "What functionality was contained within the uploaded file",
+          "requires": "File content inspection or WAF logs",
+          "remediation": "Implement an EDR with file content analysis or a WAF that logs the body of multipart/form-data uploads."
+        }
+      ]
+    },
+    "name": "Web Shell Ingress and Platform Probing",
+    "description": "The adversary attempts to breach the web application by probing for vulnerabilities and brute-forcing login pages. This hunt identifies these initial stages by correlating external probing activity with illegitimate file creations on the web server. The hunt fans out these signals to check for the creation of ASPX or ASHX files in known user-writable paths, specifically the /documents/MemberFiles/ directory. An agent then evaluates the combined telemetry to link the external probing IP to the resulting file system artifacts, and the analyst confirms the malicious nature of the uploads to differentiate them from legitimate user activity."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "determined-attacker-uploads-malicious-webshells-to-parks-and-rec-management-platform-servers",
+          "index": 1,
+          "title": "Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "web-application-probing-and-brute-force",
+            "steps": [
+              "identify-targeted-web-servers",
+              "brute-force-sign-ins"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "webshell-ingress-via-member-upload",
+            "steps": [
+              "web-shell-file-creations"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "web-worker-shell-execution",
+            "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "iis-and-web-environment-discovery",
+            "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "payment-data-harvesting",
+            "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has exploited a file upload vulnerability to drop web shells in member-facing directories after probing the application boundary and brute-forcing credentials.",
+        "blind_spots": [
+          {
+            "id": "missing-iis-logs",
+            "risk": "If W3C logging is disabled or hb_http_activity is not ingested, the initial probing lead will be lost, and the source IP correlation will fail.",
+            "owner": "Infrastructure Team",
+            "stage": "web-application-probing-and-brute-force",
+            "question": "Whether the probes were received by the server",
+            "requires": "hb_http_activity logs from the web server",
+            "remediation": "Enable IIS W3C logging with URI Stem, URI Query, and Method fields for all public-facing application servers."
+          },
+          {
+            "id": "no-file-content-visibility",
+            "risk": "Metadata alone cannot distinguish a functional web shell from a benign file misnamed by a user without manual forensic inspection.",
+            "owner": "Security Engineering",
+            "stage": "webshell-ingress-via-member-upload",
+            "question": "What functionality was contained within the uploaded file",
+            "requires": "File content inspection or WAF logs",
+            "remediation": "Implement an EDR with file content analysis or a WAF that logs the body of multipart/form-data uploads."
+          }
+        ],
+        "scoping_notes": "Focus the hunt on Windows servers running IIS that host the Parks and Recreation management platform. Narrow the lookback to the last 14 days and prioritize hosts exhibiting high-frequency OPTIONS requests or tilde characters in URIs.",
+        "beyond_detection": "A single rule for file creation in MemberFiles is prone to noise if users legitimately upload misnamed files. This hunt provides the forensic chain: the boundary probe, then the authentication anomaly from the same IP, then the file write. Correlating across three surfaces confirms the adversarial intent."
+      }
+    },
+    {
+      "id": "identify-targeted-web-servers",
+      "type": "query",
+      "label": "Identify Targeted Web Servers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "web",
+        "content": "SELECT device_hostname, url_path, http_method, src_endpoint_ip, COUNT(*) as probe_count, MIN(time) as first_seen FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/management/login.aspx%' OR LOWER(url_path) LIKE '%/info/household/login.aspx%' OR url_path LIKE '%~1%' OR url_path LIKE '%::$DATA%' OR http_method = 'OPTIONS') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, url_path, http_method, src_endpoint_ip ORDER BY probe_count DESC",
+        "surface": "hb_http_activity",
+        "description": "Find web servers receiving tilde enumeration, WebDAV options requests, or high volumes of login traffic to establish a lead.",
+        "expected_signal": "A list of web servers receiving probing requests. High probe counts or the presence of tilde characters indicate active exploitation attempts."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Targeted Web Servers",
+        "reads": [
+          "device_hostname",
+          "url_path",
+          "http_method",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_path, http_method, src_endpoint_ip, COUNT(*) as probe_count, MIN(time) as first_seen FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/management/login.aspx%' OR LOWER(url_path) LIKE '%/info/household/login.aspx%' OR url_path LIKE '%~1%' OR url_path LIKE '%::$DATA%' OR http_method = 'OPTIONS') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, url_path, http_method, src_endpoint_ip ORDER BY probe_count DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of web servers receiving probing requests. High probe counts or the presence of tilde characters indicate active exploitation attempts.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "brute-force-sign-ins",
+      "type": "query",
+      "label": "Brute Force Sign-Ins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT device_hostname, dst_endpoint_name, src_endpoint_ip, actor_user_name, COUNT(*) as failure_count, MIN(time) as first_failure FROM hb_auth_signin WHERE activity_id = 5 AND (LOWER(dst_endpoint_name) LIKE '%/login.aspx%' OR LOWER(dst_endpoint_name) LIKE '%management%' OR LOWER(dst_endpoint_name) LIKE '%household%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_name, src_endpoint_ip, actor_user_name HAVING failure_count > 10 ORDER BY failure_count DESC",
+        "surface": "hb_auth_signin",
+        "description": "Identify high-volume authentication failures to the web platform login pages on the targeted hosts.",
+        "expected_signal": "A single source IP attempting multiple logins. Failure counts above 10 from one IP against platform pages are highly suspicious."
+      },
+      "parents": [
+        {
+          "id": "identify-targeted-web-servers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Brute Force Sign-Ins",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_name",
+          "src_endpoint_ip",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT device_hostname, dst_endpoint_name, src_endpoint_ip, actor_user_name, COUNT(*) as failure_count, MIN(time) as first_failure FROM hb_auth_signin WHERE activity_id = 5 AND (LOWER(dst_endpoint_name) LIKE '%/login.aspx%' OR LOWER(dst_endpoint_name) LIKE '%management%' OR LOWER(dst_endpoint_name) LIKE '%household%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_name, src_endpoint_ip, actor_user_name HAVING failure_count > 10 ORDER BY failure_count DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "prior_equal_window"
+        },
+        "expected": "A single source IP attempting multiple logins. Failure counts above 10 from one IP against platform pages are highly suspicious.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "web-shell-file-creations",
+      "type": "query",
+      "label": "Web Shell File Creations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_name, process_name, actor_user_name, time FROM hb_file_activity WHERE activity_id = 1 AND (LOWER(file_path) LIKE '%\\\\documents\\\\memberfiles\\\\%' OR LOWER(file_path) LIKE '%/documents/memberfiles/%') AND (LOWER(file_name) LIKE '%.aspx' OR LOWER(file_name) LIKE '%.ashx' OR instr(',' || '{{webshell_indicators}}' || ',', ',' || LOWER(file_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect new ASPX or ASHX files in the member upload directory, matching known indicators or patterns.",
+        "expected_signal": "ASPX files appearing in the MemberFiles directory. These are unexpected as member uploads are typically images or documents."
+      },
+      "parents": [
+        {
+          "id": "identify-targeted-web-servers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Web Shell File Creations",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "file_name",
+          "process_name",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_name, process_name, actor_user_name, time FROM hb_file_activity WHERE activity_id = 1 AND (LOWER(file_path) LIKE '%\\\\documents\\\\memberfiles\\\\%' OR LOWER(file_path) LIKE '%/documents/memberfiles/%') AND (LOWER(file_name) LIKE '%.aspx' OR LOWER(file_name) LIKE '%.ashx' OR instr(',' || '{{webshell_indicators}}' || ',', ',' || LOWER(file_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "ASPX files appearing in the MemberFiles directory. These are unexpected as member uploads are typically images or documents.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "triage-ingress-evidence",
+      "type": "analytic",
+      "label": "Triage Ingress Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "identify-targeted-web-servers",
+          "brute-force-sign-ins",
+          "web-shell-file-creations"
+        ],
+        "objective": "Determine if any host exhibits a pattern of external probing (tilde enumeration or OPTIONS requests) or brute-force authentication followed by the creation of an ASPX/ASHX file in the MemberFiles directory. Link these events by source IP and timestamp to confirm if the file upload resulted from a successful exploit or session takeover.",
+        "description": "Correlate HTTP probing, login failures, and file creations to confirm a web shell ingress.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict linking the source IP from probes to the resulting file creation events.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host with cited rows."
+      },
+      "parents": [
+        {
+          "id": "brute-force-sign-ins",
+          "kind": "merge"
+        },
+        {
+          "id": "web-shell-file-creations",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host where boundary probing is linked to a web shell file creation",
+        "condition": "the triage verdict is malicious for at least one host where boundary probing is linked to a web shell file creation",
+        "blind_spot": "missing-iis-logs",
+        "confidence": "high",
+        "description": "Direct the hunt to containment or further review based on the triage verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-ingress-evidence"
+        }
+      ]
+    },
+    {
+      "id": "contain-and-remediate-server",
+      "type": "action",
+      "label": "Contain and Remediate Server",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further lateral movement and remove the malicious artifacts from the environment.",
+        "instructions": "Isolate the compromised web server from the network. Delete the malicious ASPX and ASHX files identified in the MemberFiles directory and any other web root directories. Block the source IP addresses identified in the triage stage at the perimeter firewall.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-review",
+      "type": "task",
+      "label": "Forensic Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the content of the uploaded files and investigate potential command execution.",
+        "instructions": "Inspect the MemberFiles directory for the identified ASPX files. Review the file contents for known web shell functions (eval, request, system). Search the HTTP logs for the Simplified Chinese (zh-CN) User Agent string to identify other potentially compromised hosts in the tenant group."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-and-remediate-server"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and recommend long-term hardening for the platform.",
+        "instructions": "Document the source IPs, filenames, and affected hosts. Recommend patching the file upload handler to restrict uploads to specific image/document mime types and enforce filename sanitization. Schedule a follow-on hunt for web worker shell execution (w3wp spawning cmd/powershell)."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "forensic-review"
+        }
+      ]
+    }
+  ]
+}

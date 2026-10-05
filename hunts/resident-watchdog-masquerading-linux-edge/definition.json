@@ -1,0 +1,706 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Edge appliances are high-value targets for persistent, silent access. A negative result on masqueraded daemons across the appliance estate provides a high-confidence signal that this specific resident threat is absent."
+      },
+      "name": "Resident Watchdog and Masquerading on Linux Edge",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.004",
+        "attack.t1036.004",
+        "attack.t1562.001",
+        "command and control",
+        "defense evasion",
+        "execution",
+        "persistence"
+      ],
+      "series": {
+        "slug": "smtp-is-the-key-bpfdoor-and-averat-hitting-the-network-edge",
+        "index": 1,
+        "title": "SMTP is the key: BPFDoor and AVERAT hitting the network edge",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "passive-bpf-backdoor-network-triggers",
+          "reason": "This hunt focuses on host residency; the network trigger and SMTP blending are covered in the follow-on network hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A static rule for the dropper hash misses the resident implant once it has deleted its binary. This hunt pivots between file-staging evidence and a fleet-wide prevalence check for processes whose images are unmapped (on_disk = 0) while they masquerade as system services.",
+      "coverage": [
+        {
+          "stage": "averat-dropper-installation",
+          "steps": [
+            "find-dropper-files"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "staging-shell-script",
+          "steps": [
+            "find-staging-scripts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "process-masquerading",
+          "steps": [
+            "rare-masqueraded-processes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "forensic-evasion",
+          "steps": [
+            "detect-environment-evasion"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "passive-bpf-backdoor",
+          "reason": "Belongs to another part of the 'SMTP is the key: BPFDoor and AVERAT hitting the network edge' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "network-traffic-blending",
+          "reason": "Belongs to another part of the 'SMTP is the key: BPFDoor and AVERAT hitting the network edge' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "AVERAT Dropper Installation",
+            "slug": "averat-dropper-installation",
+            "tactic": "execution",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "dropper binary located in add-on package directory /addpkg/sbin/update",
+              "SHA256: 2bedc26d4b29b435c21962beed7db21188a0219a0d28334bba8b4fb1656d7b15",
+              "AES-128-ECB key derived from string 'ShareTech'"
+            ]
+          },
+          {
+            "name": "Staging via Shell Script",
+            "slug": "staging-shell-script",
+            "tactic": "persistence",
+            "techniques": [
+              "T1059.004"
+            ],
+            "observables": [
+              "shell script written to storage mount /HDD/ms6x2xTo64/updIptable.php",
+              "watchdog marker file /HDD/ms6x2xTo64/execProcEnd",
+              "secondary payloads staged in /sbin/ntpdate and /sbin/udevds"
+            ]
+          },
+          {
+            "name": "Process Identity Masquerading",
+            "slug": "process-masquerading",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1036.004"
+            ],
+            "observables": [
+              "process names: ntpdate, udevds, abrtd, chronyd, rsyslogd, crond, python, ora_ppmond, dtnpd, ofgmd, earsd, httpd, snipe-smtpd",
+              "PID file: /var/run/spamsniper.pid",
+              "processes running with on_disk = false after self-deletion"
+            ]
+          },
+          {
+            "name": "Passive BPF Backdoor",
+            "slug": "passive-bpf-backdoor",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1572"
+            ],
+            "observables": [
+              "attachment of BPF filters to PF_PACKET raw sockets",
+              "magic bytes: 0x6693 (UDP), 0x4274 (TCP), 0x7820 (ICMP), 0x5571",
+              "handshake sequence: 50 01 13 3F 08 5C 73 7B 1A 72 53 78"
+            ]
+          },
+          {
+            "name": "C2 Traffic Blending",
+            "slug": "network-traffic-blending",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001",
+              "T1071.003"
+            ],
+            "observables": [
+              "SMTP traffic with source and destination ports equal to 25",
+              "HTTPS POST requests with mathematical padding to /admin/login.aspx?id=99990",
+              "URL paths: /admin/login.aspx, updiptable.php",
+              "integrated Tiny Shell command opcodes: S, U, D"
+            ]
+          },
+          {
+            "name": "Command History Evasion",
+            "slug": "forensic-evasion",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1562"
+            ],
+            "observables": [
+              "execution of environment variable overrides: HISTFILE=/dev/null, HISTSIZE=0, VIMINIT='set viminfo='"
+            ]
+          }
+        ],
+        "summary": "A campaign targeting Linux-based telecom edge appliances in South Korea and Taiwan using a multi-stage infection chain involving the AVERAT dropper and BPFDoor/Rekoobe implants. The campaign utilizes regionalized process masquerading, passive BPF-based triggers, and traffic blending over SMTP and HTTPS to maintain persistent, stealthy access to network infrastructure."
+      },
+      "severity": "high",
+      "rationale": "Focus the hunt on Linux hosts with non-standard mounts like /addpkg or /HDD. Use the scoping step to identify these before pasting them into the scope_hosts parameter.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has installed persistence on a Linux appliance by using a shell script to stage binaries in /sbin, then deleting the files to leave the processes running as fileless masqueraded daemons.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "scoping",
+            "kind": "manual",
+            "observed": "2026-10-02"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Limit the hunt to specific hosts; leave empty to scan the whole estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-10-02"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "spoofed_names": {
+          "from": {
+            "ref": "Rapid7",
+            "kind": "article",
+            "observed": "2026-10-02"
+          },
+          "type": "list[string]",
+          "default": [
+            "/sbin/ntpdate",
+            "/sbin/udevds",
+            "/usr/sbin/abrtd",
+            "/usr/sbin/chronyd",
+            "/usr/sbin/rsyslogd",
+            "/usr/sbin/crond",
+            "/sniper/bin/crond",
+            "/sniper/bin/earsd",
+            "/sniper/apache/bin/httpd",
+            "ora_ppmond",
+            "dtnpd",
+            "ofgmd",
+            "earsd",
+            "snipe-smtpd",
+            "[watchdogd]"
+          ],
+          "description": "Process names and paths the implants adopt to blend into Linux or telecom appliance environments."
+        },
+        "dropper_hashes": {
+          "from": {
+            "ref": "Rapid7",
+            "kind": "article",
+            "observed": "2026-10-02"
+          },
+          "type": "list[hash]",
+          "default": [
+            "2bedc26d4b29b435c21962beed7db21188a0219a0d28334bba8b4fb1656d7b15",
+            "a37ea9897221d4495b538de72b74f2aa1d2ff09b7b6dcedd395aee58931adbf3",
+            "7e667ba5f9df912e02275d3cfe3809d16f822fe776f4035c84b118ebd925b1b5",
+            "a6f3b7f932761fb1fd5e74123f2482e36c65dd13e769af2ce08c65da195bfa7a",
+            "4435fcd6862921092614dbeaa880e4192352984686ebcd98f0ba13ee8e226ef9",
+            "652508a9cf40bee883dc0e5e219dfeba71fe7dac591d01c89f74c21f73b4963f"
+          ],
+          "description": "Known SHA256 hashes for the AVERAT and BPFDoor components."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/tr-smtp-is-the-key-bpfdoor-averat-hitting-the-network-edge",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/tr-smtp-is-the-key-bpfdoor-averat-hitting-the-network-edge",
+          "name": "Rapid7 — SMTP is the key: BPFDoor and AVERAT hitting the network edge"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "ephemeral-script-deletion",
+          "risk": "If the script is deleted faster than the sensor reports, the creation event may be missed.",
+          "stage": "staging-shell-script",
+          "question": "whether the staging script existed for less than ten seconds between polling intervals",
+          "requires": "high-frequency file activity logging"
+        },
+        {
+          "id": "passive-bpf-backdoor-socket",
+          "risk": "The passive backdoor trigger is invisible to conventional socket monitoring because it does not bind to a port; we rely on process masquerading markers instead.",
+          "stage": "process-masquerading",
+          "question": "whether a process has attached a BPF filter to a raw socket",
+          "requires": "hb_kernel_extension_activity or raw eBPF telemetry"
+        }
+      ]
+    },
+    "name": "Resident Watchdog and Masquerading on Linux Edge",
+    "description": "This hunt examines the host-level deployment of AVERAT and BPFDoor variants, which use regionalized process masquerading to blend into telecommunications environments. The attack chain involves a dropper writing a shell script to an appliance storage mount, which then stages payloads under common daemon names like ntpdate or udevds and deletes the source files ten seconds later while the processes continue running.\n\nWe pivot from initial file activity in appliance-specific paths to a behavioral check for processes running without an on-disk image, stack-counting these across the fleet to identify rare, malicious residency. The hunt further searches for environment variable manipulation used to suppress command history and vim logs, providing multiple points of correlation for resident implants."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "smtp-is-the-key-bpfdoor-and-averat-hitting-the-network-edge",
+          "index": 1,
+          "title": "SMTP is the key: BPFDoor and AVERAT hitting the network edge",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "averat-dropper-installation",
+            "steps": [
+              "find-dropper-files"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "staging-shell-script",
+            "steps": [
+              "find-staging-scripts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "process-masquerading",
+            "steps": [
+              "rare-masqueraded-processes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "forensic-evasion",
+            "steps": [
+              "detect-environment-evasion"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "passive-bpf-backdoor",
+            "reason": "Belongs to another part of the 'SMTP is the key: BPFDoor and AVERAT hitting the network edge' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "network-traffic-blending",
+            "reason": "Belongs to another part of the 'SMTP is the key: BPFDoor and AVERAT hitting the network edge' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has installed persistence on a Linux appliance by using a shell script to stage binaries in /sbin, then deleting the files to leave the processes running as fileless masqueraded daemons.",
+        "blind_spots": [
+          {
+            "id": "ephemeral-script-deletion",
+            "risk": "If the script is deleted faster than the sensor reports, the creation event may be missed.",
+            "stage": "staging-shell-script",
+            "question": "whether the staging script existed for less than ten seconds between polling intervals",
+            "requires": "high-frequency file activity logging"
+          },
+          {
+            "id": "passive-bpf-backdoor-socket",
+            "risk": "The passive backdoor trigger is invisible to conventional socket monitoring because it does not bind to a port; we rely on process masquerading markers instead.",
+            "stage": "process-masquerading",
+            "question": "whether a process has attached a BPF filter to a raw socket",
+            "requires": "hb_kernel_extension_activity or raw eBPF telemetry"
+          }
+        ],
+        "scoping_notes": "Focus the hunt on Linux hosts with non-standard mounts like /addpkg or /HDD. Use the scoping step to identify these before pasting them into the scope_hosts parameter.",
+        "beyond_detection": "A static rule for the dropper hash misses the resident implant once it has deleted its binary. This hunt pivots between file-staging evidence and a fleet-wide prevalence check for processes whose images are unmapped (on_disk = 0) while they masquerade as system services."
+      }
+    },
+    {
+      "id": "scope-appliance-mounts",
+      "type": "query",
+      "label": "Scope hosts with appliance mount paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_file_activity WHERE (LOWER(file_path) LIKE '/addpkg/%' OR LOWER(file_path) LIKE '/hdd/%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify the fleet's Linux appliances by looking for activity in non-standard mount paths used by regional edge vendors.",
+        "expected_signal": "A list of hostnames. Silence means no hosts in the estate use these vendor-specific directory conventions."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope hosts with appliance mount paths",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_file_activity WHERE (LOWER(file_path) LIKE '/addpkg/%' OR LOWER(file_path) LIKE '/hdd/%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames. Silence means no hosts in the estate use these vendor-specific directory conventions.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-03"
+      }
+    },
+    {
+      "id": "find-dropper-files",
+      "type": "query",
+      "label": "Search for AVERAT dropper files",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_hash_sha256, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (instr(',' || '{{dropper_hashes}}' || ',', ',' || file_hash_sha256 || ',') > 0 OR LOWER(file_path) LIKE '%/addpkg/sbin/update') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find the initial dropper binary using known hashes or the specific add-on package path.",
+        "expected_signal": "A file match on one or more hosts. Silence proves the reported hashes and path were not written in the window."
+      },
+      "parents": [
+        {
+          "id": "scope-appliance-mounts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Search for AVERAT dropper files",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "file_hash_sha256",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_hash_sha256, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (instr(',' || '{{dropper_hashes}}' || ',', ',' || file_hash_sha256 || ',') > 0 OR LOWER(file_path) LIKE '%/addpkg/sbin/update') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A file match on one or more hosts. Silence proves the reported hashes and path were not written in the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-03"
+      }
+    },
+    {
+      "id": "find-staging-scripts",
+      "type": "query",
+      "label": "Search for shell-script staging",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(file_path) LIKE '%updiptable.php' OR LOWER(file_path) LIKE '%execprocend') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect the creation of the shell script or watchdog markers used to deploy secondary payloads.",
+        "expected_signal": "A script file creation event. Silence means the specific staging paths were not used."
+      },
+      "parents": [
+        {
+          "id": "scope-appliance-mounts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Search for shell-script staging",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(file_path) LIKE '%updiptable.php' OR LOWER(file_path) LIKE '%execprocend') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A script file creation event. Silence means the specific staging paths were not used.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-03"
+      }
+    },
+    {
+      "id": "agent-early-assessment",
+      "type": "analytic",
+      "label": "Evaluate initial infection signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "find-dropper-files",
+          "find-staging-scripts"
+        ],
+        "objective": "Determine if any host shows evidence of the AVERAT dropper or the staging script execution as described in the Rapid7 research.",
+        "description": "Assess the first stage results to confirm if any hosts show strong markers of the AVERAT infection chain.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict linking file telemetry to the reported threat.",
+        "success_criteria": "A list of potentially infected hosts with the specific staging markers found."
+      },
+      "parents": [
+        {
+          "id": "find-dropper-files",
+          "kind": "merge"
+        },
+        {
+          "id": "find-staging-scripts",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "rare-masqueraded-processes",
+      "type": "query",
+      "label": "Baseline rare processes with no on-disk image",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, on_disk, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (on_disk = 0 OR instr(',' || '{{spoofed_names}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, on_disk HAVING host_count <= 3",
+        "surface": "hb_process_activity",
+        "description": "Stack-count processes that match the disguise names or run with no binary on disk.",
+        "expected_signal": "Rare processes (seen on < 3 hosts) that match the masquerading profile or run fileless. Silence on on_disk=0 is a strong negative result."
+      },
+      "parents": [
+        {
+          "id": "agent-early-assessment"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Baseline rare processes with no on-disk image",
+        "reads": [
+          "process_name",
+          "on_disk",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, on_disk, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (on_disk = 0 OR instr(',' || '{{spoofed_names}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, on_disk HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare processes (seen on < 3 hosts) that match the masquerading profile or run fileless. Silence on on_disk=0 is a strong negative result.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "on_disk"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-03"
+      }
+    },
+    {
+      "id": "detect-environment-evasion",
+      "type": "query",
+      "label": "Detect command history suppression",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%histfile=/dev/null%' OR LOWER(process_cmd_line) LIKE '%histsize=0%' OR LOWER(process_cmd_line) LIKE '%viminit=%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify shells attempting to suppress history, a common anti-forensic measure for these implants.",
+        "expected_signal": "Command lines containing history-evading variables. Silence proves this measure was not used."
+      },
+      "parents": [
+        {
+          "id": "agent-early-assessment"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Detect command history suppression",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%histfile=/dev/null%' OR LOWER(process_cmd_line) LIKE '%histsize=0%' OR LOWER(process_cmd_line) LIKE '%viminit=%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Command lines containing history-evading variables. Silence proves this measure was not used.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-03"
+      }
+    },
+    {
+      "id": "agent-residency-assessment",
+      "type": "analytic",
+      "label": "Final verdict on resident implants",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "agent-early-assessment",
+          "rare-masqueraded-processes",
+          "detect-environment-evasion"
+        ],
+        "objective": "Assess if any host from the early assessment also shows fileless masquerading or forensic evasion.",
+        "description": "Combine early-stage signals with residency behaviors to confirm which appliances are compromised.",
+        "max_iterations": 6,
+        "expected_signal": "A malicious verdict for any host showing both staging and fileless residency.",
+        "success_criteria": "A comprehensive list of malicious hosts citing the full chain of evidence."
+      },
+      "parents": [
+        {
+          "id": "rare-masqueraded-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "detect-environment-evasion",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decision-route",
+      "type": "checkpoint",
+      "label": "Route on resident compromise",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent-residency-assessment verdict is malicious for at least one host",
+        "condition": "the agent-residency-assessment verdict is malicious for at least one host",
+        "blind_spot": "ephemeral-script-deletion",
+        "confidence": "high",
+        "description": "Route the hunt based on whether a resident implant is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-residency-assessment"
+        }
+      ]
+    },
+    {
+      "id": "action-isolate-host",
+      "type": "action",
+      "label": "Isolate compromised appliance",
+      "config": {
+        "target": "endpoint",
+        "description": "Sever network access to prevent command execution or data exfiltration.",
+        "instructions": "Isolate the host immediately. Do not reboot, as the malware lives in memory and the binary is deleted; capture process memory to preserve the payload.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "task-forensic-collection",
+      "type": "task",
+      "label": "Perform memory and shell forensics",
+      "config": {
+        "assignee": "analyst",
+        "description": "Extract the resident payload and verify the extent of the history evasion.",
+        "instructions": "Collect process memory for the masqueraded daemons identified. Check for the presence of the BPFDoor magic bytes in the memory space of the processes."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "default"
+        },
+        {
+          "id": "decision-route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "action-isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "task-hunt-review",
+      "type": "task",
+      "label": "Review and close hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and tune detection parameters for future runs.",
+        "instructions": "Finalize the incident summary and document any appliance directories found that were not in the original report."
+      },
+      "parents": [
+        {
+          "id": "decision-route",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "task-forensic-collection"
+        }
+      ]
+    }
+  ]
+}
