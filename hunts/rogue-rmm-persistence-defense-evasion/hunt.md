@@ -1,0 +1,319 @@
+---
+analysis: "A simple detection rule fires on a single RMM installer; this hunt pivots\
+  \ to look for 'stacking'\u2014multiple distinct RMMs on one host\u2014and correlates\
+  \ it with specialized evasion binaries like HideUL to distinguish an intrusion from\
+  \ a configuration error."
+blind_spots:
+- id: telemetry-evasion-gap
+  owner: Endpoint Engineering
+  question: whether HideUL successfully blinded the logging agent
+  remediation: Deploy tamper-protection for the security agent and monitor for service
+    stop events.
+  requires: Unmodified EDR telemetry
+  risk: If HideUL successfully disables logging, the stacking activity will be invisible
+    to process and registry surfaces.
+  stage: defense-evasion-activity
+- id: portable-rmm-blindness
+  owner: Threat Hunting
+  question: whether the RMM was run as a portable binary without installation
+  remediation: Rely on hb_process_activity and hb_network_connection for behavioral
+    leads on portable tools.
+  requires: hb_software_inventory
+  risk: The scoping query based on software inventory will miss portable versions
+    of ITarian or ScreenConnect.
+  stage: rogue-rmm-installation-and-persistence
+coverage:
+- stage: rogue-rmm-installation-and-persistence
+  status: covered
+  steps:
+  - rmm-inventory-scoping
+  - detect-rmm-stacking
+- stage: defense-evasion-activity
+  status: covered
+  steps:
+  - detect-evasion-binaries
+- stage: redundant-rmm-stacking
+  status: covered
+  steps:
+  - detect-rmm-stacking
+  - rmm-triage-agent
+- reason: 'Belongs to another part of the ''Rogue RMM Abuse: How Attackers Exploit
+    Remote Access Tools'' series.'
+  stage: phishing-delivery-and-lure
+  status: out_of_scope
+- reason: 'Belongs to another part of the ''Rogue RMM Abuse: How Attackers Exploit
+    Remote Access Tools'' series.'
+  stage: c2-redirect-and-payload-download
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: keep-as-periodic-hunt
+  justification: RMM abuse is involved in nearly 40% of recent incidents; detecting
+    rogue management stacking is critical to ensuring an attacker hasn't left a secondary
+    persistence path behind after initial remediation.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder has established persistent access by installing unauthorized
+  RMM tools and blinded security controls using evasion utilities like HideUL to mask
+  the redundant access paths.
+labels:
+- hunt
+- attack.t1219
+- attack.t1562
+- attack.t1566
+- attack.t1190
+name: Rogue RMM Persistence and Defense Evasion
+parameters:
+  lookback_days:
+    default: '14'
+    description: Days of history to examine.
+    from:
+      kind: manual
+      observed: '2026-09-23'
+      ref: hunt-standard
+    type: number
+  scope_hosts:
+    default: []
+    description: Hosts to focus on from scoping; empty searches the estate.
+    from:
+      kind: manual
+      observed: '2026-09-23'
+      ref: analyst-input
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.huntress.com/blog/rogue-rmm-abuse-phishing-persistent-access
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Target all Windows endpoints. Phishing for RMM abuse typically targets
+  end-users rather than IT staff, making the presence of these tools on non-admin
+  workstations a high-priority lead.
+references:
+- name: "Huntress \u2014 Rogue RMM Abuse: How Attackers Exploit Remote Access Tools"
+  url: https://www.huntress.com/blog/rogue-rmm-abuse-phishing-persistent-access
+related:
+- hunt: unauthorized-remote-access-tool-usage
+  reason: This hunt focuses on attacker stacking and evasion, not general policy violations
+    for unauthorized software.
+  relation: out-of-scope-alternative
+- hunt: rogue-rmm-delivery-trusted-service-phishing
+  relation: follows
+scenario:
+  stages:
+  - name: Phishing Delivery and Lure
+    observables:
+    - TransferXL email
+    - Adobe InDesign lure page
+    - View Document button
+    - ZIP files
+    - Nested PDF lures
+    slug: phishing-delivery-and-lure
+    tactic: initial-access
+    techniques:
+    - T1566
+  - name: C2 Redirect and Payload Download
+    observables:
+    - Attacker-controlled C2 infrastructure
+    - Rogue RMM installer download
+    - ScreenConnect client installer
+    - ITarian client installer
+    slug: c2-redirect-and-payload-download
+    tactic: execution
+    techniques:
+    - T1203
+  - name: Rogue RMM Installation and Persistence
+    observables:
+    - ITarian client installation
+    - ScreenConnect client installation
+    - SYSTEM-level privileges
+    - Persistent remote access service
+    slug: rogue-rmm-installation-and-persistence
+    tactic: persistence
+    techniques:
+    - T1219
+  - name: Defense Evasion Activity
+    observables:
+    - HideUL_x64.exe
+    slug: defense-evasion-activity
+    tactic: defense-evasion
+    techniques:
+    - T1562
+  - name: Redundant RMM Stacking
+    observables:
+    - Multiple rogue RMM clients
+    - ITarian and ScreenConnect coexistence
+    - Redundant ScreenConnect instances
+    slug: redundant-rmm-stacking
+    tactic: persistence
+    techniques:
+    - T1219
+  summary: Threat actors are using phishing emails with lures hosted on legitimate
+    services like TransferXL and Adobe InDesign to trick victims into installing rogue
+    RMM tools like ITarian and ScreenConnect. These tools provide persistent, hands-on
+    control and are often deployed in redundant pairs alongside defense evasion binaries
+    like HideUL_x64.exe to maintain long-term access.
+series:
+  index: 2
+  slug: rogue-rmm-abuse-how-attackers-exploit-remote-access-tools
+  title: 'Rogue RMM Abuse: How Attackers Exploit Remote Access Tools'
+  total: 2
+severity: medium
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# Rogue RMM Persistence and Defense Evasion
+
+This hunt identifies the lifecycle of RMM abuse where attackers deploy legitimate remote management tools for redundant persistence. It specifically looks for the stacking of multiple RMM clients on a single host—a high-confidence indicator of rogue activity—alongside the use of evasion utilities intended to mask malicious connections. By examining both software inventory and active process behavior, the hunt distinguishes between authorized IT tools and attacker-controlled instances.
+
+## rmm-inventory-scoping
+<!-- Inventory of known RMM packages -->
+Find hosts with ScreenConnect or ITarian installed via package managers to focus the behavioral analysis.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts with RMM software. Silence means no RMM was installed via
+  standard package managers, but does not rule out portable versions.
+reads:
+- device_hostname
+- package_name
+- vendor_name
+- package_version
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: '2026-09-25'
+~~~
+SELECT device_hostname, package_name, vendor_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%screenconnect%' OR LOWER(package_name) LIKE '%itarian%' OR LOWER(vendor_name) LIKE '%connectwise%' OR LOWER(vendor_name) LIKE '%itarian%')
+```
+
+## behavioral-checks
+<!-- Behavioral evidence gathering -->
+parallel:
+- → detect-evasion-binaries
+- → detect-rmm-stacking
+join: → rmm-triage-agent
+
+## detect-evasion-binaries
+<!-- Defense evasion tool execution -->
+Identify the execution of HideUL, which attackers use to blind security telemetry, using path-suffix matching.
+
+```sqlite target=endpoint role=detection-candidate params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+expected: A process match for HideUL. This utility has no legitimate business purpose
+  and is used to hide RMM activity.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: '2026-09-25'
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_name) LIKE '%hideul_x64.exe' OR LOWER(process_name) LIKE '%hideul.exe') AND time >= datetime('now', '-{{lookback_days}} days')
+```
+
+## detect-rmm-stacking
+<!-- RMM stacking and redundancy -->
+Detect hosts where multiple different RMM tools are running simultaneously, incorporating original file names to catch renamed binaries.
+
+```sqlite target=endpoint role=baseline params=(scope_hosts=scope_hosts, lookback_days=lookback_days)
+~~~yaml
+baseline:
+  compare: new_this_window
+  window: '{{lookback_days}}d'
+expected: Hosts running multiple distinct RMM clients simultaneously. This stacking
+  behavior is characteristic of an intruder ensuring redundant access.
+prevalence:
+  by: device_hostname
+  key:
+  - rmm_processes
+  rare_below: 2
+reads:
+- device_hostname
+- process_name
+- process_original_file_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: '2026-09-25'
+~~~
+SELECT device_hostname, COUNT(DISTINCT CASE WHEN LOWER(process_name) LIKE '%screenconnect%' OR LOWER(process_original_file_name) LIKE '%screenconnect%' THEN 'ScreenConnect' WHEN LOWER(process_name) LIKE '%itarian%' OR LOWER(process_original_file_name) LIKE '%itarian%' OR LOWER(process_name) LIKE '%itsm_service%' OR LOWER(process_name) LIKE '%itcm%' THEN 'ITarian' END) AS unique_rmm_count, GROUP_CONCAT(DISTINCT process_name) AS rmm_processes, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_name) LIKE '%screenconnect%' OR LOWER(process_name) LIKE '%itarian%' OR LOWER(process_name) LIKE '%itsm_service%' OR LOWER(process_name) LIKE '%itcm%' OR LOWER(process_original_file_name) LIKE '%screenconnect%' OR LOWER(process_original_file_name) LIKE '%itarian%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING unique_rmm_count > 1
+```
+
+## rmm-triage-agent
+<!-- Analyze RMM activity -->
+```agent target=hunter
+cite: required
+context:
+- rmm-inventory-scoping
+- detect-evasion-binaries
+- detect-rmm-stacking
+max_iterations: 4
+objective: Determine if RMM tools on the host are rogue by checking for stacking of
+  multiple distinct RMMs and the presence of the HideUL evasion tool.
+success_criteria: A verdict of malicious | suspicious | benign per host, citing specific
+  stacking patterns or evasion execution.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+<!-- Route based on RMM risk -->
+if~: "the rmm-triage-agent verdict is malicious for at least one host due to RMM stacking or evasion binary execution" (confidence: high, judge=hunter)
+then: → isolate-endpoint
+indeterminate: → analyst-manual-review
+unavailable: → analyst-manual-review (blind_spot: telemetry-evasion-gap)
+else: → analyst-manual-review
+
+## isolate-endpoint
+<!-- Isolate compromised host -->
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host from the network immediately. Terminate all active ScreenConnect and ITarian processes and remove the persistence services after acquiring a forensic sample.
+```
+→ analyst-manual-review
+
+## analyst-manual-review
+<!-- Analyst forensic review -->
+```manual target=analyst
+Verify the RMM tools against the approved software catalog. Review hb_http_activity for connections to TransferXL or Adobe InDesign lure pages within 24 hours prior to the RMM installation. Trace parent processes of the RMM installers to identify the initial lure file.
+```
+→ investigation-closeout
+
+## investigation-closeout
+<!-- Remediation and tuning -->
+```manual target=analyst
+Confirm all redundant RMM clients are removed. If HideUL was detected, perform a deep scan to ensure no other security tools were tampered with. Record the incident and update the RMM inventory list.
+```
+→ end
