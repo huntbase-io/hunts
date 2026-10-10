@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zimbra Privilege Escalation and Root Persistence (CVE-2026-73570) · Huntbase Hub</title>
+  <link rel="icon" href="../../static/logo-icon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="../../favicon.ico" sizes="any">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An intruder has escalated from the Zimbra service account to root by symlinking application logs to PAM configurations and established persistence through a rare systemd service.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/zimbra-privesc-pam-systemd/">
+  <meta property="og:site_name" content="Huntbase Hub">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Zimbra Privilege Escalation and Root Persistence (CVE-2026-73570) · Huntbase Hub">
+  <meta property="og:description" content="An intruder has escalated from the Zimbra service account to root by symlinking application logs to PAM configurations and established persistence through a rare systemd service.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/zimbra-privesc-pam-systemd/">
+  <meta property="og:image" content="https://hub.huntbase.io/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Huntbase Hub: threat hunts from this week's research">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Zimbra Privilege Escalation and Root Persistence (CVE-2026-73570) · Huntbase Hub">
+  <meta name="twitter:description" content="An intruder has escalated from the Zimbra service account to root by symlinking application logs to PAM configurations and established persistence through a rare systemd service.">
+  <meta name="twitter:image" content="https://hub.huntbase.io/static/og.png"><link rel="stylesheet" href="../../static/xyflow.css?v=269471c873">
+<meta property="article:published_time" content="2026-10-01T05:33:16.522054+00:00"><script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Zimbra Privilege Escalation and Root Persistence","description":"An intruder has escalated from the Zimbra service account to root by symlinking application logs to PAM configurations and established persistence through a rare systemd service.","url":"https://hub.huntbase.io/hunts/zimbra-privesc-pam-systemd/","mainEntityOfPage":"https://hub.huntbase.io/hunts/zimbra-privesc-pam-systemd/","image":"https://hub.huntbase.io/static/og.png","author":{"@type":"Organization","name":"Huntbase","url":"https://www.huntbase.io","logo":{"@type":"ImageObject","url":"https://hub.huntbase.io/static/logo-icon.svg"}},"publisher":{"@type":"Organization","name":"Huntbase","url":"https://www.huntbase.io","logo":{"@type":"ImageObject","url":"https://hub.huntbase.io/static/logo-icon.svg"}},"isAccessibleForFree":true,"keywords":"CVE-2026-73570, T1070.006, T1543.002, T1548.003, T1556, linux, web server, command and control, credential access, discovery, exfiltration, initial access, lateral movement, persistence, privilege escalation, reconnaissance, threat hunting","datePublished":"2026-10-01T05:33:16.522054+00:00","dateModified":"2026-10-01T05:33:16.522054+00:00","isBasedOn":{"@type":"CreativeWork","name":"Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570","url":"https://www.microsoft.com/en-us/security/blog/2026/09/30/unauthenticated-command-injection-on-internet-facing-mail-servers-tracking-cve-2026-73570/","publisher":{"@type":"Organization","name":"Microsoft"}}}</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Huntbase Hub","item":"https://hub.huntbase.io/"},{"@type":"ListItem","position":2,"name":"All hunts","item":"https://hub.huntbase.io/hunts/"},{"@type":"ListItem","position":3,"name":"Zimbra Privilege Escalation and Root Persistence","item":"https://hub.huntbase.io/hunts/zimbra-privesc-pam-systemd/"}]}</script>  <link rel="stylesheet" href="../../static/style.css?v=269471c873">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hub" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+<script defer src="../../static/analytics.js" data-key="phc_NaC68cbX13YbvdvqE5AC1bwHivYSRhcZc6upjVubI8M" data-host="https://eu.i.posthog.com"></script></head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../" aria-label="Huntbase Hub">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hub</span>
+    </a>
+    <nav>
+      <a href="../../hunts/">Hunts</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="../../feed.xml">Feed</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=nav" rel="noopener" data-track="signup" data-placement="nav">Sign up</a>
+      <a class="btn btn-brand" href="#subscribe" data-track="subscribe-jump" data-placement="nav">Get updates</a>
+    </nav>
+  </header>
+  <main><article class="hunt" data-slug="zimbra-privesc-pam-systemd">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../hunts/">← All hunts</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 3</span>      </div>
+      <h1 class="heading-xl">Zimbra Privilege Escalation and Root Persistence</h1>
+      <p class="hyp-lead">An intruder has escalated from the Zimbra service account to root by symlinking application logs to PAM configurations and established persistence through a rare systemd service.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://www.microsoft.com/en-us/security/blog/2026/09/30/unauthenticated-command-injection-on-internet-facing-mail-servers-tracking-cve-2026-73570/" rel="noopener">Microsoft</a></span>
+<span>2026-10-01</span>        <span>9 steps · 3 queries</span>
+<span class="mono">T1070.006 T1543.002 T1548.003 T1556</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=zimbra-privesc-pam-systemd&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=zimbra-privesc-pam-systemd" target="_top" rel="noopener" data-track="run" data-placement="header">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download data-placement="header">Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why this hunt</h3>
+<p>The Microsoft Security Response Center recently detailed CVE-2026-73570 in their post Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570. This vulnerability allows unauthenticated command injection, but the subsequent steps an adversary takes to secure root access are particularly dangerous. Our team published a new hunt.md playbook to track these specific post-exploitation maneuvers.</p>
+<h3>How the hunt flows</h3>
+<p>The hunt begins with a scoping phase. The first query identifies every host running Zimbra software by checking the software inventory. This narrows the focus and prevents unnecessary data processing on unrelated systems. Following scoping, the hunt executes two behavioral queries in parallel. The first query focuses on persistence by stacking every systemd service found in /etc/systemd/system/ across the fleet. It looks for rare services appearing on only one or two hosts, specifically watching for names like zimlog.service or services that mimic legitimate system components like rsync or sshd. The second query monitors file activity. It looks for the zimbra user interacting with /etc/pam.d/sudo or the zmmailboxd.out log file. This pattern suggests the adversary is attempting to hijack the sudo configuration by redirecting log writes to sensitive system files. An analyst or automated agent then correlates these findings. The hunt does not just look for a new file; it looks for the specific sequence where a log modification precedes the appearance of a rare service. This automated triage helps distinguish between routine Zimbra maintenance and an active compromise.</p>
+<h3>Blind spots</h3>
+<p>The hunt has specific blind spots. If the file activity telemetry does not explicitly capture symlink targets, the creation of the link between the log and the PAM config might appear as a generic file creation or write. Additionally, the hunt relies on identifying new or rare services. If an adversary successfully timestomps the service file to match the modification times of legitimate system files, it may evade filters that look for recently changed configurations.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/zimbra-rce-webshell-entry/">Part 1: Zimbra CVE-2026-73570 RCE and JSP Web Shell Entry</a></li><li><a href="../../hunts/zimbra-secrets-theft-cluster-propagation/">Part 3: Zimbra secrets theft and cluster propagation</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 2 of 10 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">3</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>More hunts like this</span></p>
+          <ul class="kv"><li><a href="../../tactics/command-and-control/">Command And Control threat hunts</a></li><li><a href="../../tactics/credential-access/">Credential Access threat hunts</a></li><li><a href="../../tactics/discovery/">Discovery threat hunts</a></li><li><a href="../../tactics/exfiltration/">Exfiltration threat hunts</a></li><li><a href="../../tactics/initial-access/">Initial Access threat hunts</a></li><li><a href="../../tactics/lateral-movement/">Lateral Movement threat hunts</a></li><li><a href="../../tactics/persistence/">Persistence threat hunts</a></li><li><a href="../../tactics/privilege-escalation/">Privilege Escalation threat hunts</a></li><li><a href="../../tactics/reconnaissance/">Reconnaissance threat hunts</a></li><li><a href="../../products/linux/">Threat hunts for Linux</a></li><li><a href="../../products/web-server/">Threat hunts for Web Server</a></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>CVEs</span></p>
+          <p class="mono dim">CVE-2026-73570</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An intruder has escalated from the Zimbra service account to root by symlinking application logs to PAM configurations and established persistence through a rare systemd service.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Define the scope by identifying hosts that have Zimbra software installed.", "expected": "A list of hosts running Zimbra. Silence indicates no Zimbra installation is visible in the current inventory.", "id": "scope-zimbra-hosts", "label": "Identify Zimbra servers", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE \u0027%zimbra%\u0027 OR LOWER(vendor_name) LIKE \u0027%zimbra%\u0027)", "role": "scoping", "source": "hb_software_inventory", "type": "query"}, {"description": "Stack-count systemd services to find the \u0027zimlog.service\u0027 or other anomalies across the fleet.", "expected": "A service found on only one or two hosts, specifically looking for \u0027zimlog.service\u0027.", "id": "rare-systemd-services", "label": "Rare systemd services", "parents": [{"branch": null, "id": "scope-zimbra-hosts", "kind": null}], "query": "SELECT job_name, job_definition_path, job_cmd_line, COUNT(DISTINCT device_hostname) AS host_count FROM hb_scheduled_job WHERE job_definition_path LIKE \u0027/etc/systemd/system/%\u0027 AND ((\u0027{{scope_hosts}}\u0027 = \u0027\u0027) OR (instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY job_name, job_definition_path, job_cmd_line HAVING host_count \u003c= 2", "role": "baseline", "source": "hb_scheduled_job", "type": "query"}, {"description": "Identify file activity where the zimbra account touches the PAM sudo configuration or its own log files abnormally.", "expected": "Modifications to the PAM configuration by a non-root user (zimbra), or operations involving the zmmailboxd.out log file that precede sudo elevation.", "id": "pam-symlink-abuse", "label": "PAM and Log Symlink Abuse", "parents": [{"branch": null, "id": "scope-zimbra-hosts", "kind": null}], "query": "SELECT device_hostname, file_path, actor_user_name, process_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE \u0027%/etc/pam.d/sudo%\u0027 OR LOWER(file_path) LIKE \u0027%zmmailboxd.out%\u0027) AND ((\u0027{{scope_hosts}}\u0027 = \u0027\u0027) OR (instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0)) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_file_activity", "type": "query"}, {"description": "Correlate file-system manipulation with new, rare system services to confirm root privilege escalation.", "expected": "A per-host verdict on the maliciousness of the observed activity.", "id": "triage-escalation", "label": "Evaluate Escalation Evidence", "parents": [{"branch": null, "id": "rare-systemd-services", "kind": "merge"}, {"branch": null, "id": "pam-symlink-abuse", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Direct the response based on the agent\u0027s confidence in the privilege escalation findings.", "expected": null, "id": "route-on-verdict", "label": "Route on verdict", "parents": [{"branch": null, "id": "triage-escalation", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the threat by isolating the server where root access was established.", "expected": null, "id": "isolate-server", "label": "Isolate Compromised Server", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Manually verify the symlink state and timestomping evidence that the telemetry might obscure.", "expected": null, "id": "analyst-manual-review", "label": "Forensic Review of Persistence", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-server", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document results and findings.", "expected": null, "id": "close-out", "label": "Close out", "parents": [{"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "analyst-manual-review", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-scope-zimbra-hosts">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Zimbra servers</h3>
+            <span class="chip query">Query · scoping</span>
+          </div>
+<p>Define the scope by identifying hosts that have Zimbra software installed.</p>          <div class="code"><div class="code-head"><span>reads hb_software_inventory</span><span>sql</span></div><pre><code>SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%zimbra%&#39; OR LOWER(vendor_name) LIKE &#39;%zimbra%&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A list of hosts running Zimbra. Silence indicates no Zimbra installation is visible in the current inventory.</p>        </li>
+        <li class="card step" id="step-rare-systemd-services">
+          <div class="step-head">
+            <h3 class="heading-sm">Rare systemd services</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count systemd services to find the &#39;zimlog.service&#39; or other anomalies across the fleet.</p>          <div class="code"><div class="code-head"><span>reads hb_scheduled_job</span><span>sql</span></div><pre><code>SELECT job_name, job_definition_path, job_cmd_line, COUNT(DISTINCT device_hostname) AS host_count FROM hb_scheduled_job WHERE job_definition_path LIKE &#39;/etc/systemd/system/%&#39; AND ((&#39;{{scope_hosts}}&#39; = &#39;&#39;) OR (instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY job_name, job_definition_path, job_cmd_line HAVING host_count &lt;= 2</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> A service found on only one or two hosts, specifically looking for &#39;zimlog.service&#39;.</p>        </li>
+        <li class="card step" id="step-pam-symlink-abuse">
+          <div class="step-head">
+            <h3 class="heading-sm">PAM and Log Symlink Abuse</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify file activity where the zimbra account touches the PAM sudo configuration or its own log files abnormally.</p>          <div class="code"><div class="code-head"><span>reads hb_file_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, file_path, actor_user_name, process_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE &#39;%/etc/pam.d/sudo%&#39; OR LOWER(file_path) LIKE &#39;%zmmailboxd.out%&#39;) AND ((&#39;{{scope_hosts}}&#39; = &#39;&#39;) OR (instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Modifications to the PAM configuration by a non-root user (zimbra), or operations involving the zmmailboxd.out log file that precede sudo elevation.</p>        </li>
+        <li class="card step" id="step-triage-escalation">
+          <div class="step-head">
+            <h3 class="heading-sm">Evaluate Escalation Evidence</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Correlate file-system manipulation with new, rare system services to confirm root privilege escalation.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Direct the response based on the agent&#39;s confidence in the privilege escalation findings.</p>        </li>
+        <li class="card step" id="step-isolate-server">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Compromised Server</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the threat by isolating the server where root access was established.</p>        </li>
+        <li class="card step" id="step-analyst-manual-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Forensic Review of Persistence</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Manually verify the symlink state and timestomping evidence that the telemetry might obscure.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document results and findings.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>PAM hook privilege escalation<br><span class="mono dim">T1548.003 · T1556</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>pam-symlink-abuse, triage-escalation</td></tr>            <tr><td>Systemd service persistence<br><span class="mono dim">T1543.002</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-systemd-services, triage-escalation</td></tr>            <tr><td>Pre-exploitation scanning<br><span class="mono dim">T1595</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570&#39; series.</td></tr>            <tr><td>Zimbra SNMP command injection<br><span class="mono dim">T1190</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570&#39; series.</td></tr>            <tr><td>JSP web shell deployment<br><span class="mono dim">T1505.003</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570&#39; series.</td></tr>            <tr><td>Zimbra cluster mapping<br><span class="mono dim">T1087 · T1083</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570&#39; series.</td></tr>            <tr><td>Service credential collection<br><span class="mono dim">T1552 · T1555</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570&#39; series.</td></tr>            <tr><td>Lateral movement across nodes<br><span class="mono dim">T1021.004</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570&#39; series.</td></tr>            <tr><td>Remote access agents<br><span class="mono dim">T1071.001 · T1105</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570&#39; series.</td></tr>            <tr><td>Mailbox exfiltration attempt<br><span class="mono dim">T1567 · T1041</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;Unauthenticated command injection on internet-facing mail servers: tracking CVE-2026-73570&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs hb_file_activity with symlink target tracking.</strong> If the EDR only logs a &#39;write&#39; or &#39;create&#39; but not the symlink target, the specific PAM hijacking technique may appear as normal log rotation or noise. <span class="dim">It would answer Was the file modification actually a symlink creation?.</span></li>          <li class="card"><strong>Needs MFT or inode birth time analysis.</strong> A successful timestomp makes the persistence mechanism look like a pre-existing, legitimate component, potentially misleading an analyst who filters by &#39;new&#39; files. <span class="dim">It would answer What was the actual creation time of the zimlog.service file?.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>Target Zimbra hostnames; leave empty to scan the entire estate.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download data-placement="source">Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download data-placement="source">Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: A simple rule might find &#39;zimlog.service&#39;, but this hunt uses a fleet-wide
+  prevalence baseline to find rare services and correlates them with the specific,
+  complex file-system pivots used during the PAM hijacking, which a single-surface
+  rule cannot easily capture.
+blind_spots:
+- id: no-file-telemetry
+  question: Was the file modification actually a symlink creation?
+  requires: hb_file_activity with symlink target tracking
+  risk: If the EDR only logs a &#39;write&#39; or &#39;create&#39; but not the symlink target, the
+    specific PAM hijacking technique may appear as normal log rotation or noise.
+  stage: privilege-escalation-pam-hook
+- id: timestomping-blindness
+  question: What was the actual creation time of the zimlog.service file?
+  requires: MFT or inode birth time analysis
+  risk: A successful timestomp makes the persistence mechanism look like a pre-existing,
+    legitimate component, potentially misleading an analyst who filters by &#39;new&#39; files.
+  stage: host-persistence-systemd
+coverage:
+- stage: privilege-escalation-pam-hook
+  status: covered
+  steps:
+  - pam-symlink-abuse
+  - triage-escalation
+- stage: host-persistence-systemd
+  status: covered
+  steps:
+  - rare-systemd-services
+  - triage-escalation
+- reason: &#39;Belongs to another part of the &#39;&#39;Unauthenticated command injection on internet-facing
+    mail servers: tracking CVE-2026-73570&#39;&#39; series.&#39;
+  stage: reconnaissance-and-probing
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Unauthenticated command injection on internet-facing
+    mail servers: tracking CVE-2026-73570&#39;&#39; series.&#39;
+  stage: initial-access-cve-2026-73570
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Unauthenticated command injection on internet-facing
+    mail servers: tracking CVE-2026-73570&#39;&#39; series.&#39;
+  stage: persistence-jsp-webshells
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Unauthenticated command injection on internet-facing
+    mail servers: tracking CVE-2026-73570&#39;&#39; series.&#39;
+  stage: discovery-cluster-mapping
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Unauthenticated command injection on internet-facing
+    mail servers: tracking CVE-2026-73570&#39;&#39; series.&#39;
+  stage: credential-access-zimbra-secrets
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Unauthenticated command injection on internet-facing
+    mail servers: tracking CVE-2026-73570&#39;&#39; series.&#39;
+  stage: lateral-movement-ssh-rsync
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Unauthenticated command injection on internet-facing
+    mail servers: tracking CVE-2026-73570&#39;&#39; series.&#39;
+  stage: command-and-control-agent
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;Unauthenticated command injection on internet-facing
+    mail servers: tracking CVE-2026-73570&#39;&#39; series.&#39;
+  stage: exfiltration-mailbox-data
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: The privilege escalation to root via PAM hijacking is a critical
+    stage in the Zimbra compromise that allows attackers to move from application-level
+    access to full host control. Detecting this and the subsequent root persistence
+    is vital for preventing long-term occupancy and data theft.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An intruder has escalated from the Zimbra service account to root by symlinking
+  application logs to PAM configurations and established persistence through a rare
+  systemd service.
+labels:
+- hunt
+- attack.t1548.003
+- attack.t1556
+- attack.t1543.002
+- attack.t1070.006
+- command and control
+- credential access
+- discovery
+- exfiltration
+- initial access
+- lateral movement
+- persistence
+- privilege escalation
+- reconnaissance
+name: Zimbra Privilege Escalation and Root Persistence
+parameters:
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine.
+    type: number
+  scope_hosts:
+    default: []
+    description: Target Zimbra hostnames; leave empty to scan the entire estate.
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://www.microsoft.com/en-us/security/blog/2026/09/30/unauthenticated-command-injection-on-internet-facing-mail-servers-tracking-cve-2026-73570/
+    gates:
+    - dry-run
+    - lint
+    - critic
+    model: hb_google/gemini-3-flash-preview
+rationale: Start with public-facing MTA and Mailbox nodes identified in hb_software_inventory.
+  Widen the scope to all hosts if the initial queries show any suspicious PAM activity.
+references:
+- name: &#39;MSRC Blog - Unauthenticated command injection on internet-facing mail servers:
+    tracking CVE-2026-73570&#39;
+  url: https://www.microsoft.com/en-us/security/blog/2026/09/30/unauthenticated-command-injection-on-internet-facing-mail-servers-tracking-cve-2026-73570/
+related:
+- hunt: zimbra-webshell-and-c2
+  reason: This hunt focuses on host-level privilege escalation, while initial access
+    via CVE-2026-73570 and JSP webshell deployment are covered in a separate hunt.
+  relation: out-of-scope-alternative
+- hunt: zimbra-rce-webshell-entry
+  relation: follows
+scenario:
+  stages:
+  - name: Pre-exploitation scanning
+    observables:
+    - &#39;User-Agent: ZB73570&#39;
+    - oast.fun
+    - oast.online
+    - dnslog.pp.ua
+    - requestrepo.com
+    - bypass.eu.org
+    - &#39;Commands: curl, wget, ping, nslookup, id&#39;
+    slug: reconnaissance-and-probing
+    tactic: reconnaissance
+    techniques:
+    - T1595
+  - name: Zimbra SNMP command injection
+    observables:
+    - CVE-2026-73570
+    - swatchdog
+    - snmptrap
+    slug: initial-access-cve-2026-73570
+    tactic: initial-access
+    techniques:
+    - T1190
+  - name: JSP web shell deployment
+    observables:
+    - Jetty and mailboxd application paths
+    - JSP files
+    - Payload reconstruction from staged fragments
+    - chmod on webroot directories
+    slug: persistence-jsp-webshells
+    tactic: persistence
+    techniques:
+    - T1505.003
+  - name: Zimbra cluster mapping
+    observables:
+    - zmprov
+    - /opt/zimbra/.ssh/zimbra_identity
+    slug: discovery-cluster-mapping
+    tactic: discovery
+    techniques:
+    - T1087
+    - T1083
+  - name: PAM hook privilege escalation
+    observables:
+    - &#39;Symlink: zmmailboxd.out -&gt; /etc/pam.d/sudo&#39;
+    - zmmailboxdmgr
+    - zmstat-fd
+    - pam_exec session hook
+    - &#39;NOPASSWD: ALL in sudoers&#39;
+    slug: privilege-escalation-pam-hook
+    tactic: privilege-escalation
+    techniques:
+    - T1548.003
+    - T1556
+  - name: Systemd service persistence
+    observables:
+    - /etc/systemd/system/zimlog.service
+    - Timestomping to match rsync.service or sshd.service
+    - systemctl enable zimlog.service
+    slug: host-persistence-systemd
+    tactic: persistence
+    techniques:
+    - T1543.002
+  - name: Service credential collection
+    observables:
+    - zmlocalconfig -s
+    - ldapsearch
+    - zimbraPreAuthKey
+    - zimbraAuthTokenKey
+    - zimbraTwoFactorAuthSecret
+    slug: credential-access-zimbra-secrets
+    tactic: credential-access
+    techniques:
+    - T1552
+    - T1555
+  - name: Lateral movement across nodes
+    observables:
+    - ssh -o BatchMode=yes
+    - rsync of payload fragments
+    - &#39;SSH identity: /opt/zimbra/.ssh/zimbra_identity&#39;
+    slug: lateral-movement-ssh-rsync
+    tactic: lateral-movement
+    techniques:
+    - T1021.004
+  - name: Remote access agents
+    observables:
+    - zimdown2
+    - zimclient2
+    - agent2.sh
+    - openssl s_client
+    - &#39;Named pipe: /tmp/s&#39;
+    - WebSocket connections
+    slug: command-and-control-agent
+    tactic: command-and-control
+    techniques:
+    - T1071.001
+    - T1105
+  - name: Mailbox exfiltration attempt
+    observables:
+    - zimbra-exfil/client-dump
+    - Compressed archive creation
+    - Transfer of collected data
+    slug: exfiltration-mailbox-data
+    tactic: exfiltration
+    techniques:
+    - T1567
+    - T1041
+  summary: Attackers exploit a command injection vulnerability (CVE-2026-73570) in
+    Zimbra&#39;s SNMP notification path to execute commands as the zimbra user. The campaign
+    involves deploying JSP web shells, escalating privileges to root via PAM hooks,
+    stealing service credentials, and moving laterally across the cluster using existing
+    SSH identities.
+series:
+  index: 2
+  slug: unauthenticated-command-injection-on-internet-facing-mail-servers-tracking-cve-2026-73570
+  title: &#39;Unauthenticated command injection on internet-facing mail servers: tracking
+    CVE-2026-73570&#39;
+  total: 3
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+tlp: clear
+type: investigation
+---
+
+
+# Zimbra Privilege Escalation and Root Persistence
+
+This hunt targets the complex post-exploitation chain observed in CVE-2026-73570. An adversary takes ownership of the sudo PAM configuration by symlinking application logs to sensitive system files. It then identifies rare systemd services created in /etc/systemd/system/, specifically focusing on services named zimlog.service or those whose timestamps have been modified to match legitimate system services like rsync or sshd. The hunt uses an agent to correlate these file and service anomalies, allowing an analyst to confirm root-level persistence.
+
+## scope-zimbra-hosts
+&lt;!-- Identify Zimbra servers --&gt;
+Define the scope by identifying hosts that have Zimbra software installed.
+
+```sqlite target=endpoint role=scoping
+~~~yaml
+expected: A list of hosts running Zimbra. Silence indicates no Zimbra installation
+  is visible in the current inventory.
+reads:
+- device_hostname
+- package_name
+- package_version
+- vendor_name
+silence: not_evidence_of_absence
+source: hb_software_inventory
+verified: dry-run
+verified_at: &#39;2026-10-01&#39;
+~~~
+SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE &#39;%zimbra%&#39; OR LOWER(vendor_name) LIKE &#39;%zimbra%&#39;)
+```
+
+## detect-behavior-parallel
+&lt;!-- Search for Escalation and Persistence --&gt;
+parallel:
+- → rare-systemd-services
+- → pam-symlink-abuse
+join: → triage-escalation
+
+## rare-systemd-services
+&lt;!-- Rare systemd services --&gt;
+Stack-count systemd services to find the &#39;zimlog.service&#39; or other anomalies across the fleet.
+
+```sqlite target=endpoint role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: A service found on only one or two hosts, specifically looking for &#39;zimlog.service&#39;.
+prevalence:
+  by: device_hostname
+  key:
+  - job_name
+  - job_definition_path
+  rare_below: 3
+reads:
+- job_name
+- job_definition_path
+- job_cmd_line
+- device_hostname
+- time
+silence: not_evidence_of_absence
+source: hb_scheduled_job
+verified: dry-run
+verified_at: &#39;2026-10-01&#39;
+~~~
+SELECT job_name, job_definition_path, job_cmd_line, COUNT(DISTINCT device_hostname) AS host_count FROM hb_scheduled_job WHERE job_definition_path LIKE &#39;/etc/systemd/system/%&#39; AND ((&#39;{{scope_hosts}}&#39; = &#39;&#39;) OR (instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY job_name, job_definition_path, job_cmd_line HAVING host_count &lt;= 2
+```
+
+## pam-symlink-abuse
+&lt;!-- PAM and Log Symlink Abuse --&gt;
+Identify file activity where the zimbra account touches the PAM sudo configuration or its own log files abnormally.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+expected: Modifications to the PAM configuration by a non-root user (zimbra), or operations
+  involving the zmmailboxd.out log file that precede sudo elevation.
+reads:
+- device_hostname
+- file_path
+- actor_user_name
+- process_name
+- time
+silence: not_evidence_of_absence
+source: hb_file_activity
+verified: dry-run
+verified_at: &#39;2026-10-01&#39;
+~~~
+SELECT device_hostname, file_path, actor_user_name, process_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE &#39;%/etc/pam.d/sudo%&#39; OR LOWER(file_path) LIKE &#39;%zmmailboxd.out%&#39;) AND ((&#39;{{scope_hosts}}&#39; = &#39;&#39;) OR (instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0)) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-escalation
+&lt;!-- Evaluate Escalation Evidence --&gt;
+```agent target=hunter
+cite: required
+context:
+- scope-zimbra-hosts
+- rare-systemd-services
+- pam-symlink-abuse
+max_iterations: 5
+objective: Determine if the zimbra user successfully hijacked the PAM configuration
+  and established root-level persistence via a systemd service. Analyze whether the
+  service appears to be timestomped to match legitimate services.
+success_criteria: A verdict of malicious | suspicious | benign per host, citing specific
+  rows from the file activity and job tables.
+tools:
+- endpoint
+```
+
+## route-on-verdict
+&lt;!-- Route on verdict --&gt;
+if~: &#34;the triage-escalation verdict is malicious for at least one host involving PAM configuration modification and a rare systemd service&#34; (confidence: high, judge=hunter)
+then: → isolate-server
+indeterminate: → analyst-manual-review
+unavailable: → analyst-manual-review (blind_spot: no-file-telemetry)
+else: → close-out
+
+## isolate-server
+&lt;!-- Isolate Compromised Server --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately. Do not restart services as this may trigger persistence hooks. Capture a memory image and the /etc/pam.d/ and /etc/systemd/system/ directories for forensic analysis.
+```
+→ analyst-manual-review
+
+## analyst-manual-review
+&lt;!-- Forensic Review of Persistence --&gt;
+```manual target=analyst
+Inspect the file system on isolated hosts. Verify if /opt/zimbra/log/zmmailboxd.out is a symlink to /etc/pam.d/sudo. Check the modification times of /etc/systemd/system/zimlog.service against the systemd journal to confirm timestomping.
+```
+→ close-out
+
+## close-out
+&lt;!-- Close out --&gt;
+```manual target=analyst
+Summarize which hosts were examined. If no activity was found, record the negative results as evidence of absence for this specific technique.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="related" aria-labelledby="related-title">
+    <h2 class="heading-md" id="related-title">Related hunts</h2>
+    <ol class="hunts">
+      <li class="card hunt-card">
+        <div class="row-head">
+          <div class="badges"><span class="badge sev high">high</span></div>
+          <span class="vendor">Research by Volexity</span>
+        </div>
+        <h3 class="heading-sm"><a href="../../hunts/verdantbamboo-edge-appliance-post-exploitation/">VERDANTBAMBOO Edge Appliance Post-Exploitation</a></h3>
+        <p class="hyp">An adversary compromises an edge appliance, uses an inadvertent sudo configuration to escalate to root, and creates persistence via cron to tunnel traffic through DNS-over-HTTPS.</p>
+      </li>
+      <li class="card hunt-card">
+        <div class="row-head">
+          <div class="badges"><span class="badge sev high">high</span></div>
+          <span class="vendor">Research by Cisco Talos</span>
+        </div>
+        <h3 class="heading-sm"><a href="../../hunts/uat-10147-host-elevation-and-evasion/">UAT-10147: Host Elevation and Evasion</a></h3>
+        <p class="hyp">An adversary is executing automated staging scripts to deploy privilege escalation tools and blind security software on compromised web servers.</p>
+      </li>
+      <li class="card hunt-card">
+        <div class="row-head">
+          <div class="badges"><span class="badge sev high">high</span></div>
+          <span class="vendor">Research by Cisco Talos</span>
+        </div>
+        <h3 class="heading-sm"><a href="../../hunts/web-exploit-telemetry-theft-uat-10147/">Web Exploit and Telemetry Theft (UAT-10147)</a></h3>
+        <p class="hyp">The adversary exploits known web vulnerabilities in Zimbra, Telerik, or AjaxPro to achieve initial access and exfiltrates system identifiers to a Nacos configuration server via HTTP POST requests.</p>
+      </li>
+      <li class="card hunt-card">
+        <div class="row-head">
+          <div class="badges"><span class="badge sev high">high</span></div>
+          <span class="vendor">Research by Datadog Security Labs</span>
+        </div>
+        <h3 class="heading-sm"><a href="../../hunts/shai-hulud-supply-chain-loader/">Shai-Hulud Framework Supply Chain Hook and Loader Bootstrap</a></h3>
+        <p class="hyp">The adversary poisons a developer repository or AI coding assistant configuration to execute the Shai-Hulud loader and establish daemonized persistence.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=zimbra-privesc-pam-systemd&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=zimbra-privesc-pam-systemd" target="_top" rel="noopener" data-track="run" data-placement="band">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download data-placement="band">Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download data-placement="band">Definition (JSON)</a>
+    </div>
+  </section>
+
+  <aside class="card subscribe">
+    <div>
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts like this one, every week: the research, the hypothesis and the queries.</p>
+    </div>
+    <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="hunt">
+  <label class="sr-only" for="sub-email-hunt">Email address</label>
+  <input id="sub-email-hunt" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+  </aside>
+
+  <aside class="card after-download chrome" id="after-download" hidden aria-live="polite">
+    <button type="button" class="close" aria-label="Dismiss">×</button>
+    <p class="eyebrow"><span>Downloaded</span></p>
+    <p>The file runs anywhere that reads hunt.md. In Huntbase it runs against your own connections.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=zimbra-privesc-pam-systemd&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=zimbra-privesc-pam-systemd-after-download" target="_top" rel="noopener" data-track="run" data-placement="after-download">Run this in Huntbase<span aria-hidden="true"> →</span></a>      <a href="#subscribe" data-track="subscribe-jump" data-placement="after-download">Get new hunts by email</a>
+    </div>
+  </aside>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, critic, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+    <div class="foot-subscribe" id="subscribe">
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts from the week's research, in your inbox every Tuesday.</p>
+      <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="footer">
+  <label class="sr-only" for="sub-email-footer">Email address</label>
+  <input id="sub-email-footer" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+    </div>
+    <nav class="foot-links" aria-label="Huntbase">
+      <a href="https://www.huntbase.io" rel="noopener">Huntbase</a>
+      <a href="../../hunts/">All hunts</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=footer" rel="noopener" data-track="signup" data-placement="footer">Sign up</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md spec</a>
+      <a href="https://github.com/huntbase-io/hunts" rel="noopener">Hunts on GitHub</a>
+      <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener" data-track="subscribe" data-placement="footer-links">Newsletter</a>
+      <a href="https://www.huntbase.io/legal/privacy" rel="noopener">Privacy</a>
+      <a href="https://www.huntbase.io/legal/terms" rel="noopener">Terms</a>
+    </nav>
+  </footer>
+  <script>
+  (() => {
+    // Inline newsletter forms. listmonk's public API sends no CORS headers, so
+    // the POST goes out in no-cors mode and the reply is opaque: the browser has
+    // already validated the address, and the real confirmation is the opt-in
+    // email, so success here means "sent", not "subscribed".
+    const api = "https://news.hub.huntbase.io/api/public/subscription", list = "72c40a64-91cd-4a64-8c41-14c9036a2b18", hosted = "https://news.hub.huntbase.io/subscription/form";
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    document.querySelectorAll('form[data-subscribe]').forEach((form) => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = form.querySelector('input[type=email]');
+        const button = form.querySelector('button');
+        const email = input.value.trim();
+        button.disabled = true;
+        document.dispatchEvent(new CustomEvent('hub:subscribe', { detail: { placement: form.dataset.placement || '' } }));
+        try {
+          await fetch(api, { method: 'POST', mode: 'no-cors', body: new URLSearchParams({ email, l: list }) });
+          form.innerHTML = `<p class="sub-done" role="status"><strong>Almost there.</strong> We've sent a confirmation link to ${esc(email)}. Click it and you're subscribed.</p>`;
+        } catch (err) {
+          button.disabled = false;
+          form.querySelector('.sub-note').innerHTML = `We couldn't reach the newsletter service. <a href="${esc(hosted)}" target="_blank" rel="noopener">Subscribe on the form instead →</a>`;
+        }
+      });
+    });
+    // "Get updates" scrolls to the nearest form and puts the cursor in it: the
+    // hero form on the home page (the list below it grows as you scroll, so an
+    // anchor to the footer lands short), otherwise the footer form.
+    document.querySelectorAll('a[href="#subscribe"]').forEach((a) => a.addEventListener('click', (e) => {
+      const form = document.querySelector('.hero form[data-subscribe]') || document.querySelector('#subscribe form[data-subscribe]');
+      const input = form && form.querySelector('input[type=email]');
+      if (!input) return;
+      e.preventDefault();
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => input.focus({ preventScroll: true }), 450);
+    }));
+  })();
+  </script>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const strip = document.querySelector('.tabs');
+
+    // Arriving at #steps, the browser jumps to the panel while every panel is
+    // still on the page; this script then hides the others, the document
+    // shrinks under the scroll position, and the page is parked in empty
+    // space. Put it where it belongs once the panels have settled.
+    //
+    // scrollIntoView, not arithmetic on a rect: the diagram mounts a moment
+    // later and changes the page height, and the browser recomputes where
+    // "the top" is at the moment it scrolls. The clearance for the sticky
+    // header is scroll-margin-top on .tabs, in the stylesheet.
+    const settle = (smooth) => {
+      if (strip) strip.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+    };
+    const show = ({ scroll = false, smooth = false } = {}) => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+      // Twice: once now, and once after the diagram has mounted and the page
+      // has stopped moving underneath us.
+      if (scroll) {
+        requestAnimationFrame(() => settle(smooth));
+        setTimeout(() => settle(false), 350);
+      }
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show({ scroll: true, smooth: true });
+    }));
+    addEventListener('hashchange', () => show({ scroll: true }));
+    show({ scroll: Boolean(location.hash) });
+
+    // A download is not the end of the visit: say where the file can go next.
+    const prompt = document.getElementById('after-download');
+    document.querySelectorAll('a[download]').forEach((a) => a.addEventListener('click', () => { prompt.hidden = false; }));
+    prompt.querySelector('.close').addEventListener('click', () => { prompt.hidden = true; });
+  })();
+</script>
+<script type="module" src="../../static/dag.js?v=269471c873"></script>
+</body>
+</html>

@@ -1,0 +1,689 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The TeamFiltration campaign demonstrates that forgotten service accounts with default credentials are a primary entry vector for cloud intrusions. A systematic hunt for these breaches is required to identify compromises that standard perimeter controls often miss."
+      },
+      "name": "TeamFiltration Cloud Identity Spray and Pivot",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1110",
+        "attack.t1110.003",
+        "attack.t1110.004",
+        "attack.t1133",
+        "attack.t1041",
+        "attack.t1213",
+        "attack.t1087.004",
+        "collection",
+        "credential access",
+        "discovery",
+        "initial access",
+        "lateral movement"
+      ],
+      "related": [
+        {
+          "hunt": "mfa-push-spam-detection",
+          "reason": "This hunt focuses on accounts with NO MFA; accounts with MFA would experience push spamming instead of direct default-password compromise.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "While a single rule might fire on 'high-volume failures', this hunt correlates failures from 1,400+ AWS IPs to a single successful login, then immediately pivots across Cloud API and HTTP surfaces to confirm the post-breach chain within minutes.",
+      "coverage": [
+        {
+          "stage": "aws-sourced-password-spraying",
+          "steps": [
+            "high-volume-failures"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "m365-account-compromise",
+          "steps": [
+            "successful-logins-no-mfa",
+            "assess-compromise"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "cloud-resource-and-graph-api-discovery",
+          "steps": [
+            "resource-harvesting"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "vpn-probing-and-pivot",
+          "steps": [
+            "scoping-vpn-gateways",
+            "vpn-probing"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "cloud-data-harvesting",
+          "steps": [
+            "resource-harvesting",
+            "analyze-attack-chain"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Password spraying from AWS infrastructure",
+            "slug": "aws-sourced-password-spraying",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1110.003",
+              "T1110"
+            ],
+            "observables": [
+              "1,487 unique AWS EC2 source IP addresses",
+              "TeamFiltration offensive framework",
+              "Targeting of ~1,500 accounts per day in bursts",
+              "Attempts against dormant service accounts"
+            ]
+          },
+          {
+            "name": "Service account compromise",
+            "slug": "m365-account-compromise",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1110"
+            ],
+            "observables": [
+              "Success within 7 minutes of initial attempt",
+              "Successful login to accounts with default passwords",
+              "Absence of MFA challenges on compromised accounts",
+              "Targeting of 'functional' or service accounts"
+            ]
+          },
+          {
+            "name": "Cloud resource discovery and Graph API usage",
+            "slug": "cloud-resource-and-graph-api-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1087.004"
+            ],
+            "observables": [
+              "Microsoft Graph API token requests",
+              "Azure Portal access",
+              "TeamFiltration OneDrive interaction",
+              "Accessing Microsoft Teams and Office apps"
+            ]
+          },
+          {
+            "name": "VPN node pivot and probing",
+            "slug": "vpn-probing-and-pivot",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "Pivoting to German VPN nodes less than 2 minutes after compromise",
+              "Probing of corporate VPN endpoints: vpn.[redacted].cl/SAML20/SP",
+              "SharePoint Online browsing"
+            ]
+          },
+          {
+            "name": "Cloud data harvesting",
+            "slug": "cloud-data-harvesting",
+            "tactic": "collection",
+            "techniques": [
+              "T1213",
+              "T1041"
+            ],
+            "observables": [
+              "Harvesting of sensitive data via TeamFiltration",
+              "OneDrive data access",
+              "SharePoint Online resource access"
+            ]
+          }
+        ],
+        "summary": "The UNK_CondorFiltration campaign utilized the TeamFiltration offensive framework to execute a massive password spraying attack against Microsoft 365 tenants from AWS EC2 infrastructure. By targeting unmanaged service accounts with default passwords and no MFA, the actor gained access to cloud resources including SharePoint and OneDrive, subsequently pivoting through VPN nodes to probe corporate remote access infrastructure."
+      },
+      "severity": "high",
+      "rationale": "The hunt scopes to VPN gateways first to satisfy host-based telemetry requirements, then pivots into M365 authentication logs and Cloud API activity. Focus specifically on service/functional accounts which are the primary targets of the UNK_CondorFiltration campaign.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using the TeamFiltration framework to spray M365 service accounts with default passwords from AWS infrastructure, subsequently harvesting data via the Graph API and probing internal VPN endpoints.",
+      "parameters": {
+        "scope_ips": {
+          "from": {
+            "ref": "https://www.proofpoint.com/us/newsroom/news/teamfiltration-campaign-compromises-seven-microsoft-365-accounts-using-default",
+            "kind": "article",
+            "observed": "2026-09-24"
+          },
+          "type": "list[ip]",
+          "default": [],
+          "description": "Attacker source IPs to narrow follow-on queries; populate from the first agent verdict."
+        },
+        "vpn_paths": {
+          "from": {
+            "ref": "proofpoint-teamfiltration",
+            "kind": "article",
+            "observed": "2026-09-24"
+          },
+          "type": "list[path]",
+          "default": [
+            "/saml20/sp",
+            "/vpn/saml"
+          ],
+          "description": "Known VPN authentication paths to monitor for probing."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "VPN gateway or proxy hosts to narrow the follow-on probing search."
+        },
+        "scope_users": {
+          "type": "list[string]",
+          "default": [],
+          "description": "Usernames to narrow follow-on harvesting queries; populate from the first agent verdict."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "failure_threshold": {
+          "type": "number",
+          "default": "100",
+          "description": "Minimum authentication failures from a single IP to consider it a spraying source."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.proofpoint.com/us/newsroom/news/teamfiltration-campaign-compromises-seven-microsoft-365-accounts-using-default",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.proofpoint.com/us/newsroom/news/teamfiltration-campaign-compromises-seven-microsoft-365-accounts-using-default",
+          "name": "TeamFiltration Campaign Compromises Seven Microsoft 365 Accounts Using Default Passwords"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "cloud-audit-latency",
+          "risk": "A 2-minute pivot window after compromise may be faster than the ingestion latency of cloud audit logs.",
+          "stage": "cloud-resource-and-graph-api-discovery",
+          "question": "whether exfiltration occurred before the logs were ingested",
+          "requires": "Real-time Entra ID Audit Logs"
+        },
+        {
+          "id": "vpn-tls-inspection",
+          "risk": "If the proxy does not inspect TLS traffic to the VPN gateway, the specific probing paths (e.g., /SAML20/SP) will not be visible.",
+          "stage": "vpn-probing-and-pivot",
+          "question": "whether specific SAML endpoints were probed on the VPN gateway",
+          "requires": "hb_http_activity with decrypted URI paths"
+        }
+      ]
+    },
+    "name": "TeamFiltration Cloud Identity Spray and Pivot",
+    "description": "This hunt identifies the full lifecycle of a TeamFiltration campaign, from infrastructure-driven password spraying to post-compromise data harvesting. It targets unmanaged functional and service accounts that lack MFA and use default credentials. The hunt starts by identifying the infrastructure involved in the spray, pivots to successful breaches, and then examines follow-on activity such as Microsoft Graph API token requests and VPN endpoint probing. It uses a phased approach to correlate high-volume failures with successful post-breach resource access."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "aws-sourced-password-spraying",
+            "steps": [
+              "high-volume-failures"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "m365-account-compromise",
+            "steps": [
+              "successful-logins-no-mfa",
+              "assess-compromise"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "cloud-resource-and-graph-api-discovery",
+            "steps": [
+              "resource-harvesting"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "vpn-probing-and-pivot",
+            "steps": [
+              "scoping-vpn-gateways",
+              "vpn-probing"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "cloud-data-harvesting",
+            "steps": [
+              "resource-harvesting",
+              "analyze-attack-chain"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using the TeamFiltration framework to spray M365 service accounts with default passwords from AWS infrastructure, subsequently harvesting data via the Graph API and probing internal VPN endpoints.",
+        "blind_spots": [
+          {
+            "id": "cloud-audit-latency",
+            "risk": "A 2-minute pivot window after compromise may be faster than the ingestion latency of cloud audit logs.",
+            "stage": "cloud-resource-and-graph-api-discovery",
+            "question": "whether exfiltration occurred before the logs were ingested",
+            "requires": "Real-time Entra ID Audit Logs"
+          },
+          {
+            "id": "vpn-tls-inspection",
+            "risk": "If the proxy does not inspect TLS traffic to the VPN gateway, the specific probing paths (e.g., /SAML20/SP) will not be visible.",
+            "stage": "vpn-probing-and-pivot",
+            "question": "whether specific SAML endpoints were probed on the VPN gateway",
+            "requires": "hb_http_activity with decrypted URI paths"
+          }
+        ],
+        "scoping_notes": "The hunt scopes to VPN gateways first to satisfy host-based telemetry requirements, then pivots into M365 authentication logs and Cloud API activity. Focus specifically on service/functional accounts which are the primary targets of the UNK_CondorFiltration campaign.",
+        "beyond_detection": "While a single rule might fire on 'high-volume failures', this hunt correlates failures from 1,400+ AWS IPs to a single successful login, then immediately pivots across Cloud API and HTTP surfaces to confirm the post-breach chain within minutes."
+      }
+    },
+    {
+      "id": "scoping-vpn-gateways",
+      "type": "query",
+      "label": "Identify VPN and proxy gateways",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "web",
+        "content": "SELECT DISTINCT device_hostname FROM hb_http_activity WHERE (instr(',' || '{{vpn_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0 OR LOWER(url_path) LIKE '%saml%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Find the hosts responsible for serving VPN authentication or proxying web traffic to identify where the adversary might probe internal infrastructure.",
+        "expected_signal": "A list of hostnames acting as VPN gateways or proxies. These will be used to scope later queries."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify VPN and proxy gateways",
+        "reads": [
+          "device_hostname",
+          "url_path",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT DISTINCT device_hostname FROM hb_http_activity WHERE (instr(',' || '{{vpn_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0 OR LOWER(url_path) LIKE '%saml%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames acting as VPN gateways or proxies. These will be used to scope later queries.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "high-volume-failures",
+      "type": "query",
+      "label": "High-volume authentication failures",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(*) AS failures, COUNT(DISTINCT actor_user_name) AS distinct_accounts, MIN(time) AS first_attempt, MAX(time) AS last_attempt FROM hb_auth_signin WHERE activity_id = 5 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING failures >= {{failure_threshold}} ORDER BY failures DESC",
+        "surface": "hb_auth_signin",
+        "description": "Identify source IPs attempting to authenticate against numerous accounts, which is indicative of a password spray.",
+        "expected_signal": "A list of IP addresses exhibiting spraying behavior. If silence, no high-volume spraying was detected from single IPs in the window."
+      },
+      "parents": [
+        {
+          "id": "scoping-vpn-gateways"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "High-volume authentication failures",
+        "reads": [
+          "src_endpoint_ip",
+          "activity_id",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(*) AS failures, COUNT(DISTINCT actor_user_name) AS distinct_accounts, MIN(time) AS first_attempt, MAX(time) AS last_attempt FROM hb_auth_signin WHERE activity_id = 5 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING failures >= {{failure_threshold}} ORDER BY failures DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "A list of IP addresses exhibiting spraying behavior. If silence, no high-volume spraying was detected from single IPs in the window.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 10
+        },
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "successful-logins-no-mfa",
+      "type": "query",
+      "label": "Successful logins without MFA",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, provider, mfa, time FROM hb_auth_signin WHERE activity_id = 1 AND (mfa = 'false' OR mfa IS NULL) AND (LOWER(actor_user_name) LIKE '%svc%' OR LOWER(actor_user_name) LIKE '%service%' OR LOWER(actor_user_name) LIKE '%functional%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify successful logins to service or functional accounts where MFA was not used, as these are the primary targets of this campaign.",
+        "expected_signal": "Logins to vulnerable accounts. An analyst or agent will later correlate these with the spraying IPs."
+      },
+      "parents": [
+        {
+          "id": "scoping-vpn-gateways"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Successful logins without MFA",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "provider",
+          "mfa",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, provider, mfa, time FROM hb_auth_signin WHERE activity_id = 1 AND (mfa = 'false' OR mfa IS NULL) AND (LOWER(actor_user_name) LIKE '%svc%' OR LOWER(actor_user_name) LIKE '%service%' OR LOWER(actor_user_name) LIKE '%functional%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Logins to vulnerable accounts. An analyst or agent will later correlate these with the spraying IPs.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "assess-compromise",
+      "type": "analytic",
+      "label": "Assess spraying impact",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "high-volume-failures",
+          "successful-logins-no-mfa"
+        ],
+        "objective": "Determine which service accounts were successfully compromised by identifying logins from source IPs that also performed high-volume spraying.",
+        "description": "Correlate the failure patterns from AWS IPs with successful logins to service accounts to identify the beachhead.",
+        "max_iterations": 4,
+        "expected_signal": "A identified list of compromised accounts and the attacker IPs used to breach them.",
+        "success_criteria": "A verdict of malicious | suspicious for any account successfully logged into from a spraying IP."
+      },
+      "parents": [
+        {
+          "id": "high-volume-failures",
+          "kind": "merge"
+        },
+        {
+          "id": "successful-logins-no-mfa",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "resource-harvesting",
+      "type": "query",
+      "label": "Cloud resource and Graph API harvesting",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, api_service_name, resource_name, src_endpoint_ip, time FROM hb_cloud_api_activity WHERE (LOWER(api_operation) LIKE '%token%' OR LOWER(api_service_name) IN ('sharepoint', 'onedrive', 'microsoft teams')) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_users}}' = '' OR instr(',' || '{{scope_users}}' || ',', ',' || actor_user_name || ',') > 0) AND ('{{scope_ips}}' = '' OR instr(',' || '{{scope_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0)",
+        "surface": "hb_cloud_api_activity",
+        "description": "Identify data exfiltration attempts by searching for Graph API token requests and SharePoint/OneDrive access.",
+        "expected_signal": "Tokens being requested or files being browsed by the suspected compromised accounts. Silence suggests no harvesting was detected."
+      },
+      "parents": [
+        {
+          "id": "assess-compromise"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Cloud resource and Graph API harvesting",
+        "reads": [
+          "actor_user_name",
+          "api_operation",
+          "api_service_name",
+          "resource_name",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, api_service_name, resource_name, src_endpoint_ip, time FROM hb_cloud_api_activity WHERE (LOWER(api_operation) LIKE '%token%' OR LOWER(api_service_name) IN ('sharepoint', 'onedrive', 'microsoft teams')) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_users}}' = '' OR instr(',' || '{{scope_users}}' || ',', ',' || actor_user_name || ',') > 0) AND ('{{scope_ips}}' = '' OR instr(',' || '{{scope_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Tokens being requested or files being browsed by the suspected compromised accounts. Silence suggests no harvesting was detected.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "vpn-probing",
+      "type": "query",
+      "label": "VPN endpoint probing from attacker IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_path, user_agent, time FROM hb_http_activity WHERE (instr(',' || '{{vpn_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0 OR LOWER(url_path) LIKE '%saml%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{scope_ips}}' = '' OR instr(',' || '{{scope_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Check if the attacker IPs leveraged their foothold to probe internal VPN endpoints for further access.",
+        "expected_signal": "HTTP requests to VPN auth paths from IPs identified in the compromise phase. Silence means no such probing was visible."
+      },
+      "parents": [
+        {
+          "id": "assess-compromise"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "VPN endpoint probing from attacker IPs",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "url_path",
+          "user_agent",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_path, user_agent, time FROM hb_http_activity WHERE (instr(',' || '{{vpn_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0 OR LOWER(url_path) LIKE '%saml%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{scope_ips}}' = '' OR instr(',' || '{{scope_ips}}' || ',', ',' || src_endpoint_ip || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests to VPN auth paths from IPs identified in the compromise phase. Silence means no such probing was visible.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "analyze-attack-chain",
+      "type": "analytic",
+      "label": "Analyze full attack chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "assess-compromise",
+          "resource-harvesting",
+          "vpn-probing"
+        ],
+        "objective": "Determine if the service account activity constitutes a confirmed compromise based on the combination of spraying source IPs, successful logins, and post-breach discovery activity.",
+        "description": "Weigh the compromise verdict alongside subsequent discovery and probing to confirm a malicious intrusion.",
+        "max_iterations": 4,
+        "expected_signal": "High-confidence malicious verdicts for accounts showing the spray-breach-harvest sequence.",
+        "success_criteria": "A final verdict citing the specific API calls and VPN probes that confirm the compromise."
+      },
+      "parents": [
+        {
+          "id": "resource-harvesting",
+          "kind": "merge"
+        },
+        {
+          "id": "vpn-probing",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "intrusion-decision",
+      "type": "checkpoint",
+      "label": "Decide on intrusion response",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the analyze-attack-chain verdict is malicious for at least one service account exhibiting follow-on activity",
+        "condition": "the analyze-attack-chain verdict is malicious for at least one service account exhibiting follow-on activity",
+        "blind_spot": "cloud-audit-latency",
+        "confidence": "high",
+        "description": "Route the hunt to remediation if an intrusion is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "analyze-attack-chain"
+        }
+      ]
+    },
+    {
+      "id": "suspend-account",
+      "type": "action",
+      "label": "Suspend compromised service account",
+      "config": {
+        "target": "identity",
+        "description": "Isolate the threat by disabling the compromised credentials.",
+        "instructions": "Disable the compromised service account immediately and revoke all active OAuth sessions and tokens.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "intrusion-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-incident-review",
+      "type": "task",
+      "label": "Manual incident review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Conduct a deeper investigation into data exfiltration and rotate any exposed secrets.",
+        "instructions": "Review SharePoint and OneDrive access logs for the compromised account; determine if sensitive files were downloaded and rotate any application secrets found in accessed repositories."
+      },
+      "parents": [
+        {
+          "id": "intrusion-decision",
+          "branch": "default"
+        },
+        {
+          "id": "intrusion-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "suspend-account"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the findings and recommend security hygiene improvements.",
+        "instructions": "Record the results of the hunt; identify all active service accounts without MFA for immediate remediation and password rotation."
+      },
+      "parents": [
+        {
+          "id": "intrusion-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

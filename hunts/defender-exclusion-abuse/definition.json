@@ -1,0 +1,461 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries use Defender exclusions as a highly effective way to bypass real-time protection; identifying broad or hidden exclusions is a high-fidelity indicator of persistent compromise."
+      },
+      "name": "Microsoft Defender Antivirus Exclusion Abuse",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1047",
+        "attack.t1059.001",
+        "attack.t1562.001",
+        "defense evasion"
+      ],
+      "related": [
+        {
+          "hunt": "defender-tampering-service-disablement",
+          "reason": "This hunt focuses on exclusions; a different hunt would be needed to detect the total disablement of the WinDefend service.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "While a rule might fire on Set-MpPreference, this hunt correlates registry writes across both Policy and local hives, applies a fleet-wide prevalence count to find rare paths, and specifically checks for the stealth registry flag.",
+      "coverage": [
+        {
+          "stage": "modify-defender-exclusions",
+          "steps": [
+            "registry-defender-modifications",
+            "rare-exclusion-paths",
+            "suspicious-exclusion-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "stealth-defender-exclusions",
+          "steps": [
+            "registry-defender-modifications"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Defender Exclusion Modification",
+            "slug": "modify-defender-exclusions",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1059.001",
+              "T1047",
+              "T1562.001"
+            ],
+            "observables": [
+              "Set-MpPreference -ExclusionPath",
+              "Add-MpPreference -ExclusionPath",
+              "Set-MpPreference -ExclusionExtension",
+              "Invoke-CimMethod -Namespace root/Microsoft/Windows/Defender -ClassName MSFT_MpPreference -MethodName Add",
+              "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Exclusions\\Paths\"",
+              "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Exclusions\\Extensions\"",
+              "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Defender\\Exclusions",
+              "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Exclusions",
+              "Excluded paths: C:\\Temp, C:\\, Downloads"
+            ]
+          },
+          {
+            "name": "Hide Defender Exclusions",
+            "slug": "stealth-defender-exclusions",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1562.001"
+            ],
+            "observables": [
+              "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\HideExclusionsFromLocalAdmins",
+              "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\" /v HideExclusionsFromLocalAdmins /t REG_DWORD /d 1"
+            ]
+          }
+        ],
+        "summary": "Attackers leverage Windows Defender Antivirus (MDAV) exclusion settings to hide malicious binaries from real-time and scheduled scans. By using PowerShell, WMI, or direct registry modifications, adversaries can exclude entire directories (e.g., C:\\Temp or the whole C:\\ drive) and hide these exclusions from administrators by setting the HideExclusionsFromLocalAdmins registry value."
+      },
+      "severity": "high",
+      "rationale": "Start with servers and workstations that have broad internet access or those hosting legacy applications often excluded by IT as these provide the most noise for an attacker to blend in.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has modified Microsoft Defender exclusions to shield malicious paths from scanning and enabled stealth settings to hide these changes from local administrators.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the search; leave empty for all."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "suspicious_paths": {
+          "type": "list[path]",
+          "default": [
+            "c:\\",
+            "c:\\temp",
+            "c:\\users\\public",
+            "c:\\windows\\temp",
+            "c:\\downloads"
+          ],
+          "description": "Common paths attackers exclude from MDAV scanning."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/you-can-run-but-you-cant-hide-defender-exclusions",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/you-can-run-but-you-cant-hide-defender-exclusions",
+          "name": "Huntress \u2014 You Can Run, But You Can't Hide: Defender Exclusions"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "registry-visibility-gap",
+          "risk": "The registry is the most reliable source for the final state of exclusions; if it is unreadable, the hunt relies solely on process logs which may be incomplete.",
+          "stage": "modify-defender-exclusions",
+          "question": "Did the exclusion occur on a host where the endpoint agent lacks permissions to read MDAV-protected registry keys?",
+          "requires": "hb_registry_activity logging with sufficient permissions"
+        },
+        {
+          "id": "gpo-actor-attribution",
+          "risk": "Local registry activity will show the result, but the actor_user_name may reflect the SYSTEM account applying the GPO rather than the attacker account used on the DC.",
+          "stage": "modify-defender-exclusions",
+          "question": "Was the exclusion set via a GPO modification on the domain controller rather than a local command?",
+          "requires": "Domain Controller GPO audit logs"
+        }
+      ]
+    },
+    "name": "Microsoft Defender Antivirus Exclusion Abuse",
+    "description": "Adversaries like GootKit and WhisperGate abuse Microsoft Defender Antivirus (MDAV) exclusions to hide malicious binaries from real-time and scheduled scans. By adding file paths such as the root drive or temporary folders to the exclusion list, they ensure their payloads remain undetected. This hunt identifies these modifications by correlating registry changes with PowerShell and WMI execution, specifically looking for rare exclusion paths and the HideExclusionsFromLocalAdmins setting which blinds administrators and the SYSTEM user from viewing the current policy."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "modify-defender-exclusions",
+            "steps": [
+              "registry-defender-modifications",
+              "rare-exclusion-paths",
+              "suspicious-exclusion-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "stealth-defender-exclusions",
+            "steps": [
+              "registry-defender-modifications"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has modified Microsoft Defender exclusions to shield malicious paths from scanning and enabled stealth settings to hide these changes from local administrators.",
+        "blind_spots": [
+          {
+            "id": "registry-visibility-gap",
+            "risk": "The registry is the most reliable source for the final state of exclusions; if it is unreadable, the hunt relies solely on process logs which may be incomplete.",
+            "stage": "modify-defender-exclusions",
+            "question": "Did the exclusion occur on a host where the endpoint agent lacks permissions to read MDAV-protected registry keys?",
+            "requires": "hb_registry_activity logging with sufficient permissions"
+          },
+          {
+            "id": "gpo-actor-attribution",
+            "risk": "Local registry activity will show the result, but the actor_user_name may reflect the SYSTEM account applying the GPO rather than the attacker account used on the DC.",
+            "stage": "modify-defender-exclusions",
+            "question": "Was the exclusion set via a GPO modification on the domain controller rather than a local command?",
+            "requires": "Domain Controller GPO audit logs"
+          }
+        ],
+        "scoping_notes": "Start with servers and workstations that have broad internet access or those hosting legacy applications often excluded by IT as these provide the most noise for an attacker to blend in.",
+        "beyond_detection": "While a rule might fire on Set-MpPreference, this hunt correlates registry writes across both Policy and local hives, applies a fleet-wide prevalence count to find rare paths, and specifically checks for the stealth registry flag."
+      }
+    },
+    {
+      "id": "registry-defender-modifications",
+      "type": "query",
+      "label": "Defender exclusion and stealth registry changes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, reg_target, reg_value_name, reg_value_data, time FROM hb_registry_activity WHERE (LOWER(reg_target) LIKE '%\\microsoft\\windows defender\\exclusions\\%' OR LOWER(reg_target) LIKE '%\\hideexclusionsfromlocaladmins%' OR instr(',' || '{{suspicious_paths}}' || ',', ',' || LOWER(reg_value_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_registry_activity",
+        "description": "Identify every host where Defender exclusions were modified or the local admin hiding policy was set.",
+        "expected_signal": "Rows indicating a target exclusion path or the HideExclusionsFromLocalAdmins toggle. Silence means no readable registry modifications occurred on the enrolled estate."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Defender exclusion and stealth registry changes",
+        "reads": [
+          "actor_user_name",
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "reg_value_name",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, reg_target, reg_value_name, reg_value_data, time FROM hb_registry_activity WHERE (LOWER(reg_target) LIKE '%\\microsoft\\windows defender\\exclusions\\%' OR LOWER(reg_target) LIKE '%\\hideexclusionsfromlocaladmins%' OR instr(',' || '{{suspicious_paths}}' || ',', ',' || LOWER(reg_value_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows indicating a target exclusion path or the HideExclusionsFromLocalAdmins toggle. Silence means no readable registry modifications occurred on the enrolled estate.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "rare-exclusion-paths",
+      "type": "query",
+      "label": "Which exclusion paths are rare",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT reg_value_name AS excluded_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\windows defender\\exclusions\\paths%' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY reg_value_name HAVING host_count < 5 ORDER BY host_count ASC",
+        "surface": "hb_registry_activity",
+        "description": "Stack-count the paths found in registry values so that one-off attacker paths stand out from common corporate IT exclusions.",
+        "expected_signal": "A list of exclusion paths seen on only a few hosts; corporate-wide software paths can be ignored."
+      },
+      "parents": [
+        {
+          "id": "registry-defender-modifications"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Which exclusion paths are rare",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "reg_value_name",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT reg_value_name AS excluded_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\windows defender\\exclusions\\paths%' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY reg_value_name HAVING host_count < 5 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of exclusion paths seen on only a few hosts; corporate-wide software paths can be ignored.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "reg_value_name"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "suspicious-exclusion-commands",
+      "type": "query",
+      "label": "Defender preference commands in process logs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%set-mppreference%' OR LOWER(process_cmd_line) LIKE '%add-mppreference%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_process_activity",
+        "description": "Find process launches using Set-MpPreference or Add-MpPreference which are the primary vectors for MDAV modification.",
+        "expected_signal": "Command lines explicitly setting exclusions. Silence suggests WMI or direct registry manipulation was used instead."
+      },
+      "parents": [
+        {
+          "id": "registry-defender-modifications"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Defender preference commands in process logs",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%set-mppreference%' OR LOWER(process_cmd_line) LIKE '%add-mppreference%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Command lines explicitly setting exclusions. Silence suggests WMI or direct registry manipulation was used instead.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "triage-exclusion-behavior",
+      "type": "analytic",
+      "label": "Evaluate exclusion legitimacy",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "registry-defender-modifications",
+          "rare-exclusion-paths",
+          "suspicious-exclusion-commands"
+        ],
+        "objective": "Decide whether the combined registry modifications, prevalence of excluded paths, and process commands indicate an attempt to hide malicious activity, citing the specific rows.",
+        "description": "Identify if registry and process activity indicates an intentional effort to evade MDAV scans on suspicious paths.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict of malicious | suspicious | benign.",
+        "success_criteria": "A per-host verdict citing paths and command lines that match known abuse patterns."
+      },
+      "parents": [
+        {
+          "id": "rare-exclusion-paths",
+          "kind": "merge"
+        },
+        {
+          "id": "suspicious-exclusion-commands",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host involving suspicious exclusion paths or the hidden exclusions setting",
+        "condition": "the triage verdict is malicious for at least one host involving suspicious exclusion paths or the hidden exclusions setting",
+        "blind_spot": "registry-visibility-gap",
+        "confidence": "high",
+        "description": "Branch based on the agent's confidence in the malicious nature of the exclusions.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-exclusion-behavior"
+        }
+      ]
+    },
+    {
+      "id": "contain-and-remediate",
+      "type": "action",
+      "label": "Isolate host and remediate exclusions",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further malware execution and restore Defender security settings.",
+        "instructions": "Isolate the host to stop lateral movement. Run Remove-MpPreference -ExclusionPath <path> or Remove-MpPreference -ExclusionExtension <extension> via an administrative PowerShell session to remove the unauthorized exclusions. Set the HideExclusionsFromLocalAdmins registry value to 0 if it was enabled.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-confirmation",
+      "type": "task",
+      "label": "Verify remediation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually confirm that the exclusions are gone and MDAV is scanning as expected.",
+        "instructions": "Review the isolation and remediation logs. Confirm that MDAV is now scanning the previously excluded paths and investigate the process or actor responsible for the initial configuration change."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-and-remediate"
+        }
+      ]
+    },
+    {
+      "id": "close-out-hunt",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and update detection rules.",
+        "instructions": "Record the number of hosts with suspicious exclusions. If specific paths found were common among attackers, recommend promoting the registry monitoring query to a standing detection rule."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-confirmation"
+        }
+      ]
+    }
+  ]
+}

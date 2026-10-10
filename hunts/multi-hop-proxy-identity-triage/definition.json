@@ -1,0 +1,520 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Multi-hop proxies and tunnels are primary techniques for C2 obfuscation; a negative result over high-risk users confirms that these obfuscation paths are not currently being used by adversaries."
+      },
+      "name": "Multi-hop proxy and tunnel triage via identity context",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "unauthorized-vpn-usage",
+          "reason": "Standard VPNs use different protocol and process signals than the focused tunnels (ngrok/socat) targeted here.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "While static rules flag ngrok domains, this hunt differentiates legitimate use from C2 by correlating across four surfaces: rare connection patterns, Tor DNS gateways, user account status, and process listener state\u2014context a single rule cannot weigh.",
+      "coverage": [
+        {
+          "stage": "multi-hop-proxy-c2",
+          "steps": [
+            "tunnel-lead",
+            "dns-onion-check",
+            "user-status",
+            "process-listeners"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Multi-hop Proxy and Tunneling Communication",
+            "slug": "multi-hop-proxy-c2",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "query_hostname ending in .onion",
+              "dst_endpoint_hostname containing ngrok.com",
+              "user.email",
+              "kibana.alert.rule.uuid"
+            ]
+          }
+        ],
+        "summary": "This scenario covers the detection and triage of multi-hop proxy and tunneling traffic, such as Tor and ngrok, which adversaries use to obfuscate command-and-control communication. Defenders enhance alert accuracy by correlating network indicators with user identity profiles and historical triage decisions through an automated AI pipeline."
+      },
+      "severity": "medium",
+      "rationale": "Focus on endpoints first, then expand to cloud jump boxes if the DNS surface shows .onion gateway activity.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder is using a multi-hop proxy or tunneling service to obfuscate C2 traffic, which can be distinguished from legitimate researcher activity by correlating network leads with user risk profiles and local port bindings.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hostnames to narrow the search; leave empty for the full estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "onion_gateways": {
+          "from": {
+            "ref": "Tor DNS Gateways",
+            "kind": "manual",
+            "observed": "2024-05-20"
+          },
+          "type": "list[domain]",
+          "default": [
+            "onion.link",
+            "onion.pet",
+            "onion.ws",
+            "onion.casa",
+            "onion.direct"
+          ],
+          "description": "Public DNS gateways used to resolve Tor .onion addresses without a local Tor client."
+        },
+        "tunnel_domains": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/blog/alert-triage-agentic-soc-self-correcting-agents",
+            "kind": "article",
+            "observed": "2026-08-25"
+          },
+          "type": "list[domain]",
+          "default": [
+            "tunnel.us.ngrok.com",
+            "tunnel.eu.ngrok.com",
+            "ngrok-free.app",
+            "tunnel.ap.ngrok.com",
+            "tunnel.au.ngrok.com",
+            "tunnel.sa.ngrok.com"
+          ],
+          "description": "Known domains for tunneling services used to obfuscate C2."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/alert-triage-agentic-soc-self-correcting-agents",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/alert-triage-agentic-soc-self-correcting-agents",
+          "name": "Inside Elastic's agentic SOC: How we took AI alert triage from 60% to 92% accuracy"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-host-on-listener",
+          "risk": "Without a host column, an analyst must manually correlate process names and PIDs across steps, which is prone to misattribution in large environments.",
+          "stage": "multi-hop-proxy-c2",
+          "question": "Which specific host is running the listening process?",
+          "requires": "device_hostname column on hb_network_listener"
+        },
+        {
+          "id": "tor-direct-ip",
+          "risk": "Direct IP-based Tor connections bypass DNS-based gateway detection, leaving only the process name as a signal.",
+          "stage": "multi-hop-proxy-c2",
+          "question": "Did the host connect directly to a Tor entry node by IP?",
+          "requires": "hb_network_connection IP reputation feed"
+        },
+        {
+          "id": "no-hr-linkage",
+          "risk": "If the identity provider doesn't include job titles or cost centers, the agent cannot determine if the activity is aligned with the user's role, increasing false positives.",
+          "stage": "multi-hop-proxy-c2",
+          "question": "Is the user a developer or a security researcher?",
+          "requires": "Workday or HR linkage in hb_users"
+        }
+      ]
+    },
+    "name": "Multi-hop proxy and tunnel triage via identity context",
+    "description": "This hunt identifies potential C2 obfuscation by looking for rare outbound tunnels and multi-hop proxies. Following the agentic SOC pattern, it enriches network leads with user identity status and host listener data to differentiate between malicious actors and legitimate developers or researchers. An agent evaluates the combined evidence\u2014prevalence, account risk, and proxy-like behavior\u2014to decide whether to isolate the host."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "multi-hop-proxy-c2",
+            "steps": [
+              "tunnel-lead",
+              "dns-onion-check",
+              "user-status",
+              "process-listeners"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder is using a multi-hop proxy or tunneling service to obfuscate C2 traffic, which can be distinguished from legitimate researcher activity by correlating network leads with user risk profiles and local port bindings.",
+        "blind_spots": [
+          {
+            "id": "missing-host-on-listener",
+            "risk": "Without a host column, an analyst must manually correlate process names and PIDs across steps, which is prone to misattribution in large environments.",
+            "stage": "multi-hop-proxy-c2",
+            "question": "Which specific host is running the listening process?",
+            "requires": "device_hostname column on hb_network_listener"
+          },
+          {
+            "id": "tor-direct-ip",
+            "risk": "Direct IP-based Tor connections bypass DNS-based gateway detection, leaving only the process name as a signal.",
+            "stage": "multi-hop-proxy-c2",
+            "question": "Did the host connect directly to a Tor entry node by IP?",
+            "requires": "hb_network_connection IP reputation feed"
+          },
+          {
+            "id": "no-hr-linkage",
+            "risk": "If the identity provider doesn't include job titles or cost centers, the agent cannot determine if the activity is aligned with the user's role, increasing false positives.",
+            "stage": "multi-hop-proxy-c2",
+            "question": "Is the user a developer or a security researcher?",
+            "requires": "Workday or HR linkage in hb_users"
+          }
+        ],
+        "scoping_notes": "Focus on endpoints first, then expand to cloud jump boxes if the DNS surface shows .onion gateway activity.",
+        "beyond_detection": "While static rules flag ngrok domains, this hunt differentiates legitimate use from C2 by correlating across four surfaces: rare connection patterns, Tor DNS gateways, user account status, and process listener state\u2014context a single rule cannot weigh."
+      }
+    },
+    {
+      "id": "tunnel-lead",
+      "type": "query",
+      "label": "Detect rare tunneling and proxy connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "network",
+        "content": "SELECT device_hostname, user_name, process_name, dst_endpoint_hostname, COUNT(*) AS connection_count, MIN(time) AS first_seen FROM hb_network_connection WHERE (instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0 OR (direction = 'outbound' AND (LOWER(process_name) LIKE '%tunnel%' OR LOWER(process_name) LIKE '%proxy%' OR LOWER(process_name) LIKE '%socat%'))) AND state_kind = 'log' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, user_name, process_name, dst_endpoint_hostname HAVING connection_count < 50",
+        "surface": "hb_network_connection",
+        "description": "Find connections to known tunneling providers or outbound traffic from proxy-like processes to identify potential beachheads.",
+        "expected_signal": "Rare outbound connections to tunnel providers or proxy binaries. Benign hits often come from authorized developers; malicious hits often lack business context."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect rare tunneling and proxy connections",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_name",
+          "dst_endpoint_hostname",
+          "time",
+          "direction",
+          "state_kind"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, user_name, process_name, dst_endpoint_hostname, COUNT(*) AS connection_count, MIN(time) AS first_seen FROM hb_network_connection WHERE (instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0 OR (direction = 'outbound' AND (LOWER(process_name) LIKE '%tunnel%' OR LOWER(process_name) LIKE '%proxy%' OR LOWER(process_name) LIKE '%socat%'))) AND state_kind = 'log' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, user_name, process_name, dst_endpoint_hostname HAVING connection_count < 50",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare outbound connections to tunnel providers or proxy binaries. Benign hits often come from authorized developers; malicious hits often lack business context.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "dst_endpoint_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "dns-onion-check",
+      "type": "query",
+      "label": "Look for Tor DNS gateway usage",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, time FROM hb_dns_activity WHERE (instr(',' || '{{onion_gateways}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Identify if the same hosts are resolving .onion domains via web gateways, which confirms multi-hop proxy intent.",
+        "expected_signal": "DNS queries for .onion gateways on the fleet. Silence here does not rule out direct Tor traffic."
+      },
+      "parents": [
+        {
+          "id": "tunnel-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Look for Tor DNS gateway usage",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, time FROM hb_dns_activity WHERE (instr(',' || '{{onion_gateways}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS queries for .onion gateways on the fleet. Silence here does not rule out direct Tor traffic.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "user-status",
+      "type": "query",
+      "label": "Check user identity risk factors",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "identity",
+        "content": "SELECT email, name, status, mfa_enabled FROM hb_users",
+        "surface": "hb_users",
+        "description": "Retrieve account status and MFA state for all corporate users to correlate with the network leads.",
+        "expected_signal": "User account details. An inactive or non-MFA user establishing a tunnel is a high-confidence indicator of session theft or beachhead activity."
+      },
+      "parents": [
+        {
+          "id": "tunnel-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Check user identity risk factors",
+        "reads": [
+          "email",
+          "name",
+          "status",
+          "mfa_enabled"
+        ],
+        "source": "hb_users",
+        "target": "identity",
+        "content": "SELECT email, name, status, mfa_enabled FROM hb_users",
+        "silence": "not_evidence_of_absence",
+        "expected": "User account details. An inactive or non-MFA user establishing a tunnel is a high-confidence indicator of session theft or beachhead activity.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "process-listeners",
+      "type": "query",
+      "label": "Check for local port bindings by proxy binaries",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "network",
+        "content": "SELECT process_name, port, protocol, process_cmd_line, time FROM hb_network_listener WHERE (LOWER(process_name) LIKE '%tunnel%' OR LOWER(process_name) LIKE '%proxy%' OR LOWER(process_name) LIKE '%socat%' OR LOWER(process_name) LIKE '%ngrok%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_listener",
+        "description": "Verify if suspicious processes are binding to local ports, a key characteristic of active proxies and reverse tunnels.",
+        "expected_signal": "A process from the lead step that is also listening on a port. This confirms the multi-hop proxy role of the binary."
+      },
+      "parents": [
+        {
+          "id": "tunnel-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Check for local port bindings by proxy binaries",
+        "reads": [
+          "process_name",
+          "port",
+          "protocol",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_network_listener",
+        "target": "network",
+        "content": "SELECT process_name, port, protocol, process_cmd_line, time FROM hb_network_listener WHERE (LOWER(process_name) LIKE '%tunnel%' OR LOWER(process_name) LIKE '%proxy%' OR LOWER(process_name) LIKE '%socat%' OR LOWER(process_name) LIKE '%ngrok%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A process from the lead step that is also listening on a port. This confirms the multi-hop proxy role of the binary.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-triage",
+      "type": "analytic",
+      "label": "Identity and behavior triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "tunnel-lead",
+          "dns-onion-check",
+          "user-status",
+          "process-listeners"
+        ],
+        "objective": "Determine if the tunneling activity represents a legitimate administrative session or a malicious C2 channel. Correlate the user_name from the network lead with the user status from identity data. Match process names from the lead with listener activity to confirm proxy behavior. Weigh the presence of Tor gateway DNS lookups as a high-risk factor.",
+        "description": "Evaluate if the tunnel is malicious or benign based on combined evidence.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict citing specific rows and account anomalies.",
+        "success_criteria": "A per-host verdict of malicious, suspicious, or benign with specific citations of rows."
+      },
+      "parents": [
+        {
+          "id": "dns-onion-check",
+          "kind": "merge"
+        },
+        {
+          "id": "user-status",
+          "kind": "merge"
+        },
+        {
+          "id": "process-listeners",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "missing-host-on-listener",
+        "confidence": "high",
+        "description": "Direct the response based on the agent findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat by isolating the beachhead.",
+        "instructions": "Isolate the host and revoke active sessions for the involved user account.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst verification",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the agent decision and review the context.",
+        "instructions": "Review the agent reasoning and the cited rows. Confirm whether the user's role justifies the tunneling activity."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and gaps.",
+        "instructions": "Record the outcome of the triage and document any blind spots encountered."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
