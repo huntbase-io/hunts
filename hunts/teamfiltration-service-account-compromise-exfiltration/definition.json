@@ -1,0 +1,617 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Service accounts are high-value targets because they frequently bypass MFA and lack human oversight. A negative result across the estate is a critical confirmation that ghost identities are not being leveraged for M365 data theft."
+      },
+      "name": "TeamFiltration Service Account Compromise and Exfiltration",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1110",
+        "attack.t1133",
+        "attack.t1041",
+        "credential access",
+        "discovery",
+        "exfiltration",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "m365-oauth-app-persistence",
+          "reason": "Adversaries may use service account access to register malicious OAuth applications; that requires separate monitoring of Entra ApplicationManagement events.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule might fire on a single failed login or a new IP, but this hunt correlates the identity vulnerability (no MFA) with precursor spraying AND subsequent bulk data extraction across Outlook, Teams, and SharePoint. This synthesis across three distinct surfaces and two stages of an attack chain is beyond the scope of single-event rules.",
+      "coverage": [
+        {
+          "stage": "teamfiltration-credential-spraying",
+          "steps": [
+            "auth-spraying-precursors"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "ghost-service-account-compromise",
+          "steps": [
+            "identify-ghost-accounts",
+            "rare-successful-logons"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "automated-cloud-data-exfiltration",
+          "steps": [
+            "portal-and-exfil-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "portal-and-vpn-discovery",
+          "steps": [
+            "portal-and-exfil-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "TeamFiltration Credential Spraying",
+            "slug": "teamfiltration-credential-spraying",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1110"
+            ],
+            "observables": [
+              "Credential spraying targeting over 5,700 M365 accounts",
+              "Source IP rotation to avoid blocking",
+              "Attempts against multiple tenants (28) in short timeframes"
+            ]
+          },
+          {
+            "name": "Ghost Service Account Compromise",
+            "slug": "ghost-service-account-compromise",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "Successful sign-ins to accounts with no active user history",
+              "Functional account names (e.g., managing tickets, approving vendor payments)",
+              "Accounts lacking MFA protection",
+              "Rapid succession of compromises (six accounts in seven minutes)"
+            ]
+          },
+          {
+            "name": "Automated Cloud Data Exfiltration",
+            "slug": "automated-cloud-data-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "Automated pulling of emails from Outlook",
+              "Bulk extraction of chat conversations from Teams",
+              "File exfiltration from OneDrive",
+              "SharePoint file browsing and access"
+            ]
+          },
+          {
+            "name": "Portal and VPN Discovery",
+            "slug": "portal-and-vpn-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "Access to the M365 management portal",
+              "Access to the Azure portal from compromised accounts",
+              "Probing of company VPN infrastructure"
+            ]
+          }
+        ],
+        "summary": "The threat actor UNK_CondorFiltration uses the open-source TeamFiltration toolkit to perform automated credential spraying against M365 tenants, specifically targeting forgotten service accounts lacking MFA. Upon successful compromise, the actor automates the exfiltration of Teams messages, Outlook emails, and OneDrive files while probing Azure/M365 management portals and VPN gateways."
+      },
+      "severity": "high",
+      "rationale": "The hunt should begin by identifying every account matching service-related keywords that currently has MFA disabled. Focus on financial or ticket-handling keywords as noted in the research.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has compromised functional service accounts via credential spraying to bypass MFA, then used these ghost identities to exfiltrate bulk data from M365 and discover administrative portals.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2024-05-20"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to narrow the search; leave empty for the full estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-retention",
+            "kind": "manual",
+            "observed": "2024-05-20"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "exfil_operations": {
+          "from": {
+            "ref": "proofpoint-ghost-accounts",
+            "kind": "article",
+            "observed": "2026-09-24"
+          },
+          "type": "list[string]",
+          "default": [
+            "MailItemsAccessed",
+            "FileDownloaded",
+            "TeamsSessionStarted",
+            "SearchQueryPerformed",
+            "FileAccessedExtended"
+          ],
+          "description": "Cloud API operations associated with bulk extraction of data."
+        },
+        "service_keywords": {
+          "from": {
+            "ref": "proofpoint-ghost-accounts",
+            "kind": "article",
+            "observed": "2026-09-24"
+          },
+          "type": "list[string]",
+          "default": [
+            "svc",
+            "service",
+            "bot",
+            "payment",
+            "vendor",
+            "ticket",
+            "scanner",
+            "app",
+            "admin",
+            "functional"
+          ],
+          "description": "Keywords typical of functional or service account names."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.proofpoint.com/us/newsroom/news/ghost-service-accounts-enable-m365-data-theft-chile",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.proofpoint.com/us/newsroom/news/ghost-service-accounts-enable-m365-data-theft-chile",
+          "name": "Proofpoint — Ghost Service Accounts Enable M365 Data Theft in Chile"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "m365-api-latency",
+          "risk": "M365 Unified Audit Logs can be delayed by up to 24 hours, meaning an active attack may be invisible to this hunt until the next day.",
+          "stage": "automated-cloud-data-exfiltration",
+          "question": "whether exfiltration is occurring right now",
+          "requires": "Unified Audit Log (UAL) low-latency stream"
+        },
+        {
+          "id": "vpn-telemetry-gap",
+          "risk": "Access to the internal VPN would only be visible if the VPN log provider is integrated into the normalized authentication surface.",
+          "stage": "portal-and-vpn-discovery",
+          "question": "whether the corporate VPN was successfully probed",
+          "requires": "hb_auth_signin with VPN context"
+        }
+      ]
+    },
+    "name": "TeamFiltration Service Account Compromise and Exfiltration",
+    "description": "This hunt identifies the lifecycle of a TeamFiltration campaign, which targets overlooked service accounts that lack multifactor authentication. The hunt follows a phased approach: it first scopes for potential service identities and identifies brute-force patterns and successful logons from new infrastructure. It then pivots to cloud API activity to detect administrative discovery (Azure/M365 portals) and automated data theft from Outlook, Teams, and SharePoint. A tiered agent review evaluates initial access before determining the final scope of exfiltration and triggering automated containment."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "teamfiltration-credential-spraying",
+            "steps": [
+              "auth-spraying-precursors"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "ghost-service-account-compromise",
+            "steps": [
+              "identify-ghost-accounts",
+              "rare-successful-logons"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "automated-cloud-data-exfiltration",
+            "steps": [
+              "portal-and-exfil-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "portal-and-vpn-discovery",
+            "steps": [
+              "portal-and-exfil-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has compromised functional service accounts via credential spraying to bypass MFA, then used these ghost identities to exfiltrate bulk data from M365 and discover administrative portals.",
+        "blind_spots": [
+          {
+            "id": "m365-api-latency",
+            "risk": "M365 Unified Audit Logs can be delayed by up to 24 hours, meaning an active attack may be invisible to this hunt until the next day.",
+            "stage": "automated-cloud-data-exfiltration",
+            "question": "whether exfiltration is occurring right now",
+            "requires": "Unified Audit Log (UAL) low-latency stream"
+          },
+          {
+            "id": "vpn-telemetry-gap",
+            "risk": "Access to the internal VPN would only be visible if the VPN log provider is integrated into the normalized authentication surface.",
+            "stage": "portal-and-vpn-discovery",
+            "question": "whether the corporate VPN was successfully probed",
+            "requires": "hb_auth_signin with VPN context"
+          }
+        ],
+        "scoping_notes": "The hunt should begin by identifying every account matching service-related keywords that currently has MFA disabled. Focus on financial or ticket-handling keywords as noted in the research.",
+        "beyond_detection": "A standard detection rule might fire on a single failed login or a new IP, but this hunt correlates the identity vulnerability (no MFA) with precursor spraying AND subsequent bulk data extraction across Outlook, Teams, and SharePoint. This synthesis across three distinct surfaces and two stages of an attack chain is beyond the scope of single-event rules."
+      }
+    },
+    {
+      "id": "identify-ghost-accounts",
+      "type": "query",
+      "label": "Identify candidate ghost accounts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT name, email, id, provider, status FROM hb_users WHERE mfa_enabled = 'false' AND (instr(',' || '{{service_keywords}}' || ',', ',' || LOWER(name) || ',') > 0 OR instr(',' || '{{service_keywords}}' || ',', ',' || LOWER(email) || ',') > 0)",
+        "surface": "hb_users",
+        "description": "Locate functional and service accounts that lack MFA protection, as these are the primary targets for the TeamFiltration toolkit.",
+        "expected_signal": "A list of service-named accounts with MFA disabled. Silence suggests all service-named accounts are properly hardened."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify candidate ghost accounts",
+        "reads": [
+          "email",
+          "id",
+          "mfa_enabled",
+          "name",
+          "provider",
+          "status"
+        ],
+        "source": "hb_users",
+        "target": "identity",
+        "content": "SELECT name, email, id, provider, status FROM hb_users WHERE mfa_enabled = 'false' AND (instr(',' || '{{service_keywords}}' || ',', ',' || LOWER(name) || ',') > 0 OR instr(',' || '{{service_keywords}}' || ',', ',' || LOWER(email) || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of service-named accounts with MFA disabled. Silence suggests all service-named accounts are properly hardened.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "auth-spraying-precursors",
+      "type": "query",
+      "label": "Credential spraying precursors",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "identity",
+        "content": "SELECT actor_user_name, COUNT(*) as failure_count, COUNT(DISTINCT src_endpoint_ip) as ip_count FROM hb_auth_signin WHERE activity_id = 5 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name HAVING ip_count >= 2 AND failure_count > 10 ORDER BY failure_count DESC",
+        "surface": "hb_auth_signin",
+        "description": "Detect accounts receiving authentication failures from multiple source IPs, indicating TeamFiltration's rotation strategy.",
+        "expected_signal": "A single account being targeted by multiple IPs with high failure counts. Silence proves no high-volume spraying occurred."
+      },
+      "parents": [
+        {
+          "id": "identify-ghost-accounts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Credential spraying precursors",
+        "reads": [
+          "activity_id",
+          "actor_user_name",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, COUNT(*) as failure_count, COUNT(DISTINCT src_endpoint_ip) as ip_count FROM hb_auth_signin WHERE activity_id = 5 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name HAVING ip_count >= 2 AND failure_count > 10 ORDER BY failure_count DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "A single account being targeted by multiple IPs with high failure counts. Silence proves no high-volume spraying occurred.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "rare-successful-logons",
+      "type": "query",
+      "label": "Rare successful logons to ghost accounts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, device_hostname, COUNT(*) as successes, MIN(time) as first_seen FROM hb_auth_signin WHERE activity_id = 1 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, device_hostname HAVING successes < 5 ORDER BY first_seen DESC",
+        "surface": "hb_auth_signin",
+        "description": "Identify successful authentications to candidate ghost accounts from IPs that have not successfully logged in before.",
+        "expected_signal": "A successful logon from a new or rare IP address to a service identity. Silence suggests no compromise via new infrastructure occurred."
+      },
+      "parents": [
+        {
+          "id": "identify-ghost-accounts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare successful logons to ghost accounts",
+        "reads": [
+          "activity_id",
+          "actor_user_name",
+          "device_hostname",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, device_hostname, COUNT(*) as successes, MIN(time) as first_seen FROM hb_auth_signin WHERE activity_id = 1 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, device_hostname HAVING successes < 5 ORDER BY first_seen DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A successful logon from a new or rare IP address to a service identity. Silence suggests no compromise via new infrastructure occurred.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 2
+        },
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "early-stage-impact-read",
+      "type": "analytic",
+      "label": "Early stage impact read",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "identify-ghost-accounts",
+          "auth-spraying-precursors",
+          "rare-successful-logons"
+        ],
+        "objective": "Determine if any service account identified in the scoping step shows a successful logon from a rare IP address that correlates with credential spray patterns.",
+        "description": "Confirm which ghost accounts are compromised by correlating identity vulnerabilities with authentication anomalies.",
+        "max_iterations": 4,
+        "expected_signal": "A per-account verdict of suspicion citing specific spray attempts and rare successful logons.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per account, citing the evidence rows."
+      },
+      "parents": [
+        {
+          "id": "auth-spraying-precursors",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-successful-logons",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "portal-and-exfil-activity",
+      "type": "query",
+      "label": "Portal discovery and data exfiltration",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, api_service_name, COUNT(*) as op_count, MIN(time) as first_op, MAX(time) as last_op FROM hb_cloud_api_activity WHERE (instr(',' || '{{exfil_operations}}' || ',', ',' || api_operation || ',') > 0 OR LOWER(api_service_name) LIKE '%portal%' OR LOWER(api_operation) LIKE '%portal%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, api_operation, api_service_name HAVING op_count > 10 ORDER BY op_count DESC",
+        "surface": "hb_cloud_api_activity",
+        "description": "Identify follow-on activity by the potentially compromised accounts, specifically administrative portal browsing and bulk data access.",
+        "expected_signal": "High counts of bulk data access operations or unusual administrative portal activity from service accounts. Silence means no follow-on activity was recorded."
+      },
+      "parents": [
+        {
+          "id": "early-stage-impact-read"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Portal discovery and data exfiltration",
+        "reads": [
+          "actor_user_name",
+          "api_operation",
+          "api_service_name",
+          "time"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, api_service_name, COUNT(*) as op_count, MIN(time) as first_op, MAX(time) as last_op FROM hb_cloud_api_activity WHERE (instr(',' || '{{exfil_operations}}' || ',', ',' || api_operation || ',') > 0 OR LOWER(api_service_name) LIKE '%portal%' OR LOWER(api_operation) LIKE '%portal%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, api_operation, api_service_name HAVING op_count > 10 ORDER BY op_count DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "High counts of bulk data access operations or unusual administrative portal activity from service accounts. Silence means no follow-on activity was recorded.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "final-impact-assessment",
+      "type": "analytic",
+      "label": "Final impact assessment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "early-stage-impact-read",
+          "portal-and-exfil-activity"
+        ],
+        "objective": "Weigh the evidence from the early-stage triage against the observed API activity to determine if accounts were used for administrative discovery or automated data exfiltration.",
+        "description": "Synthesize the authentication findings with the cloud API activity to confirm malicious intent and scope data theft.",
+        "max_iterations": 5,
+        "expected_signal": "A confirmed malicious verdict for accounts showing both successful compromise and subsequent data exfiltration behavior.",
+        "success_criteria": "A final verdict per account including an assessment of exfiltration volume and portal access intensity."
+      },
+      "parents": [
+        {
+          "id": "portal-and-exfil-activity"
+        }
+      ]
+    },
+    {
+      "id": "verdict-routing",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-impact-assessment verdict is malicious for at least one service account",
+        "condition": "the final-impact-assessment verdict is malicious for at least one service account",
+        "blind_spot": "m365-api-latency",
+        "confidence": "high",
+        "description": "Determine whether to trigger immediate containment based on the agent's impact assessment.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-impact-assessment"
+        }
+      ]
+    },
+    {
+      "id": "revoke-and-disable",
+      "type": "action",
+      "label": "Revoke and disable compromised accounts",
+      "config": {
+        "target": "identity",
+        "description": "Halt active data theft by terminating the adversary's sessions and disabling the compromised identities.",
+        "instructions": "Disable the compromised service accounts. Revoke all active OAuth refresh tokens and terminate active web sessions in both the M365 and Azure portals for these identities.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "verdict-routing",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-audit",
+      "type": "task",
+      "label": "Forensic audit and disclosure review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Analyze the exact rows cited by the agents to determine what data was accessed and whether regulatory disclosure is required.",
+        "instructions": "Review the specific MailItemsAccessed and FileDownloaded rows. Determine if sensitive vendor payment info or ticket data was included. Check for any changes to application registrations or Azure subscription settings if portal access was confirmed."
+      },
+      "parents": [
+        {
+          "id": "verdict-routing",
+          "branch": "default"
+        },
+        {
+          "id": "verdict-routing",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "verdict-routing",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "revoke-and-disable"
+        }
+      ]
+    },
+    {
+      "id": "hygiene-review-action",
+      "type": "action",
+      "label": "Enforce service account hardening",
+      "config": {
+        "target": "identity",
+        "description": "Close the security gap that allowed the compromise by hardening all remaining functional identities.",
+        "instructions": "Enforce MFA on all functional and service accounts identified in the scoping step. For any account that cannot support MFA, restrict sign-in to specific known egress IP ranges or disable the account if no business owner can be found.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "forensic-audit"
+        }
+      ]
+    }
+  ]
+}

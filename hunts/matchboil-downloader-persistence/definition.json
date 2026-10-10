@@ -1,0 +1,684 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "UAC-0099 is a known threat to critical infrastructure and governmental sectors in Ukraine. The MATCHBOIL downloader is a persistent entry point that requires cross-surface correlation to identify definitively."
+      },
+      "name": "MATCHBOIL Downloader Activity and Persistence",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1059.001",
+        "attack.t1047",
+        "attack.t1547.001",
+        "attack.t1053.005",
+        "attack.t1071.001",
+        "command and control",
+        "discovery",
+        "initial access",
+        "persistence"
+      ],
+      "related": [
+        {
+          "hunt": "lonepage-powershell-downloader",
+          "reason": "LONEPAGE is another UAC-0099 downloader that focuses on PowerShell and specific C&C URL patterns.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple Run-key rule might fire on many benign updaters; this hunt correlates folder creation, script-based delivery, WMI discovery, and rare HTTP metadata to reduce false positives and identify the full attack lifecycle.",
+      "coverage": [
+        {
+          "stage": "initial-access-phishing-script",
+          "steps": [
+            "script-loaders"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "discovery-wmi-recon",
+          "steps": [
+            "wmi-recon"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-payload-delivery",
+          "steps": [
+            "scoping-installation",
+            "c2-http-metadata"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-registry-task",
+          "steps": [
+            "registry-run-persistence",
+            "scheduled-task-persistence"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Spearphishing and VBScript Loader",
+            "slug": "initial-access-phishing-script",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566",
+              "T1059.001"
+            ],
+            "observables": [
+              "VBScript file manual execution",
+              "Archive file download from spearphishing link",
+              "Execution of MATCHBOIL binary"
+            ]
+          },
+          {
+            "name": "System Discovery via WMI",
+            "slug": "discovery-wmi-recon",
+            "tactic": "discovery",
+            "techniques": [
+              "T1047"
+            ],
+            "observables": [
+              "ManagementObjectSearcher C# class usage",
+              "WMI queries for CPUID",
+              "WMI queries for BIOS serial number",
+              "WMI queries for username and MAC address"
+            ]
+          },
+          {
+            "name": "C2 Communication and Payload Retrieval",
+            "slug": "c2-payload-delivery",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001"
+            ],
+            "observables": [
+              "HTTPS requests with custom HTTP header 'SN'",
+              "HTTPS requests with custom HTTP header 'Count'",
+              "25-character User-Agent string",
+              "Hex-encoded payload extracted from HTML <script> tags",
+              "Creation of config.ini in payload directory",
+              "Payload installation in %LOCALAPPDATA%\\DeviceMonitor"
+            ]
+          },
+          {
+            "name": "Registry and Task Persistence",
+            "slug": "persistence-registry-task",
+            "tactic": "persistence",
+            "techniques": [
+              "T1547.001",
+              "T1053.005"
+            ],
+            "observables": [
+              "Registry value 'DeviceMonitor' in HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+              "Scheduled task named 'Updates\\CheckTask'",
+              "Two-minute execution timer (later variants)"
+            ]
+          }
+        ],
+        "summary": "The Russia-aligned UAC-0099 group uses spearphishing links to deliver an archive containing a VBScript loader, which subsequently installs the MATCHBOIL C# downloader. MATCHBOIL performs system discovery via WMI and establishes persistence through both registry Run keys and scheduled tasks before communicating with a C2 server to deploy the MATCHWOK backdoor."
+      },
+      "severity": "high",
+      "rationale": "The hunt should prioritize workstations and servers in the transportation and energy sectors. Start with a broad lookback window as MATCHBOIL has been active for several years.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has deployed a MATCHBOIL downloader that establishes persistence through Registry Run keys or scheduled tasks after performing WMI-based system discovery to uniquely identify the victim host.",
+      "parameters": {
+        "ua_length": {
+          "from": {
+            "ref": "https://www.welivesecurity.com/en/eset-research/matchboil-new-tricks-same-old-evil-intentions/",
+            "kind": "article",
+            "observed": "2026-10-08"
+          },
+          "type": "number",
+          "default": "25",
+          "description": "User-Agent string length observed in 2024 variants."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to narrow the search."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "target_folder_pattern": {
+          "from": {
+            "ref": "https://www.welivesecurity.com/en/eset-research/matchboil-new-tricks-same-old-evil-intentions/",
+            "kind": "article",
+            "observed": "2026-10-08"
+          },
+          "type": "string",
+          "default": "%\\\\appdata\\\\local\\\\devicemonitor\\\\%",
+          "description": "Path pattern for the MATCHBOIL installation directory."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.welivesecurity.com/en/eset-research/matchboil-new-tricks-same-old-evil-intentions/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.welivesecurity.com/en/eset-research/matchboil-new-tricks-same-old-evil-intentions/",
+          "name": "ESET Research — MATCHBOIL: New tricks, same old evil intentions"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "internal-wmi-recon",
+          "risk": "C# processes can call WMI directly via APIs, which bypasses command-line monitoring for wmic.exe, making the discovery phase invisible.",
+          "stage": "discovery-wmi-recon",
+          "question": "whether the downloader performed WMI recon without spawning wmic.exe",
+          "requires": "EDR introspection into .NET ManagementObjectSearcher calls"
+        },
+        {
+          "id": "encrypted-c2-payload",
+          "risk": "HTTPS encryption prevents the identification of the payload inside the HTML script tags during transit.",
+          "stage": "c2-payload-delivery",
+          "question": "whether the hex-encoded payload was delivered in the HTTP response body",
+          "requires": "TLS inspection or endpoint memory analysis"
+        }
+      ]
+    },
+    "name": "MATCHBOIL Downloader Activity and Persistence",
+    "description": "This hunt targets the MATCHBOIL C# downloader, a tool used by the UAC-0099 group. The malware follows a distinct lifecycle: it is typically introduced via VBScript loaders, performs hardware-based fingerprinting using WMI, and establishes persistence in user-writable directories. The hunt uses a phased flow to first identify initial execution and discovery leads, then validates them against established persistence mechanisms and anomalous C2 HTTP metadata such as specific User-Agent lengths and configuration file drops."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-phishing-script",
+            "steps": [
+              "script-loaders"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "discovery-wmi-recon",
+            "steps": [
+              "wmi-recon"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-payload-delivery",
+            "steps": [
+              "scoping-installation",
+              "c2-http-metadata"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-registry-task",
+            "steps": [
+              "registry-run-persistence",
+              "scheduled-task-persistence"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has deployed a MATCHBOIL downloader that establishes persistence through Registry Run keys or scheduled tasks after performing WMI-based system discovery to uniquely identify the victim host.",
+        "blind_spots": [
+          {
+            "id": "internal-wmi-recon",
+            "risk": "C# processes can call WMI directly via APIs, which bypasses command-line monitoring for wmic.exe, making the discovery phase invisible.",
+            "stage": "discovery-wmi-recon",
+            "question": "whether the downloader performed WMI recon without spawning wmic.exe",
+            "requires": "EDR introspection into .NET ManagementObjectSearcher calls"
+          },
+          {
+            "id": "encrypted-c2-payload",
+            "risk": "HTTPS encryption prevents the identification of the payload inside the HTML script tags during transit.",
+            "stage": "c2-payload-delivery",
+            "question": "whether the hex-encoded payload was delivered in the HTTP response body",
+            "requires": "TLS inspection or endpoint memory analysis"
+          }
+        ],
+        "scoping_notes": "The hunt should prioritize workstations and servers in the transportation and energy sectors. Start with a broad lookback window as MATCHBOIL has been active for several years.",
+        "beyond_detection": "A simple Run-key rule might fire on many benign updaters; this hunt correlates folder creation, script-based delivery, WMI discovery, and rare HTTP metadata to reduce false positives and identify the full attack lifecycle."
+      }
+    },
+    {
+      "id": "scoping-installation",
+      "type": "query",
+      "label": "Scope for installation artifacts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE LOWER('{{target_folder_pattern}}') OR LOWER(file_name) = 'config.ini') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify hosts where the downloader's directory structure or configuration files have been created.",
+        "expected_signal": "Hosts showing the creation of the DeviceMonitor folder or config.ini files in AppData."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope for installation artifacts",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE LOWER('{{target_folder_pattern}}') OR LOWER(file_name) = 'config.ini') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts showing the creation of the DeviceMonitor folder or config.ini files in AppData.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "script-loaders",
+      "type": "query",
+      "label": "Script-based loaders",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%xmlhttp%' OR LOWER(script_content) LIKE '%adodb.stream%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Identify VBScript or PowerShell activity used to download and execute the primary MATCHBOIL binary.",
+        "expected_signal": "Script blocks containing web requests or stream-to-file logic. Silence indicates no script-based delivery was captured."
+      },
+      "parents": [
+        {
+          "id": "scoping-installation"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Script-based loaders",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "script_type",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, script_type, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%xmlhttp%' OR LOWER(script_content) LIKE '%adodb.stream%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks containing web requests or stream-to-file logic. Silence indicates no script-based delivery was captured.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "wmi-recon",
+      "type": "query",
+      "label": "WMI hardware discovery",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%wmic%' AND (LOWER(process_cmd_line) LIKE '%cpu%' OR LOWER(process_cmd_line) LIKE '%bios%')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find hardware fingerprinting commands used for victim identification during C2 check-in.",
+        "expected_signal": "WMIC commands querying CPUID or Serial Numbers. Silence may mean discovery was handled via internal .NET APIs."
+      },
+      "parents": [
+        {
+          "id": "scoping-installation"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "WMI hardware discovery",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%wmic%' AND (LOWER(process_cmd_line) LIKE '%cpu%' OR LOWER(process_cmd_line) LIKE '%bios%')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "WMIC commands querying CPUID or Serial Numbers. Silence may mean discovery was handled via internal .NET APIs.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "triage-early",
+      "type": "analytic",
+      "label": "Triage early indicators",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "scoping-installation",
+          "script-loaders",
+          "wmi-recon"
+        ],
+        "objective": "Identify hosts where file installation aligns with suspicious script activity or hardware discovery.",
+        "description": "Determine if the scoping files and initial execution patterns represent a suspicious MATCHBOIL lead.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict linking scoping files to script or WMI leads.",
+        "success_criteria": "A list of hosts showing evidence of multiple early-stage indicators."
+      },
+      "parents": [
+        {
+          "id": "script-loaders",
+          "kind": "merge"
+        },
+        {
+          "id": "wmi-recon",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "registry-run-persistence",
+      "type": "query",
+      "label": "Registry Run-key persistence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_name, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\currentversion\\run%' AND (LOWER(reg_value_name) = 'devicemonitor' OR LOWER(reg_value_data) LIKE '%devicemonitor%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_registry_activity",
+        "description": "Identify registry keys pointing to the downloader binary for persistence across reboots.",
+        "expected_signal": "Registry values in HKCU Run keys pointing to user-profile paths. Silence means persistence may be task-based."
+      },
+      "parents": [
+        {
+          "id": "triage-early"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Registry Run-key persistence",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "reg_value_name",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_name, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\currentversion\\run%' AND (LOWER(reg_value_name) = 'devicemonitor' OR LOWER(reg_value_data) LIKE '%devicemonitor%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Registry values in HKCU Run keys pointing to user-profile paths. Silence means persistence may be task-based.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "scheduled-task-persistence",
+      "type": "query",
+      "label": "Scheduled task persistence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_definition_path, time FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE '%checktask%' OR LOWER(job_definition_path) LIKE '%checktask%' OR LOWER(job_cmd_line) LIKE '%devicemonitor%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_scheduled_job",
+        "description": "Find scheduled tasks used to maintain execution or provide periodic payload updates.",
+        "expected_signal": "Scheduled tasks named CheckTask or pointing to the DeviceMonitor folder. Silence indicates no such task persistence."
+      },
+      "parents": [
+        {
+          "id": "triage-early"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Scheduled task persistence",
+        "reads": [
+          "device_hostname",
+          "job_cmd_line",
+          "job_definition_path",
+          "job_name",
+          "time"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_definition_path, time FROM hb_scheduled_job WHERE (LOWER(job_name) LIKE '%checktask%' OR LOWER(job_definition_path) LIKE '%checktask%' OR LOWER(job_cmd_line) LIKE '%devicemonitor%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Scheduled tasks named CheckTask or pointing to the DeviceMonitor folder. Silence indicates no such task persistence.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "c2-http-metadata",
+      "type": "query",
+      "label": "C2 HTTP metadata patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT url_hostname, user_agent, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_http_activity WHERE length(user_agent) = {{ua_length}} AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_hostname, user_agent HAVING hosts <= 3",
+        "surface": "hb_http_activity",
+        "description": "Baseline User-Agent lengths to find the anomalous 25-character strings documented in MATCHBOIL C2 traffic.",
+        "expected_signal": "Rare HTTP requests with 25-character User-Agents. Silence means C2 metadata has likely rotated."
+      },
+      "parents": [
+        {
+          "id": "triage-early"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "C2 HTTP metadata patterns",
+        "reads": [
+          "device_hostname",
+          "time",
+          "url_hostname",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT url_hostname, user_agent, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_http_activity WHERE length(user_agent) = {{ua_length}} AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_hostname, user_agent HAVING hosts <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare HTTP requests with 25-character User-Agents. Silence means C2 metadata has likely rotated.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_hostname",
+            "user_agent"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-10"
+      }
+    },
+    {
+      "id": "triage-full",
+      "type": "analytic",
+      "label": "Analyze full infection state",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "triage-early",
+          "registry-run-persistence",
+          "scheduled-task-persistence",
+          "c2-http-metadata"
+        ],
+        "objective": "Determine if any host exhibits a complete MATCHBOIL lifecycle from initial script execution to established persistence.",
+        "description": "Correlate early stage leads with persistence and C2 activity to produce a final verdict per host.",
+        "max_iterations": 4,
+        "expected_signal": "A high-confidence verdict for hosts displaying the full attack chain.",
+        "success_criteria": "A final verdict citing specific rows for script, discovery, persistence, and network metadata."
+      },
+      "parents": [
+        {
+          "id": "registry-run-persistence",
+          "kind": "merge"
+        },
+        {
+          "id": "scheduled-task-persistence",
+          "kind": "merge"
+        },
+        {
+          "id": "c2-http-metadata",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-full verdict is malicious for at least one host",
+        "condition": "the triage-full verdict is malicious for at least one host",
+        "blind_spot": "internal-wmi-recon",
+        "confidence": "high",
+        "description": "Direct the results to containment or manual analysis based on the agent's confidence.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-full"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate infected host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further payload delivery and lateral movement while preserving forensic state.",
+        "instructions": "Isolate the host from the network. Collect the DeviceMonitor directory contents and the config.ini file for forensic analysis before removing the Registry Run keys or scheduled tasks.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-review",
+      "type": "task",
+      "label": "Manual analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review findings and confirm UAC-0099 attribution.",
+        "instructions": "Review the script content fragments for VBS downloader logic. Verify if the 25-character User-Agent matches the identified hosts. Document the BIOS serial numbers or CPUIDs retrieved via WMI for further threat intelligence mapping."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document result and update detection logic.",
+        "instructions": "Record the findings. If the Registry Run-key query yielded high-confidence results with low noise, promote it to a standing detection rule."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "manual-review"
+        }
+      ]
+    }
+  ]
+}
