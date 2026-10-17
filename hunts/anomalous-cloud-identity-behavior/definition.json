@@ -1,0 +1,616 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Compromise of administrative cloud identities allows for full environment takeover. Identifying anomalous behavioral clusters (rare IP + proxy usage) is an essential control where MFA may be bypassed or not enforced."
+      },
+      "name": "Anomalous Cloud Identity Behavior",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1090.003",
+        "attack.t1190",
+        "attack.t1078.004"
+      ],
+      "series": {
+        "slug": "unmasking-cloud-identities-from-behavioral-clustering-to-automated-detection",
+        "index": 2,
+        "title": "Unmasking Cloud Identities: From Behavioral Clustering to Automated Detection",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "cloud-api-discovery-clustering",
+          "reason": "This hunt establishes the login anomaly; a follow-on hunt should examine clustered API discovery patterns once cloud audit logs are available.",
+          "relation": "follows"
+        },
+        {
+          "hunt": "public-app-exploitation-cloud-identity-drift",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A static detection rule would only trigger on a known Tor IP list. This hunt baselines administrative behavior to find rare IPs first, then pivots into DNS activity from related endpoints and identity security posture to provide a contextual risk score that reduces false positives from authorized remote administration.",
+      "coverage": [
+        {
+          "stage": "cloud-identity-authentication",
+          "steps": [
+            "rare-admin-signins-lead",
+            "evaluate-risk-of-lead",
+            "identity-posture-check"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "cloud-resource-discovery",
+          "reason": "Cloud discovery API calls (e.g., ListBuckets) are not recorded in the provided endpoint or auth surfaces; they require CloudTrail-style logs.",
+          "status": "not_visible",
+          "blind_spot": "no-cloud-audit-logs"
+        },
+        {
+          "stage": "multi-hop-proxy-obfuscation",
+          "steps": [
+            "network-obfuscation-dns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "exploit-public-application",
+          "reason": "Belongs to another part of the 'Unmasking Cloud Identities: From Behavioral Clustering to Automated Detection' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "client-side-execution",
+          "reason": "Belongs to another part of the 'Unmasking Cloud Identities: From Behavioral Clustering to Automated Detection' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Exploitation of Public-Facing Application",
+            "slug": "exploit-public-application",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Inbound exploitation attempts against internet-facing web servers",
+              "Unauthorized HTTP POST requests to vulnerable endpoints"
+            ]
+          },
+          {
+            "name": "User Execution of Malicious File",
+            "slug": "client-side-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "Execution of downloaded suspicious documents or binaries",
+              "Process spawning from browser or email client",
+              "Malicious file creation in temporary directories"
+            ]
+          },
+          {
+            "name": "Cloud Identity Authentication",
+            "slug": "cloud-identity-authentication",
+            "tactic": "initial-access",
+            "observables": [
+              "ConsoleLogin events",
+              "GetSigninToken activity",
+              "Identity naming patterns containing 'admin'",
+              "AWSReservedSSO_AdministratorAccess_ prefix usage"
+            ]
+          },
+          {
+            "name": "Cloud Resource Discovery",
+            "slug": "cloud-resource-discovery",
+            "tactic": "discovery",
+            "observables": [
+              "ListBuckets",
+              "ListRoles",
+              "ListNotificationHubs",
+              "GetCostAndUsage",
+              "GetCostForecast"
+            ]
+          },
+          {
+            "name": "Multi-hop Proxy Obfuscation",
+            "slug": "multi-hop-proxy-obfuscation",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Sign-in activity from known Tor exit nodes",
+              "Network connections to multi-hop VPS or ORB networks",
+              "Anomalous source IP addresses for administrative sessions"
+            ]
+          }
+        ],
+        "summary": "Attackers leverage exploited applications or social engineering to gain access to over-privileged cloud identities, which are then used to perform resource enumeration and discovery within AWS Management Console. To evade detection, actors masquerade using benign permission profiles and mask their activity source through multi-hop proxies or Tor, requiring behavioral clustering to distinguish malicious reconnaissance from legitimate administrative activity."
+      },
+      "severity": "medium",
+      "rationale": "Focus on AWS and Azure cloud tenants. Prioritize accounts that exhibit 'ConsoleLogin' activity without MFA from non-corporate IP ranges.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has compromised an administrative cloud identity and is accessing the environment through multi-hop proxies or Tor to perform discovery and initial access.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames to limit the DNS search to; leave empty to scan the entire estate."
+        },
+        "tor_domains": {
+          "from": {
+            "ref": "T1090.003",
+            "kind": "manual",
+            "observed": "2024-05-20"
+          },
+          "type": "list[domain]",
+          "default": [
+            "torproject.org",
+            "check.torproject.org",
+            "exitlist.torproject.org"
+          ],
+          "description": "Domains linked to Tor network infrastructure."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of activity to examine."
+        },
+        "admin_patterns": {
+          "from": {
+            "ref": "https://unit42.paloaltonetworks.com/behavioral-clustering-map-to-cloud-identities/",
+            "kind": "article",
+            "observed": "2026-09-14"
+          },
+          "type": "list[string]",
+          "default": [
+            "awsreservedsso_administratoraccess_",
+            "admin",
+            "superuser",
+            "root"
+          ],
+          "description": "Naming patterns associated with administrative roles."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://unit42.paloaltonetworks.com/behavioral-clustering-map-to-cloud-identities/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://unit42.paloaltonetworks.com/behavioral-clustering-map-to-cloud-identities/",
+          "name": "Unit 42 \u2014 Unmasking Cloud Identities: From Behavioral Clustering to Automated Detection"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-cloud-audit-logs",
+          "risk": "We can identify the login anomaly but not the subsequent actions taken within the cloud console.",
+          "stage": "cloud-resource-discovery",
+          "question": "What discovery operations (ListBuckets, ListRoles) did the identity perform?",
+          "requires": "Normalized hb_cloud_audit surface"
+        },
+        {
+          "id": "no-ip-reputation-data",
+          "risk": "The hunt must rely on behavioral rarity and DNS queries from managed hosts, potentially missing Tor logins from unmanaged devices.",
+          "stage": "multi-hop-proxy-obfuscation",
+          "question": "Does the source IP belong to a known Tor exit node or VPN provider?",
+          "requires": "External IP reputation feed"
+        }
+      ]
+    },
+    "name": "Anomalous Cloud Identity Behavior",
+    "description": "This hunt implements behavioral clustering logic to identify administrative identities operating outside of their normal baseline. It starts by identifying privileged sign-ins from rare source IP addresses. A gated evaluation determines if these logins warrant deeper investigation. If they do, the hunt fans out to look for evidence of network obfuscation, such as Tor DNS resolutions, and verifies the identity's security posture. An agent then synthesizes these results to detect credential abuse masked by multi-hop proxies."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "unmasking-cloud-identities-from-behavioral-clustering-to-automated-detection",
+          "index": 2,
+          "title": "Unmasking Cloud Identities: From Behavioral Clustering to Automated Detection",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "cloud-identity-authentication",
+            "steps": [
+              "rare-admin-signins-lead",
+              "evaluate-risk-of-lead",
+              "identity-posture-check"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "cloud-resource-discovery",
+            "reason": "Cloud discovery API calls (e.g., ListBuckets) are not recorded in the provided endpoint or auth surfaces; they require CloudTrail-style logs.",
+            "status": "not_visible",
+            "blind_spot": "no-cloud-audit-logs"
+          },
+          {
+            "stage": "multi-hop-proxy-obfuscation",
+            "steps": [
+              "network-obfuscation-dns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "exploit-public-application",
+            "reason": "Belongs to another part of the 'Unmasking Cloud Identities: From Behavioral Clustering to Automated Detection' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "client-side-execution",
+            "reason": "Belongs to another part of the 'Unmasking Cloud Identities: From Behavioral Clustering to Automated Detection' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has compromised an administrative cloud identity and is accessing the environment through multi-hop proxies or Tor to perform discovery and initial access.",
+        "blind_spots": [
+          {
+            "id": "no-cloud-audit-logs",
+            "risk": "We can identify the login anomaly but not the subsequent actions taken within the cloud console.",
+            "stage": "cloud-resource-discovery",
+            "question": "What discovery operations (ListBuckets, ListRoles) did the identity perform?",
+            "requires": "Normalized hb_cloud_audit surface"
+          },
+          {
+            "id": "no-ip-reputation-data",
+            "risk": "The hunt must rely on behavioral rarity and DNS queries from managed hosts, potentially missing Tor logins from unmanaged devices.",
+            "stage": "multi-hop-proxy-obfuscation",
+            "question": "Does the source IP belong to a known Tor exit node or VPN provider?",
+            "requires": "External IP reputation feed"
+          }
+        ],
+        "scoping_notes": "Focus on AWS and Azure cloud tenants. Prioritize accounts that exhibit 'ConsoleLogin' activity without MFA from non-corporate IP ranges.",
+        "beyond_detection": "A static detection rule would only trigger on a known Tor IP list. This hunt baselines administrative behavior to find rare IPs first, then pivots into DNS activity from related endpoints and identity security posture to provide a contextual risk score that reduces false positives from authorized remote administration."
+      }
+    },
+    {
+      "id": "rare-admin-signins-lead",
+      "type": "query",
+      "label": "Identify rare administrative sign-ins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, mfa, COUNT(*) AS login_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND (instr(',' || '{{admin_patterns}}' || ',', ',' || LOWER(actor_user_name) || ',') > 0 OR LOWER(actor_user_name) LIKE '%admin%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, dst_endpoint_name, mfa HAVING login_count < 5 ORDER BY login_count ASC",
+        "surface": "hb_auth_signin",
+        "description": "Establish a lead by finding privileged logins from source IPs that have appeared fewer than five times in the lookback window.",
+        "expected_signal": "Rows showing a privileged user logging into a service from an IP they do not typically use. Silence proves no rare administrative logins were recorded for these patterns."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify rare administrative sign-ins",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "mfa",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, mfa, COUNT(*) AS login_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND (instr(',' || '{{admin_patterns}}' || ',', ',' || LOWER(actor_user_name) || ',') > 0 OR LOWER(actor_user_name) LIKE '%admin%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, dst_endpoint_name, mfa HAVING login_count < 5 ORDER BY login_count ASC",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rows showing a privileged user logging into a service from an IP they do not typically use. Silence proves no rare administrative logins were recorded for these patterns.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "src_endpoint_ip",
+          "key": [
+            "actor_user_name",
+            "src_endpoint_ip"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "evaluate-risk-of-lead",
+      "type": "analytic",
+      "label": "Evaluate risk of the sign-in lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "rare-admin-signins-lead"
+        ],
+        "objective": "Review the rare sign-ins and identify users who logged in from rare IPs without MFA, or users whose names strongly match the sensitive administrative patterns.",
+        "description": "Determine if the identified rare sign-ins are sufficiently anomalous to trigger expensive network and identity checks.",
+        "max_iterations": 3,
+        "expected_signal": "A per-user risk assessment highlighting sessions with rare IPs and missing MFA.",
+        "success_criteria": "A clear list of suspicious users and source IPs that require further investigation."
+      },
+      "parents": [
+        {
+          "id": "rare-admin-signins-lead"
+        }
+      ]
+    },
+    {
+      "id": "gate-decision",
+      "type": "checkpoint",
+      "label": "Gate deeper analysis",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-risk-of-lead agent identifies at least one high-risk administrative sign-in from a rare IP address",
+        "condition": "the evaluate-risk-of-lead agent identifies at least one high-risk administrative sign-in from a rare IP address",
+        "blind_spot": "no-ip-reputation-data",
+        "confidence": "high",
+        "description": "Stop the hunt if the lead agent identifies only benign or expected administrative behavior.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-risk-of-lead"
+        }
+      ]
+    },
+    {
+      "id": "network-obfuscation-dns",
+      "type": "query",
+      "label": "Network obfuscation via Tor DNS",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, actor_user_name, src_endpoint_ip, time FROM hb_dns_activity WHERE (instr(',' || '{{tor_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR LOWER(query_hostname) LIKE '%.onion%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Search for DNS lookups to Tor-related domains from the endpoints associated with the suspicious logins.",
+        "expected_signal": "Rows mapping a host or user to Tor domain resolutions. Any hit confirms the use of anonymity software."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Network obfuscation via Tor DNS",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "actor_user_name",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, actor_user_name, src_endpoint_ip, time FROM hb_dns_activity WHERE (instr(',' || '{{tor_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR LOWER(query_hostname) LIKE '%.onion%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows mapping a host or user to Tor domain resolutions. Any hit confirms the use of anonymity software.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "identity-posture-check",
+      "type": "query",
+      "label": "Identity security posture",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT name, email, provider, mfa_enabled, status, created_at FROM hb_users WHERE status != 'active' OR mfa_enabled = 'false'",
+        "surface": "hb_users",
+        "description": "Verify the current status and MFA configuration of identities identified in the lead.",
+        "expected_signal": "Identity records showing users without MFA enabled or in a non-active status. This context increases the likelihood that a login anomaly is malicious."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Identity security posture",
+        "reads": [
+          "name",
+          "email",
+          "mfa_enabled",
+          "status"
+        ],
+        "source": "hb_users",
+        "target": "identity",
+        "content": "SELECT name, email, provider, mfa_enabled, status, created_at FROM hb_users WHERE status != 'active' OR mfa_enabled = 'false'",
+        "silence": "not_evidence_of_absence",
+        "expected": "Identity records showing users without MFA enabled or in a non-active status. This context increases the likelihood that a login anomaly is malicious.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-verdict",
+      "type": "analytic",
+      "label": "Triage the behavioral anomalies",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "evaluate-risk-of-lead",
+          "network-obfuscation-dns",
+          "identity-posture-check"
+        ],
+        "objective": "Determine if the anomalous administrative sign-ins indicate account compromise by correlating the rare IP results from the lead with any Tor DNS activity or weak identity posture found in the fan-out.",
+        "description": "Synthesize the rare sign-in evidence with network obfuscation and identity posture results.",
+        "max_iterations": 5,
+        "expected_signal": "A per-user verdict (malicious, suspicious, or benign) with supporting evidence from multiple surfaces.",
+        "success_criteria": "A per-host and per-user verdict citing specific DNS queries or login timestamps."
+      },
+      "parents": [
+        {
+          "id": "network-obfuscation-dns",
+          "kind": "merge"
+        },
+        {
+          "id": "identity-posture-check",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route based on triage",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-verdict agent identifies at least one administrative user as malicious due to the intersection of rare IPs and Tor activity",
+        "condition": "the triage-verdict agent identifies at least one administrative user as malicious due to the intersection of rare IPs and Tor activity",
+        "blind_spot": "no-cloud-audit-logs",
+        "confidence": "high",
+        "description": "Final decision to contain or review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-verdict"
+        }
+      ]
+    },
+    {
+      "id": "revoke-sessions",
+      "type": "action",
+      "label": "Revoke identity sessions",
+      "config": {
+        "target": "identity",
+        "description": "Contain the threat by terminating all active cloud sessions for the compromised user.",
+        "instructions": "Revoke all active sessions for the identified administrative users and force an immediate password reset and MFA rotation.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Post-incident cloud audit",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manual verification of the identity's activity in the cloud control plane.",
+        "instructions": "Examine native cloud audit logs (e.g., AWS CloudTrail) for the users identified in this hunt. Search for discovery operations like ListBuckets, ListRoles, or GetCostAndUsage. Verify if the rare source IP belongs to a known administrative jump box or a public proxy/Tor node."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "default"
+        },
+        {
+          "id": "gate-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "revoke-sessions"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final reporting and cleanup.",
+        "instructions": "Record the findings and update the admin_patterns list if legitimate administrative accounts were flagged. If any Tor activity was benign (e.g., research), document the exemption."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

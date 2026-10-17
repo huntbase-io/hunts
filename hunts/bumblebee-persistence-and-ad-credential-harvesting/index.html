@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bumblebee Persistence and AD Credential Harvesting · Huntbase Hub</title>
+  <link rel="icon" href="../../static/logo-icon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="../../favicon.ico" sizes="any">
+  <link rel="preload" href="../../static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <meta name="description" content="An adversary has established internal persistence through unauthorized remote access tools like RustDesk and is performing Active Directory credential harvesting by dumping the NTDS database and LSASS memory.">
+<link rel="canonical" href="https://hub.huntbase.io/hunts/bumblebee-persistence-and-ad-credential-harvesting/">
+  <meta property="og:site_name" content="Huntbase Hub">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Bumblebee Persistence and AD Credential Harvesting · Huntbase Hub">
+  <meta property="og:description" content="An adversary has established internal persistence through unauthorized remote access tools like RustDesk and is performing Active Directory credential harvesting by dumping the NTDS database and LSASS memory.">
+  <meta property="og:url" content="https://hub.huntbase.io/hunts/bumblebee-persistence-and-ad-credential-harvesting/">
+  <meta property="og:image" content="https://hub.huntbase.io/static/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Huntbase Hub: threat hunts from this week's research">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Bumblebee Persistence and AD Credential Harvesting · Huntbase Hub">
+  <meta name="twitter:description" content="An adversary has established internal persistence through unauthorized remote access tools like RustDesk and is performing Active Directory credential harvesting by dumping the NTDS database and LSASS memory.">
+  <meta name="twitter:image" content="https://hub.huntbase.io/static/og.png"><link rel="stylesheet" href="../../static/xyflow.css?v=269471c873">
+<meta property="article:published_time" content="2026-09-29T07:06:33.363375+00:00"><script>
+  // Before first paint, so the stacked no-JS layout never flashes.
+  document.documentElement.classList.add('js', 'hunt-page');
+</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"Bumblebee Persistence and AD Credential Harvesting","description":"An adversary has established internal persistence through unauthorized remote access tools like RustDesk and is performing Active Directory credential harvesting by dumping the NTDS database and LSASS memory.","url":"https://hub.huntbase.io/hunts/bumblebee-persistence-and-ad-credential-harvesting/","mainEntityOfPage":"https://hub.huntbase.io/hunts/bumblebee-persistence-and-ad-credential-harvesting/","image":"https://hub.huntbase.io/static/og.png","author":{"@type":"Organization","name":"Huntbase","url":"https://www.huntbase.io","logo":{"@type":"ImageObject","url":"https://hub.huntbase.io/static/logo-icon.svg"}},"publisher":{"@type":"Organization","name":"Huntbase","url":"https://www.huntbase.io","logo":{"@type":"ImageObject","url":"https://hub.huntbase.io/static/logo-icon.svg"}},"isAccessibleForFree":true,"keywords":"T1003.001, T1003.003, T1016, T1021.001, T1082, T1136.002, T1543.003, T1552.004, T1572, windows, active directory, azure, ivanti, powershell, rdp, vpn, command and control, credential access, discovery, execution, exfiltration, impact, initial access, lateral movement, threat hunting","datePublished":"2026-09-29T07:06:33.363375+00:00","dateModified":"2026-09-29T07:06:33.363375+00:00","isBasedOn":{"@type":"CreativeWork","name":"From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira","url":"https://thedfirreport.com/2026/06/29/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-3/","publisher":{"@type":"Organization","name":"The DFIR Report"}}}</script><script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Huntbase Hub","item":"https://hub.huntbase.io/"},{"@type":"ListItem","position":2,"name":"All hunts","item":"https://hub.huntbase.io/hunts/"},{"@type":"ListItem","position":3,"name":"Bumblebee Persistence and AD Credential Harvesting","item":"https://hub.huntbase.io/hunts/bumblebee-persistence-and-ad-credential-harvesting/"}]}</script>  <link rel="stylesheet" href="../../static/style.css?v=269471c873">
+  <link rel="alternate" type="application/atom+xml" title="Huntbase Hub" href="../../feed.xml">
+  <script>
+    // ?embed=1 drops the site chrome so a page can sit inside the website or the app.
+    if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');
+  </script>
+<script defer src="../../static/analytics.js" data-key="phc_NaC68cbX13YbvdvqE5AC1bwHivYSRhcZc6upjVubI8M" data-host="https://eu.i.posthog.com"></script></head>
+<body>
+  <header class="nav chrome">
+    <a class="brand" href="../../" aria-label="Huntbase Hub">
+      <img src="../../static/logo-dark.svg" alt="Huntbase" height="26">
+      <span class="brand-tag">Hub</span>
+    </a>
+    <nav>
+      <a href="../../hunts/">Hunts</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="../../feed.xml">Feed</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=nav" rel="noopener" data-track="signup" data-placement="nav">Sign up</a>
+      <a class="btn btn-brand" href="#subscribe" data-track="subscribe-jump" data-placement="nav">Get updates</a>
+    </nav>
+  </header>
+  <main><article class="hunt" data-slug="bumblebee-persistence-and-ad-credential-harvesting">
+  <header class="hunt-head">
+    <div class="kicker">
+        <a class="back chrome" href="../../hunts/">← All hunts</a>
+        <span class="badge sev high">high</span>
+        <span class="badge tlp">TLP:CLEAR</span>
+<span>Part 2 of 3</span>      </div>
+      <h1 class="heading-xl">Bumblebee Persistence and AD Credential Harvesting</h1>
+      <p class="hyp-lead">An adversary has established internal persistence through unauthorized remote access tools like RustDesk and is performing Active Directory credential harvesting by dumping the NTDS database and LSASS memory.</p>
+      <p class="facts">
+        <span>Based on research by <a href="https://thedfirreport.com/2026/06/29/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-3/" rel="noopener">The DFIR Report</a></span>
+<span>2026-09-29</span>        <span>9 steps · 3 queries</span>
+<span class="mono">T1003.001 T1003.003 T1016 T1021.001 T1082 T1136.002 T1543.003 T1552.004 T1572</span>      </p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=bumblebee-persistence-and-ad-credential-harvesting&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=bumblebee-persistence-and-ad-credential-harvesting" target="_top" rel="noopener" data-track="run" data-placement="header">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-ghost" href="hunt.md" download data-placement="header">Download hunt.md</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Hunt sections">
+    <a role="tab" href="#brief" data-tab="brief">Brief</a>
+    <a role="tab" href="#steps" data-tab="steps">Steps <span class="n">9</span></a>
+<a role="tab" href="#coverage" data-tab="coverage">Coverage</a><a role="tab" href="#parameters" data-tab="parameters">Parameters &amp; data</a>    <a role="tab" href="#source" data-tab="source">Source</a>
+  </nav>
+
+  <div class="panels">
+    <section class="panel two" id="brief" data-panel="brief" role="tabpanel">
+      <div class="pane">
+        <div class="prose">
+          <h2 class="panel-title heading-md">Brief</h2>
+          <h3>Why This Hunt</h3>
+<p>The DFIR Report recently published <a href="https://thedfirreport.com/2026/06/29/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-3/" rel="noopener noreferrer">From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira</a>, detailing an intrusion where Bumblebee served as the gateway for credential harvesting and eventual ransomware. This hunt provides a structured way to find these precursors.</p>
+<h3>How the Hunt Flows</h3>
+<p>The hunt begins with a lead query targeting process activity. It looks for reconnaissance tools like <code>systeminfo.exe</code> and <code>nltest.exe</code>, alongside SSH client parameters that indicate reverse or local port forwarding. This step identifies the systems acting as the initial beachhead or persistent nodes.</p>
+<p>Next, the hunt fans out into two parallel investigations. The first query stack-counts network connections on ports 22 and 3389. It filters for rare destinations where only one or two hosts connect, highlighting lateral movement or unauthorized management. The second query searches for signs of credential theft, specifically looking for <code>wbadmin.exe</code> used against the <code>ntds.dit</code> file or <code>lsassy.exe</code> executing against LSASS memory.</p>
+<p>An agent triages these results to correlate discovery commands, rare network peers, and harvesting artifacts. If the activity occurs on sensitive systems like Domain Controllers or backup servers, the analyst confirms the verdict. The playbook then routes to automated isolation for the compromised hosts or a manual review of PowerShell script logs.</p>
+<h3>Blind Spots and Limitations</h3>
+<p>This hunt cannot detect tools moved via the RDP clipboard because most EDR platforms lack clipboard audit telemetry. An adversary can introduce FileZilla or other exfiltration tools without generating a file-transfer network log. The hunt also faces challenges with heavily obfuscated scripts or fragmented script blocks that hide the decryption logic for Veeam or DPAPI credentials.</p>
+          <h3>In this series</h3>
+          <ul><li><a href="../../hunts/bumblebee-delivery-and-c2-establishment/">Part 1: Bumblebee Delivery and C2 Establishment</a></li><li><a href="../../hunts/bumblebee-delivery-persistence/">Part 1: Bumblebee Delivery and Persistence</a></li><li><a href="../../hunts/akira-exfiltration-impact/">Part 3: Akira Ransomware Exfiltration and Impact</a></li></ul>
+        </div>
+      </div>
+      <aside class="pane rail card">
+        <div class="rail-block">
+          <p class="eyebrow"><span>Coverage · 3 of 8 stages</span></p>
+          <div class="cov-bar" aria-hidden="true"><i></i><i></i><i></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i><i class="gap"></i></div>
+          <a href="#coverage">2 blind spots</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Telemetry needed</span></p>
+          <ul class="kv"><li><span>Endpoint telemetry (hb_ surfaces)</span><span class="dim">endpoint</span></li><li><span>Network telemetry</span><span class="dim">network</span></li></ul>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>Steps</span></p>
+          <ul class="kv"><li><span><i class="sw query"></i>Query</span><span class="mono">3</span></li><li><span><i class="sw analytic"></i>Agent triage</span><span class="mono">1</span></li><li><span><i class="sw checkpoint"></i>Decision</span><span class="mono">1</span></li><li><span><i class="sw action"></i>Response action</span><span class="mono">1</span></li><li><span><i class="sw task"></i>Analyst task</span><span class="mono">2</span></li></ul>
+          <a href="#steps">Walk through the steps</a>
+        </div>
+        <div class="rail-block">
+          <p class="eyebrow"><span>More hunts like this</span></p>
+          <ul class="kv"><li><a href="../../tactics/command-and-control/">Command And Control threat hunts</a></li><li><a href="../../tactics/credential-access/">Credential Access threat hunts</a></li><li><a href="../../tactics/discovery/">Discovery threat hunts</a></li><li><a href="../../tactics/execution/">Execution threat hunts</a></li><li><a href="../../tactics/exfiltration/">Exfiltration threat hunts</a></li><li><a href="../../tactics/impact/">Impact threat hunts</a></li><li><a href="../../tactics/initial-access/">Initial Access threat hunts</a></li><li><a href="../../tactics/lateral-movement/">Lateral Movement threat hunts</a></li><li><a href="../../products/active-directory/">Threat hunts for Active Directory</a></li><li><a href="../../products/azure/">Threat hunts for Azure</a></li><li><a href="../../products/ivanti/">Threat hunts for Ivanti</a></li><li><a href="../../products/powershell/">Threat hunts for PowerShell</a></li><li><a href="../../products/rdp/">Threat hunts for RDP</a></li><li><a href="../../products/vpn/">Threat hunts for VPN</a></li><li><a href="../../products/windows/">Threat hunts for Windows</a></li></ul>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="steps" data-panel="steps" role="tabpanel">
+      <h2 class="panel-title heading-md">Steps</h2>
+      <div id="hunt-graph" class="frame graph"></div>
+      <script type="application/json" id="hunt-graph-data">[{"description": "An adversary has established internal persistence through unauthorized remote access tools like RustDesk and is performing Active Directory credential harvesting by dumping the NTDS database and LSASS memory.", "expected": null, "id": "hypothesis", "label": "Hypothesis", "parents": [], "query": null, "role": null, "source": null, "type": "hypothesis"}, {"description": "Identify hosts running reconnaissance tools or showing signs of reverse SSH tunnel configurations.", "expected": "Execution of systeminfo, nltest, or RustDesk, or an SSH client configured with reverse/local port forwarding.", "id": "discovery-and-tunneling-lead", "label": "Discovery Tools and SSH Tunneling Lead", "parents": [{"branch": null, "id": "hypothesis", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(\u0027,\u0027 || \u0027{{discovery_tools}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 OR ((LOWER(process_name) = \u0027ssh.exe\u0027 OR LOWER(process_name) = \u0027plink.exe\u0027) AND (LOWER(process_cmd_line) LIKE \u0027% -r %:%:%\u0027 OR LOWER(process_cmd_line) LIKE \u0027% -l %:%:%\u0027))) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "detection-candidate", "source": "hb_process_activity", "type": "query"}, {"description": "Stack-count network connections on ports 3389 and 22 to find rare destinations, scoped to suspected beachhead hosts.", "expected": "An IP address receiving RDP or SSH traffic from only one or two hosts, which is atypical for centralized management gateways.", "id": "rare-network-peers", "label": "Identify Rare RDP and SSH Peers", "parents": [{"branch": null, "id": "discovery-and-tunneling-lead", "kind": null}], "query": "SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (dst_endpoint_port = 22 OR dst_endpoint_port = 3389) AND state_kind = \u0027log\u0027 AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027) GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count \u003c= 2 ORDER BY host_count ASC", "role": "baseline", "source": "hb_network_connection", "type": "query"}, {"description": "Search for direct evidence of Active Directory database dumping or LSASS memory harvesting, scoped to suspected beachhead hosts.", "expected": "Usage of wbadmin to export the NTDS database or lsassy to dump memory, often on a Domain Controller.", "id": "credential-harvesting-events", "label": "Credential Harvesting and AD Dumping", "parents": [{"branch": null, "id": "discovery-and-tunneling-lead", "kind": null}], "query": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (\u0027{{scope_hosts}}\u0027 = \u0027\u0027 OR instr(\u0027,\u0027 || \u0027{{scope_hosts}}\u0027 || \u0027,\u0027, \u0027,\u0027 || device_hostname || \u0027,\u0027) \u003e 0) AND (instr(\u0027,\u0027 || \u0027{{credential_tools}}\u0027 || \u0027,\u0027, \u0027,\u0027 || LOWER(process_name) || \u0027,\u0027) \u003e 0 OR LOWER(process_cmd_line) LIKE \u0027%ntds.dit%\u0027) AND time \u003e= datetime(\u0027now\u0027, \u0027-{{lookback_days}} days\u0027)", "role": "enrichment", "source": "hb_process_activity", "type": "query"}, {"description": "Weigh the discovery tools, rare network connections, and credential harvesting events to confirm an intrusion.", "expected": "A per-host verdict correlating the three types of evidence.", "id": "triage-intrusion-activity", "label": "Triage Intrusion Indicators", "parents": [{"branch": null, "id": "rare-network-peers", "kind": "merge"}, {"branch": null, "id": "credential-harvesting-events", "kind": "merge"}], "query": null, "role": null, "source": null, "type": "analytic"}, {"description": "Decide whether to isolate a host or perform manual forensic review.", "expected": null, "id": "route-on-verdict", "label": "Route on Verdict", "parents": [{"branch": null, "id": "triage-intrusion-activity", "kind": null}], "query": null, "role": null, "source": null, "type": "checkpoint"}, {"description": "Contain the threat and prevent further lateral movement or exfiltration.", "expected": null, "id": "isolate-compromised-host", "label": "Isolate Compromised Host", "parents": [{"branch": "on_supports", "id": "route-on-verdict", "kind": null}], "query": null, "role": null, "source": null, "type": "action"}, {"description": "Manually inspect script content for custom Veeam or DPAPI credential dumping logic.", "expected": null, "id": "script-forensics-review", "label": "Script Forensics Review", "parents": [{"branch": "default", "id": "route-on-verdict", "kind": null}, {"branch": "on_unavailable", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "isolate-compromised-host", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}, {"description": "Document findings and remediation results.", "expected": null, "id": "close-out", "label": "Close Out", "parents": [{"branch": "on_refutes", "id": "route-on-verdict", "kind": null}, {"branch": null, "id": "script-forensics-review", "kind": null}], "query": null, "role": null, "source": null, "type": "task"}]</script>
+      <ol class="steps steps-fallback">
+        <li class="card step" id="step-discovery-and-tunneling-lead">
+          <div class="step-head">
+            <h3 class="heading-sm">Discovery Tools and SSH Tunneling Lead</h3>
+            <span class="chip query">Query · detection candidate</span>
+          </div>
+<p>Identify hosts running reconnaissance tools or showing signs of reverse SSH tunnel configurations.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{discovery_tools}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR ((LOWER(process_name) = &#39;ssh.exe&#39; OR LOWER(process_name) = &#39;plink.exe&#39;) AND (LOWER(process_cmd_line) LIKE &#39;% -r %:%:%&#39; OR LOWER(process_cmd_line) LIKE &#39;% -l %:%:%&#39;))) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Execution of systeminfo, nltest, or RustDesk, or an SSH client configured with reverse/local port forwarding.</p>        </li>
+        <li class="card step" id="step-rare-network-peers">
+          <div class="step-head">
+            <h3 class="heading-sm">Identify Rare RDP and SSH Peers</h3>
+            <span class="chip query">Query · baseline</span>
+          </div>
+<p>Stack-count network connections on ports 3389 and 22 to find rare destinations, scoped to suspected beachhead hosts.</p>          <div class="code"><div class="code-head"><span>reads hb_network_connection</span><span>sql</span></div><pre><code>SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (dst_endpoint_port = 22 OR dst_endpoint_port = 3389) AND state_kind = &#39;log&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count &lt;= 2 ORDER BY host_count ASC</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> An IP address receiving RDP or SSH traffic from only one or two hosts, which is atypical for centralized management gateways.</p>        </li>
+        <li class="card step" id="step-credential-harvesting-events">
+          <div class="step-head">
+            <h3 class="heading-sm">Credential Harvesting and AD Dumping</h3>
+            <span class="chip query">Query · enrichment</span>
+          </div>
+<p>Search for direct evidence of Active Directory database dumping or LSASS memory harvesting, scoped to suspected beachhead hosts.</p>          <div class="code"><div class="code-head"><span>reads hb_process_activity</span><span>sql</span></div><pre><code>SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (instr(&#39;,&#39; || &#39;{{credential_tools}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_cmd_line) LIKE &#39;%ntds.dit%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)</code></pre></div>
+<p class="expected"><strong>What a hit looks like.</strong> Usage of wbadmin to export the NTDS database or lsassy to dump memory, often on a Domain Controller.</p>        </li>
+        <li class="card step" id="step-triage-intrusion-activity">
+          <div class="step-head">
+            <h3 class="heading-sm">Triage Intrusion Indicators</h3>
+            <span class="chip analytic">Agent triage</span>
+          </div>
+<p>Weigh the discovery tools, rare network connections, and credential harvesting events to confirm an intrusion.</p>        </li>
+        <li class="card step" id="step-route-on-verdict">
+          <div class="step-head">
+            <h3 class="heading-sm">Route on Verdict</h3>
+            <span class="chip checkpoint">Decision</span>
+          </div>
+<p>Decide whether to isolate a host or perform manual forensic review.</p>        </li>
+        <li class="card step" id="step-isolate-compromised-host">
+          <div class="step-head">
+            <h3 class="heading-sm">Isolate Compromised Host</h3>
+            <span class="chip action">Response action</span>
+          </div>
+<p>Contain the threat and prevent further lateral movement or exfiltration.</p>        </li>
+        <li class="card step" id="step-script-forensics-review">
+          <div class="step-head">
+            <h3 class="heading-sm">Script Forensics Review</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Manually inspect script content for custom Veeam or DPAPI credential dumping logic.</p>        </li>
+        <li class="card step" id="step-close-out">
+          <div class="step-head">
+            <h3 class="heading-sm">Close Out</h3>
+            <span class="chip task">Analyst task</span>
+          </div>
+<p>Document findings and remediation results.</p>        </li>
+      </ol>
+    </section>
+
+    <section class="panel two" id="coverage" data-panel="coverage" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Coverage</h2>
+        <p class="eyebrow"><span>Scenario coverage</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Stage</th><th>Covered</th><th>How, or why not</th></tr></thead>
+          <tbody>            <tr><td>Internal Reconnaissance and Persistence<br><span class="mono dim">T1082 · T1016 · T1136.002 · T1543.003</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>discovery-and-tunneling-lead, triage-intrusion-activity</td></tr>            <tr><td>SSH Tunneling and RDP Pivot<br><span class="mono dim">T1021.001 · T1572</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>rare-network-peers, triage-intrusion-activity</td></tr>            <tr><td>Active Directory and Veeam Credential Harvesting<br><span class="mono dim">T1003.003 · T1003.001 · T1552.004</span></td>
+            <td><span class="yes"><i class="dot"></i>Yes</span></td>
+            <td>credential-harvesting-events, script-forensics-review</td></tr>            <tr><td>SEO Poisoning Redirection<br><span class="mono dim">T1189 · T1583.008</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Bumblebee DLL Side-Loading<br><span class="mono dim">T1204.002 · T1574.002</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>AdaptixC2 Infrastructure Setup<br><span class="mono dim">T1071.001 · T1568.002 · T1055</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Data Exfiltration via SFTP<br><span class="mono dim">T1048.003 · T1020</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>            <tr><td>Akira Ransomware Impact<br><span class="mono dim">T1486 · T1490 · T1047</span></td>
+            <td><span class="no">Out of scope</span></td>
+            <td>Belongs to another part of the &#39;From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39; series.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Blind spots</span></p>
+        <ul class="blind">          <li class="card"><strong>Needs EDR clipboard audit logs.</strong> An adversary can move tools onto a server via clipboard without generating a file-transfer network log. <span class="dim">It would answer whether FileZilla was introduced via RDP clipboard.</span></li>          <li class="card"><strong>Needs hb_script_activity with high block counts.</strong> Mixed-case obfuscation and script-block fragmentation can make automated detection difficult. <span class="dim">It would answer whether custom credential-decryption scripts were used.</span></li>        </ul>
+      </div>
+    </section>
+
+    <section class="panel two" id="parameters" data-panel="parameters" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Parameters &amp; data</h2>
+        <p class="eyebrow"><span>Parameters</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>What it is</th></tr></thead>
+          <tbody>            <tr><td><code>credential_tools</code></td><td class="mono dim">list[string]</td><td class="mono">wbadmin.exe, lsassy.exe</td><td>Tools used to harvest credentials or dump databases.</td></tr>            <tr><td><code>discovery_tools</code></td><td class="mono dim">list[string]</td><td class="mono">systeminfo.exe, nltest.exe, rustdesk.exe</td><td>Legitimate tools often repurposed for discovery and persistence.</td></tr>            <tr><td><code>lookback_days</code></td><td class="mono dim">number</td><td class="mono">14</td><td>Days of history to examine for persistence and discovery.</td></tr>            <tr><td><code>scope_hosts</code></td><td class="mono dim">list[host]</td><td class="mono">—</td><td>The suspected beachhead hosts identified in the lead step; leave empty to scan the entire estate.</td></tr>          </tbody>
+        </table></div>
+      </div>
+      <div class="pane">
+        <p class="eyebrow"><span>Telemetry</span></p>
+        <div class="card tablewrap"><table>
+          <thead><tr><th>Source</th><th>Category</th><th>Telemetry</th></tr></thead>
+          <tbody>            <tr><td>Endpoint telemetry (hb_ surfaces)</td><td class="dim">endpoint</td><td class="mono">endpoint</td></tr>            <tr><td>Network telemetry</td><td class="dim">network</td><td class="mono">network</td></tr>          </tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="panel" id="source" data-panel="source" role="tabpanel">
+      <div class="pane">
+        <h2 class="panel-title heading-md">Source</h2>
+        <div class="actions">
+          <a class="btn btn-ghost" href="hunt.md" download data-placement="source">Download hunt.md</a>
+          <a class="btn btn-ghost" href="definition.json" download data-placement="source">Definition (JSON)</a>
+          <span class="dim">An open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file; it runs anywhere that reads the format.</span>
+        </div>
+        <pre class="source">---
+analysis: While a rule might flag wbadmin, this hunt correlates the discovery commands,
+  the rare SSH/RDP connection pairs, and the resulting credential harvesting events
+  to build a high-confidence narrative of an intrusion in progress.
+blind_spots:
+- id: no-clipboard-telemetry
+  question: whether FileZilla was introduced via RDP clipboard
+  requires: EDR clipboard audit logs
+  risk: An adversary can move tools onto a server via clipboard without generating
+    a file-transfer network log.
+  stage: lateral-movement-tunneling
+- id: obfuscated-script-truncation
+  question: whether custom credential-decryption scripts were used
+  requires: hb_script_activity with high block counts
+  risk: Mixed-case obfuscation and script-block fragmentation can make automated detection
+    difficult.
+  stage: credential-access-harvesting
+coverage:
+- stage: internal-discovery-and-persistence
+  status: covered
+  steps:
+  - discovery-and-tunneling-lead
+  - triage-intrusion-activity
+- stage: lateral-movement-tunneling
+  status: covered
+  steps:
+  - rare-network-peers
+  - triage-intrusion-activity
+- stage: credential-access-harvesting
+  status: covered
+  steps:
+  - credential-harvesting-events
+  - script-forensics-review
+- reason: &#39;Belongs to another part of the &#39;&#39;From Bing Search to Ransomware: Bumblebee
+    and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: initial-access-seo-redirection
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;From Bing Search to Ransomware: Bumblebee
+    and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: execution-dll-side-loading
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;From Bing Search to Ransomware: Bumblebee
+    and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: c2-establishment-adaptix
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;From Bing Search to Ransomware: Bumblebee
+    and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: data-exfiltration-sftp
+  status: out_of_scope
+- reason: &#39;Belongs to another part of the &#39;&#39;From Bing Search to Ransomware: Bumblebee
+    and AdaptixC2 Deliver Akira&#39;&#39; series.&#39;
+  stage: impact-ransomware-encryption
+  status: out_of_scope
+guardrails:
+  claims: no_unsupported
+  evidence: citation_required
+  missing_data: not_benign
+  telemetry: untrusted
+hunt:
+  applicability: campaign-specific
+  handoff: promote-to-detection
+  justification: Adversaries targeting Active Directory and Veeam credentials can
+    cripple an organization&#39;s recovery capability before deploying ransomware. Hunting
+    these precursors is critical for prevention.
+  methodology: model-assisted
+  trigger: intel-report
+hypothesis: An adversary has established internal persistence through unauthorized
+  remote access tools like RustDesk and is performing Active Directory credential
+  harvesting by dumping the NTDS database and LSASS memory.
+labels:
+- hunt
+- attack.t1082
+- attack.t1016
+- attack.t1136.002
+- attack.t1543.003
+- attack.t1021.001
+- attack.t1572
+- attack.t1003.003
+- attack.t1003.001
+- attack.t1552.004
+- command and control
+- credential access
+- discovery
+- execution
+- exfiltration
+- impact
+- initial access
+- lateral movement
+name: Bumblebee Persistence and AD Credential Harvesting
+parameters:
+  credential_tools:
+    default:
+    - wbadmin.exe
+    - lsassy.exe
+    description: Tools used to harvest credentials or dump databases.
+    from:
+      kind: article
+      observed: &#39;2026-06-29&#39;
+      ref: dfir-report-bumblebee-akira
+    type: list[string]
+  discovery_tools:
+    default:
+    - systeminfo.exe
+    - nltest.exe
+    - rustdesk.exe
+    description: Legitimate tools often repurposed for discovery and persistence.
+    from:
+      kind: article
+      observed: &#39;2026-06-29&#39;
+      ref: dfir-report-bumblebee-akira
+    type: list[string]
+  lookback_days:
+    default: &#39;14&#39;
+    description: Days of history to examine for persistence and discovery.
+    from:
+      kind: manual
+      observed: &#39;2024-01-01&#39;
+      ref: standard-retention
+    type: number
+  scope_hosts:
+    default: []
+    description: The suspected beachhead hosts identified in the lead step; leave
+      empty to scan the entire estate.
+    from:
+      kind: manual
+      observed: &#39;2024-01-01&#39;
+      ref: hunt-scoping
+    type: list[host]
+provenance:
+  authors:
+  - name: Huntbase hunt generation
+    org: huntbase.io
+  generated:
+    by: huntbase-hunt-generation
+    from: https://thedfirreport.com/2026/06/29/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-3/
+    gates:
+    - dry-run
+    - lint
+    model: hb_google/gemini-3-flash-preview
+rationale: Focus on Domain Controllers, backup servers, and the initial beachhead
+  host. Prioritize servers running PowerShell or harboring standard IT tools in AppData
+  folders.
+references:
+- name: &#39;From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39;
+  url: https://thedfirreport.com/2026/06/29/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira-3/
+related:
+- hunt: bumblebee-initial-access-and-sideloading
+  reason: This hunt focuses on the post-infection stage after Bumblebee has been deployed.
+  relation: precedes
+- hunt: akira-ransomware-impact-and-exfiltration
+  reason: Data exfiltration and encryption are the final stages after credential harvesting
+    is complete.
+  relation: follows
+- hunt: bumblebee-delivery-and-c2-establishment
+  relation: follows
+scenario:
+  stages:
+  - name: SEO Poisoning Redirection
+    observables:
+    - opmanager.pro
+    - download-center.online
+    - ip-scanner.org
+    - download-server.online
+    - soft-server.online
+    - soft-hub.pro
+    - netml.shop
+    - /Get?q=
+    slug: initial-access-seo-redirection
+    tactic: initial-access
+    techniques:
+    - T1189
+    - T1583.008
+  - name: Bumblebee DLL Side-Loading
+    observables:
+    - ManageEngine-OpManager.msi
+    - consent.exe
+    - msimg32.dll
+    - &#39;%TEMP%\ApplicationInstallationFolder_11&#39;
+    - ApplicationInstallationFolder_11
+    slug: execution-dll-side-loading
+    tactic: execution
+    techniques:
+    - T1204.002
+    - T1574.002
+  - name: AdaptixC2 Infrastructure Setup
+    observables:
+    - AdgNsy.exe
+    - 4.239.95.1:8080
+    - 84.32.84.32
+    slug: c2-establishment-adaptix
+    tactic: command-and-control
+    techniques:
+    - T1071.001
+    - T1568.002
+    - T1055
+  - name: Internal Reconnaissance and Persistence
+    observables:
+    - systeminfo
+    - nltest
+    - RustDesk
+    - Enterprise Admin accounts
+    slug: internal-discovery-and-persistence
+    tactic: discovery
+    techniques:
+    - T1082
+    - T1016
+    - T1136.002
+    - T1543.003
+  - name: SSH Tunneling and RDP Pivot
+    observables:
+    - reverse SSH tunnel
+    - RDP proxy traffic
+    slug: lateral-movement-tunneling
+    tactic: lateral-movement
+    techniques:
+    - T1021.001
+    - T1572
+  - name: Active Directory and Veeam Credential Harvesting
+    observables:
+    - wbadmin.exe
+    - ntds.dit
+    - lsassy
+    - Veeam credential dumping script
+    slug: credential-access-harvesting
+    tactic: credential-access
+    techniques:
+    - T1003.003
+    - T1003.001
+    - T1552.004
+  - name: Data Exfiltration via SFTP
+    observables:
+    - FileZilla.exe
+    - 75GB exfiltrated
+    - Ukrainian IP space
+    slug: data-exfiltration-sftp
+    tactic: exfiltration
+    techniques:
+    - T1048.003
+    - T1020
+  - name: Akira Ransomware Impact
+    observables:
+    - locker.exe
+    - delete Volume Shadow Copies
+    - WMI
+    slug: impact-ransomware-encryption
+    tactic: impact
+    techniques:
+    - T1486
+    - T1490
+    - T1047
+  summary: Threat actors utilized Bing SEO poisoning to deliver Bumblebee malware
+    via trojanized software installers, leading to the deployment of AdaptixC2 for
+    network discovery. The attackers leveraged RDP over SSH tunnels to move laterally
+    and harvest credentials from NTDS.dit and LSASS before exfiltrating 75GB of data
+    and deploying Akira ransomware.
+series:
+  index: 2
+  slug: from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira
+  title: &#39;From Bing Search to Ransomware: Bumblebee and AdaptixC2 Deliver Akira&#39;
+  total: 3
+severity: high
+targets:
+  analyst:
+    name: Tier-2 analyst
+    role: analyst
+  endpoint:
+    category: endpoint
+    name: Endpoint telemetry (hb_ surfaces)
+    telemetry:
+    - endpoint
+  hunter:
+    agent: true
+    name: Hunt agent
+  network:
+    category: network
+    name: Network telemetry
+    telemetry:
+    - network
+tlp: clear
+type: investigation
+---
+
+
+# Bumblebee Persistence and AD Credential Harvesting
+
+This hunt identifies post-initial-access activities following a Bumblebee infection, specifically focusing on internal reconnaissance, persistent remote access, and high-value credential harvesting. It follows a funnel flow: starting with a lead query for common discovery tools and SSH tunneling parameters, then fanning out to stack-count rare RDP/SSH destinations and search for Active Directory database extraction artifacts. An agent triages the results to distinguish between legitimate IT maintenance and the Akira ransomware attack chain.
+
+## discovery-and-tunneling-lead
+&lt;!-- Discovery Tools and SSH Tunneling Lead --&gt;
+Identify hosts running reconnaissance tools or showing signs of reverse SSH tunnel configurations.
+
+```sqlite target=endpoint role=detection-candidate params=(lookback_days=lookback_days, discovery_tools=discovery_tools)
+~~~yaml
+expected: Execution of systeminfo, nltest, or RustDesk, or an SSH client configured
+  with reverse/local port forwarding.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-29&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(&#39;,&#39; || &#39;{{discovery_tools}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR ((LOWER(process_name) = &#39;ssh.exe&#39; OR LOWER(process_name) = &#39;plink.exe&#39;) AND (LOWER(process_cmd_line) LIKE &#39;% -r %:%:%&#39; OR LOWER(process_cmd_line) LIKE &#39;% -l %:%:%&#39;))) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## fan-out-corroboration
+&lt;!-- Corroborate with Prevalence and Credential Access --&gt;
+parallel:
+- → rare-network-peers
+- → credential-harvesting-events
+join: → triage-intrusion-activity
+
+## rare-network-peers
+&lt;!-- Identify Rare RDP and SSH Peers --&gt;
+Stack-count network connections on ports 3389 and 22 to find rare destinations, scoped to suspected beachhead hosts.
+
+```sqlite target=network role=baseline params=(lookback_days=lookback_days, scope_hosts=scope_hosts)
+~~~yaml
+baseline:
+  compare: first_seen
+  window: &#39;{{lookback_days}}d&#39;
+expected: An IP address receiving RDP or SSH traffic from only one or two hosts, which
+  is atypical for centralized management gateways.
+prevalence:
+  by: device_hostname
+  key:
+  - dst_endpoint_ip
+  rare_below: 3
+reads:
+- dst_endpoint_ip
+- dst_endpoint_port
+- device_hostname
+- state_kind
+- time
+silence: not_evidence_of_absence
+source: hb_network_connection
+verified: dry-run
+verified_at: &#39;2026-09-29&#39;
+~~~
+SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (dst_endpoint_port = 22 OR dst_endpoint_port = 3389) AND state_kind = &#39;log&#39; AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;) GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count &lt;= 2 ORDER BY host_count ASC
+```
+
+## credential-harvesting-events
+&lt;!-- Credential Harvesting and AD Dumping --&gt;
+Search for direct evidence of Active Directory database dumping or LSASS memory harvesting, scoped to suspected beachhead hosts.
+
+```sqlite target=endpoint role=enrichment params=(lookback_days=lookback_days, credential_tools=credential_tools, scope_hosts=scope_hosts)
+~~~yaml
+expected: Usage of wbadmin to export the NTDS database or lsassy to dump memory, often
+  on a Domain Controller.
+reads:
+- device_hostname
+- process_name
+- process_cmd_line
+- user_name
+- time
+silence: not_evidence_of_absence
+source: hb_process_activity
+verified: dry-run
+verified_at: &#39;2026-09-29&#39;
+~~~
+SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (&#39;{{scope_hosts}}&#39; = &#39;&#39; OR instr(&#39;,&#39; || &#39;{{scope_hosts}}&#39; || &#39;,&#39;, &#39;,&#39; || device_hostname || &#39;,&#39;) &gt; 0) AND (instr(&#39;,&#39; || &#39;{{credential_tools}}&#39; || &#39;,&#39;, &#39;,&#39; || LOWER(process_name) || &#39;,&#39;) &gt; 0 OR LOWER(process_cmd_line) LIKE &#39;%ntds.dit%&#39;) AND time &gt;= datetime(&#39;now&#39;, &#39;-{{lookback_days}} days&#39;)
+```
+
+## triage-intrusion-activity
+&lt;!-- Triage Intrusion Indicators --&gt;
+```agent target=hunter
+cite: required
+context:
+- discovery-and-tunneling-lead
+- rare-network-peers
+- credential-harvesting-events
+max_iterations: 5
+objective: Determine whether the evidence across discovery, network peers, and credential
+  access indicates an active threat actor in the post-initial-access stage.
+success_criteria: Verdicts must distinguish between legitimate IT tool usage and unauthorized
+  activity like NTDS dumping or reverse SSH tunneling.
+tools:
+- endpoint
+- network
+```
+
+## route-on-verdict
+&lt;!-- Route on Verdict --&gt;
+if~: &#34;the triage verdict identifies malicious activity on a domain controller or backup server&#34; (confidence: high, judge=hunter)
+then: → isolate-compromised-host
+indeterminate: → script-forensics-review
+unavailable: → script-forensics-review (blind_spot: no-clipboard-telemetry)
+else: → close-out
+
+## isolate-compromised-host
+&lt;!-- Isolate Compromised Host --&gt;
+```action target=endpoint
+~~~yaml
+approval: required
+~~~
+Isolate the host immediately. Revoke any Enterprise Admin group changes observed in the last 48 hours.
+```
+→ script-forensics-review
+
+## script-forensics-review
+&lt;!-- Script Forensics Review --&gt;
+```manual target=analyst
+Query hb_script_activity for the host in question; look for blocks decrypting DPAPI or referencing Veeam password paths.
+```
+→ close-out
+
+## close-out
+&lt;!-- Close Out --&gt;
+```manual target=analyst
+Record all found accounts and hosts. Note any gaps in script telemetry where mixed-case obfuscation was observed.
+```
+→ end
+</pre>
+      </div>
+    </section>
+  </div>
+
+  <section class="related" aria-labelledby="related-title">
+    <h2 class="heading-md" id="related-title">Related hunts</h2>
+    <ol class="hunts">
+      <li class="card hunt-card">
+        <div class="row-head">
+          <div class="badges"><span class="badge sev high">high</span></div>
+          <span class="vendor">Research by The DFIR Report</span>
+        </div>
+        <h3 class="heading-sm"><a href="../../hunts/bumblebee-recon-privileged-persistence/">Bumblebee Reconnaissance and Privileged Persistence</a></h3>
+        <p class="hyp">An intruder is performing domain discovery and establishing privileged persistence by creating rogue administrator accounts and external SSH tunnels from compromised systems.</p>
+      </li>
+      <li class="card hunt-card">
+        <div class="row-head">
+          <div class="badges"><span class="badge sev high">high</span></div>
+          <span class="vendor">Research by The DFIR Report</span>
+        </div>
+        <h3 class="heading-sm"><a href="../../hunts/lateral-movement-ransomware-the-gentleman/">Lateral Movement and Ransomware Deployment: The Gentlemen</a></h3>
+        <p class="hyp">An adversary has moved laterally from an RMM-controlled beachhead using NetExec or GoTo Resolve to dump credentials and exfiltrate data to Wasabi before initiating domain-wide encryption via GPO.</p>
+      </li>
+      <li class="card hunt-card">
+        <div class="row-head">
+          <div class="badges"><span class="badge sev high">high</span></div>
+          <span class="vendor">Research by The DFIR Report</span>
+        </div>
+        <h3 class="heading-sm"><a href="../../hunts/decentralized-saas-c2-infrastructure/">Decentralized and SaaS C2 Infrastructure</a></h3>
+        <p class="hyp">An intruder uses decentralized blockchain gateways or SaaS platforms to resolve C2 configuration and tunnel traffic, bypassing static network perimeter filters.</p>
+      </li>
+      <li class="card hunt-card">
+        <div class="row-head">
+          <div class="badges"><span class="badge sev high">high</span></div>
+          <span class="vendor">Research by The DFIR Report</span>
+        </div>
+        <h3 class="heading-sm"><a href="../../hunts/etherrat-tuktuk-infection-discovery/">EtherRAT and TukTuk Initial Infection and Discovery</a></h3>
+        <p class="hyp">An intruder has gained initial access via a trojanized MSI installer, established persistence using a Node.js-based EtherRAT, and is currently performing system discovery or sideloading TukTuk payloads.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="band">
+    <p class="eyebrow light"><span>Run it</span></p>
+    <h2 class="heading-md">Take this hunt into your environment.</h2>
+    <p>Open it in Huntbase to run every step against your own connections, with Scout weighing the evidence and your analysts in command. Or take the open hunt.md file anywhere that reads the format.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=bumblebee-persistence-and-ad-credential-harvesting&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=bumblebee-persistence-and-ad-credential-harvesting" target="_top" rel="noopener" data-track="run" data-placement="band">Run hunt<span aria-hidden="true"> →</span></a>      <a class="btn btn-onink" href="hunt.md" download data-placement="band">Download hunt.md</a>
+      <a class="btn btn-onink" href="definition.json" download data-placement="band">Definition (JSON)</a>
+    </div>
+  </section>
+
+  <aside class="card subscribe">
+    <div>
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts like this one, every week: the research, the hypothesis and the queries.</p>
+    </div>
+    <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="hunt">
+  <label class="sr-only" for="sub-email-hunt">Email address</label>
+  <input id="sub-email-hunt" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+  </aside>
+
+  <aside class="card after-download chrome" id="after-download" hidden aria-live="polite">
+    <button type="button" class="close" aria-label="Dismiss">×</button>
+    <p class="eyebrow"><span>Downloaded</span></p>
+    <p>The file runs anywhere that reads hunt.md. In Huntbase it runs against your own connections.</p>
+    <div class="actions">
+<a class="btn btn-brand" href="https://app.huntbase.io/auth/sign-up?hub_hunt=bumblebee-persistence-and-ad-credential-harvesting&amp;utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=run-hunt&amp;utm_content=bumblebee-persistence-and-ad-credential-harvesting-after-download" target="_top" rel="noopener" data-track="run" data-placement="after-download">Run this in Huntbase<span aria-hidden="true"> →</span></a>      <a href="#subscribe" data-track="subscribe-jump" data-placement="after-download">Get new hunts by email</a>
+    </div>
+  </aside>
+
+  <p class="provenance">Machine-drafted by huntbase-hunt-generation using hb_google/gemini-3-flash-preview, gated by dry-run, lint, then reviewed by a person.</p>
+</article>
+</main>
+  <footer class="site chrome">
+    <div class="foot-grid">
+      <div>
+        <img src="../../static/logo-dark.svg" alt="Huntbase" height="24">
+        <p>Hunts drafted from public threat research, gated by automated checks and reviewed by a person before they are published.</p>
+      </div>
+      <div>
+        <h3>About these hunts</h3>
+        <p>The research behind each hunt belongs to its original authors. The analysis and detection logic are Huntbase's. Every hunt is an open <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md</a> file you can run anywhere that reads the format.</p>
+      </div>
+    </div>
+    <div class="foot-subscribe" id="subscribe">
+      <p class="eyebrow"><span>Weekly email</span></p>
+      <p>New hunts from the week's research, in your inbox every Tuesday.</p>
+      <form class="subscribe-form" action="https://news.hub.huntbase.io/subscription/form" method="get" target="_blank" data-subscribe data-placement="footer">
+  <label class="sr-only" for="sub-email-footer">Email address</label>
+  <input id="sub-email-footer" type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+  <button type="submit" class="btn btn-brand">Get new hunts by email<span aria-hidden="true"> →</span></button>
+  <p class="sub-note">One email a week, confirmation link first, leave whenever you like. <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener">More options</a></p>
+</form>
+
+    </div>
+    <nav class="foot-links" aria-label="Huntbase">
+      <a href="https://www.huntbase.io" rel="noopener">Huntbase</a>
+      <a href="../../hunts/">All hunts</a>
+      <a href="https://app.huntbase.io/auth/sign-up?utm_source=hub&amp;utm_medium=referral&amp;utm_campaign=signup&amp;utm_content=footer" rel="noopener" data-track="signup" data-placement="footer">Sign up</a>
+      <a href="https://docs.huntbase.io" rel="noopener">Docs</a>
+      <a href="https://github.com/huntbase-io/hunt-md" rel="noopener">hunt.md spec</a>
+      <a href="https://github.com/huntbase-io/hunts" rel="noopener">Hunts on GitHub</a>
+      <a href="https://news.hub.huntbase.io/subscription/form" target="_blank" rel="noopener" data-track="subscribe" data-placement="footer-links">Newsletter</a>
+      <a href="https://www.huntbase.io/legal/privacy" rel="noopener">Privacy</a>
+      <a href="https://www.huntbase.io/legal/terms" rel="noopener">Terms</a>
+    </nav>
+  </footer>
+  <script>
+  (() => {
+    // Inline newsletter forms. listmonk's public API sends no CORS headers, so
+    // the POST goes out in no-cors mode and the reply is opaque: the browser has
+    // already validated the address, and the real confirmation is the opt-in
+    // email, so success here means "sent", not "subscribed".
+    const api = "https://news.hub.huntbase.io/api/public/subscription", list = "72c40a64-91cd-4a64-8c41-14c9036a2b18", hosted = "https://news.hub.huntbase.io/subscription/form";
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    document.querySelectorAll('form[data-subscribe]').forEach((form) => {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = form.querySelector('input[type=email]');
+        const button = form.querySelector('button');
+        const email = input.value.trim();
+        button.disabled = true;
+        document.dispatchEvent(new CustomEvent('hub:subscribe', { detail: { placement: form.dataset.placement || '' } }));
+        try {
+          await fetch(api, { method: 'POST', mode: 'no-cors', body: new URLSearchParams({ email, l: list }) });
+          form.innerHTML = `<p class="sub-done" role="status"><strong>Almost there.</strong> We've sent a confirmation link to ${esc(email)}. Click it and you're subscribed.</p>`;
+        } catch (err) {
+          button.disabled = false;
+          form.querySelector('.sub-note').innerHTML = `We couldn't reach the newsletter service. <a href="${esc(hosted)}" target="_blank" rel="noopener">Subscribe on the form instead →</a>`;
+        }
+      });
+    });
+    // "Get updates" scrolls to the nearest form and puts the cursor in it: the
+    // hero form on the home page (the list below it grows as you scroll, so an
+    // anchor to the footer lands short), otherwise the footer form.
+    document.querySelectorAll('a[href="#subscribe"]').forEach((a) => a.addEventListener('click', (e) => {
+      const form = document.querySelector('.hero form[data-subscribe]') || document.querySelector('#subscribe form[data-subscribe]');
+      const input = form && form.querySelector('input[type=email]');
+      if (!input) return;
+      e.preventDefault();
+      form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => input.focus({ preventScroll: true }), 450);
+    }));
+  })();
+  </script>
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@19.3.0",
+  "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.6?deps=react@19.3.0,react-dom@19.3.0",
+  "@dagrejs/dagre": "https://esm.sh/@dagrejs/dagre@1.1.8",
+  "htm": "https://esm.sh/htm@3.1.1"
+} }
+</script>
+<script>
+  // Tabs are hash links: #steps opens a tab, #step-<id> opens Steps on that
+  // step. Without this script every section is simply on the page.
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-tab]')];
+    const panels = [...document.querySelectorAll('[data-panel]')];
+    const names = new Set(tabs.map((t) => t.dataset.tab));
+    const strip = document.querySelector('.tabs');
+
+    // Arriving at #steps, the browser jumps to the panel while every panel is
+    // still on the page; this script then hides the others, the document
+    // shrinks under the scroll position, and the page is parked in empty
+    // space. Put it where it belongs once the panels have settled.
+    //
+    // scrollIntoView, not arithmetic on a rect: the diagram mounts a moment
+    // later and changes the page height, and the browser recomputes where
+    // "the top" is at the moment it scrolls. The clearance for the sticky
+    // header is scroll-margin-top on .tabs, in the stylesheet.
+    const settle = (smooth) => {
+      if (strip) strip.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+    };
+    const show = ({ scroll = false, smooth = false } = {}) => {
+      const hash = location.hash.slice(1);
+      const name = hash.startsWith('step-') ? 'steps' : names.has(hash) ? hash : 'brief';
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+      panels.forEach((p) => { p.hidden = p.dataset.panel !== name; });
+      document.dispatchEvent(new CustomEvent('hunt:tab', { detail: name }));
+      // Twice: once now, and once after the diagram has mounted and the page
+      // has stopped moving underneath us.
+      if (scroll) {
+        requestAnimationFrame(() => settle(smooth));
+        setTimeout(() => settle(false), 350);
+      }
+    };
+    tabs.forEach((t) => t.addEventListener('click', (e) => {
+      e.preventDefault();
+      history.replaceState(null, '', t.getAttribute('href'));
+      show({ scroll: true, smooth: true });
+    }));
+    addEventListener('hashchange', () => show({ scroll: true }));
+    show({ scroll: Boolean(location.hash) });
+
+    // A download is not the end of the visit: say where the file can go next.
+    const prompt = document.getElementById('after-download');
+    document.querySelectorAll('a[download]').forEach((a) => a.addEventListener('click', () => { prompt.hidden = false; }));
+    prompt.querySelector('.close').addEventListener('click', () => { prompt.hidden = true; });
+  })();
+</script>
+<script type="module" src="../../static/dag.js?v=269471c873"></script>
+</body>
+</html>

@@ -1,0 +1,704 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries use proxies to blend into administrative login traffic; a phased hunt linking external obfuscation to internal access is required to distinguish this activity from legitimate remote work."
+      },
+      "name": "Obfuscated Identity and Host Access",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1090.003",
+        "attack.t1078",
+        "attack.t1021.001",
+        "attack.t1059"
+      ],
+      "related": [
+        {
+          "hunt": "internal-management-port-misuse",
+          "reason": "Focuses on management protocol abuse without the origin-masking correlation.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "This hunt connects proxy-related DNS activity specifically from auth processes to authoritative cloud sign-ins and subsequent rare internal movement, providing the multi-plane context and temporal correlation needed to verify a breach that single rules miss.",
+      "coverage": [
+        {
+          "stage": "proxy-tunneling-obfuscation",
+          "steps": [
+            "proxy-dns-check"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "cloud-identity-authentication",
+          "steps": [
+            "idp-auth-scoping",
+            "external-ip-prevalence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "internal-host-service-access",
+          "steps": [
+            "internal-access-pivot"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "endpoint-process-execution",
+          "steps": [
+            "rare-local-execution"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Multi-hop Proxy and Tunneling",
+            "slug": "proxy-tunneling-obfuscation",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "tunnel.us.ngrok.com",
+              "tunnel.eu.ngrok.com",
+              ".onion.city",
+              ".onion.direct",
+              "Tor exit nodes"
+            ]
+          },
+          {
+            "name": "Identity Provider Authentication",
+            "slug": "cloud-identity-authentication",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "jane.doe@example.com",
+              "okta",
+              "entra_id",
+              "microsoft_365"
+            ]
+          },
+          {
+            "name": "Access to Hosts and Services",
+            "slug": "internal-host-service-access",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1021.001"
+            ],
+            "observables": [
+              "host:9f86d081-1e0c-4b3f-8a2d-2c1e7bed425e",
+              "service:api-gateway",
+              "host.name",
+              "host.hostname"
+            ]
+          },
+          {
+            "name": "Local Host Activity",
+            "slug": "endpoint-process-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "user:jdoe@local",
+              "process_cmd_line",
+              "host.id"
+            ]
+          }
+        ],
+        "summary": "The campaign involves an adversary utilizing multi-hop proxies and tunneling services like ngrok or Tor to obfuscate their origin while authenticating to corporate identity providers such as Okta or Entra ID. Once authenticated, the actor accesses specific internal hosts and services, establishing a local presence that is tracked through entity resolution and risk scoring."
+      },
+      "severity": "high",
+      "rationale": "Start with logins from authoritative providers (Okta, Entra ID) and focus on source IPs that authenticate very few users. Widen the search if no tunneling DNS matches are found initially.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using multi-hop proxies or tunnels to mask their origin during authentication to cloud identity providers, subsequently using that access to reach internal hosts and execute local commands.",
+      "parameters": {
+        "admin_ports": {
+          "from": {
+            "ref": "standard-admin-ports",
+            "kind": "manual",
+            "observed": "2024-05-22"
+          },
+          "type": "list[string]",
+          "default": [
+            "22",
+            "445",
+            "3389",
+            "5985"
+          ],
+          "description": "Administrative ports associated with lateral movement."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2024-05-22"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hostnames to focus on for the follow-on phase."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2024-05-22"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "auth_providers": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2024-05-22"
+          },
+          "type": "list[string]",
+          "default": [
+            "okta",
+            "entra_id",
+            "microsoft_365",
+            "active_directory"
+          ],
+          "description": "Authoritative identity providers to monitor."
+        },
+        "proxy_indicators": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2024-05-22"
+          },
+          "type": "list[domain]",
+          "default": [
+            "tunnel.us.ngrok.com",
+            "tunnel.eu.ngrok.com",
+            "onion.city",
+            "onion.direct",
+            "hiddenservice.net",
+            "onion.ca",
+            "onion.cab",
+            "onion.casa"
+          ],
+          "description": "Proxy and tunneling domains identified in the research."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/entity-resolution-identity-scoring-elastic-security",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/entity-resolution-identity-scoring-elastic-security",
+          "name": "How a team of entity maintainers monitors, connects and scores entities in Elastic Security"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-auth-context",
+          "risk": "A login from a proxy might be benign if MFA is verified; without it, the hunt may over-alert on legitimate remote work.",
+          "stage": "cloud-identity-authentication",
+          "question": "Was MFA challenged and satisfied for the suspicious login?",
+          "requires": "hb_auth_signin with full MFA disposition"
+        },
+        {
+          "id": "short-dns-retention",
+          "risk": "If the beachhead was established beyond the retention window, the proxy activity will be invisible, breaking the correlation chain.",
+          "stage": "proxy-tunneling-obfuscation",
+          "question": "When was the tunneling infrastructure first contacted by this host?",
+          "requires": "hb_dns_activity with 30+ day retention"
+        }
+      ]
+    },
+    "name": "Obfuscated Identity and Host Access",
+    "description": "This hunt correlates network obfuscation with identity provider authentication and subsequent internal host activity. It follows a phased flow: first, it identifies proxy usage by authentication processes and authoritative sign-in events from identity providers; second, it pivots to observe rare internal network connections on administrative ports and suspicious process execution in the local context. This traces the full chain from an external proxy-originating login to local host execution, providing the context necessary to distinguish a breach from normal administrative access."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "proxy-tunneling-obfuscation",
+            "steps": [
+              "proxy-dns-check"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "cloud-identity-authentication",
+            "steps": [
+              "idp-auth-scoping",
+              "external-ip-prevalence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "internal-host-service-access",
+            "steps": [
+              "internal-access-pivot"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "endpoint-process-execution",
+            "steps": [
+              "rare-local-execution"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using multi-hop proxies or tunnels to mask their origin during authentication to cloud identity providers, subsequently using that access to reach internal hosts and execute local commands.",
+        "blind_spots": [
+          {
+            "id": "missing-auth-context",
+            "risk": "A login from a proxy might be benign if MFA is verified; without it, the hunt may over-alert on legitimate remote work.",
+            "stage": "cloud-identity-authentication",
+            "question": "Was MFA challenged and satisfied for the suspicious login?",
+            "requires": "hb_auth_signin with full MFA disposition"
+          },
+          {
+            "id": "short-dns-retention",
+            "risk": "If the beachhead was established beyond the retention window, the proxy activity will be invisible, breaking the correlation chain.",
+            "stage": "proxy-tunneling-obfuscation",
+            "question": "When was the tunneling infrastructure first contacted by this host?",
+            "requires": "hb_dns_activity with 30+ day retention"
+          }
+        ],
+        "scoping_notes": "Start with logins from authoritative providers (Okta, Entra ID) and focus on source IPs that authenticate very few users. Widen the search if no tunneling DNS matches are found initially.",
+        "beyond_detection": "This hunt connects proxy-related DNS activity specifically from auth processes to authoritative cloud sign-ins and subsequent rare internal movement, providing the multi-plane context and temporal correlation needed to verify a breach that single rules miss."
+      }
+    },
+    {
+      "id": "idp-auth-scoping",
+      "type": "query",
+      "label": "Identify authoritative IDP sign-ins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT DISTINCT actor_user_name, provider, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE status_id = 1 AND instr(',' || '{{auth_providers}}' || ',', ',' || LOWER(provider) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Narrow the hunt to users and source IPs associated with successful logins through authoritative identity providers.",
+        "expected_signal": "A list of successful cloud/SaaS logins. This identifies the active identities and source IPs that form the basis of the hunt."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify authoritative IDP sign-ins",
+        "reads": [
+          "actor_user_name",
+          "provider",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT DISTINCT actor_user_name, provider, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE status_id = 1 AND instr(',' || '{{auth_providers}}' || ',', ',' || LOWER(provider) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of successful cloud/SaaS logins. This identifies the active identities and source IPs that form the basis of the hunt.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "proxy-dns-check",
+      "type": "query",
+      "label": "Auth process DNS to proxy domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (LOWER(process_name) LIKE '%lsass.exe' OR LOWER(process_name) LIKE '%securityd') AND instr(',' || '{{proxy_indicators}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Detect DNS queries for proxy infrastructure originating specifically from authentication-related processes like lsass.exe or securityd.",
+        "expected_signal": "DNS resolutions from sensitive processes to known proxy domains. This is a high-fidelity indicator of a host being used as a masked point of origin."
+      },
+      "parents": [
+        {
+          "id": "idp-auth-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Auth process DNS to proxy domains",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE (LOWER(process_name) LIKE '%lsass.exe' OR LOWER(process_name) LIKE '%securityd') AND instr(',' || '{{proxy_indicators}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS resolutions from sensitive processes to known proxy domains. This is a high-fidelity indicator of a host being used as a masked point of origin.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "external-ip-prevalence",
+      "type": "query",
+      "label": "Rare source IP logins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_count, MIN(time) AS first_seen FROM hb_auth_signin WHERE status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING user_count <= 2 ORDER BY user_count ASC",
+        "surface": "hb_auth_signin",
+        "description": "Stack-rank source IPs for successful logins to identify anomalous or new locations for authoritative users.",
+        "expected_signal": "IPs that have successfully authenticated only a few users. Silence suggests all logins come from known, high-prevalence infrastructure."
+      },
+      "parents": [
+        {
+          "id": "idp-auth-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare source IP logins",
+        "reads": [
+          "src_endpoint_ip",
+          "actor_user_name",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_count, MIN(time) AS first_seen FROM hb_auth_signin WHERE status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING user_count <= 2 ORDER BY user_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "IPs that have successfully authenticated only a few users. Silence suggests all logins come from known, high-prevalence infrastructure.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-triage-agent",
+      "type": "analytic",
+      "label": "Triage early obfuscation and identity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "idp-auth-scoping",
+          "proxy-dns-check",
+          "external-ip-prevalence"
+        ],
+        "objective": "Determine if any identity provider login originated from a source IP associated with proxy DNS activity or is otherwise anomalous within the scope.",
+        "description": "Correlate proxy-related DNS activity with IDP sign-ins to find potentially compromised sessions.",
+        "max_iterations": 4,
+        "expected_signal": "Identification of suspect users and source IPs showing both proxy usage and successful logins.",
+        "success_criteria": "The agent identifies high-risk logins and potential beachhead hosts for the follow-on phase."
+      },
+      "parents": [
+        {
+          "id": "proxy-dns-check",
+          "kind": "merge"
+        },
+        {
+          "id": "external-ip-prevalence",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "internal-access-pivot",
+      "type": "query",
+      "label": "Pivot to rare admin connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = 'outbound' AND instr(',' || '{{admin_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_network_connection",
+        "description": "Identify outbound connections to internal networks on administrative ports that are rare across the fleet.",
+        "expected_signal": "Internal administrative access (SSH, RDP, SMB) performed by a small number of hosts, suggesting lateral movement rather than routine noise."
+      },
+      "parents": [
+        {
+          "id": "early-triage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Pivot to rare admin connections",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = 'outbound' AND instr(',' || '{{admin_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Internal administrative access (SSH, RDP, SMB) performed by a small number of hosts, suggesting lateral movement rather than routine noise.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip",
+            "dst_endpoint_port"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-local-execution",
+      "type": "query",
+      "label": "Rare local context execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_path, process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(user_name) LIKE '%local%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_path, process_cmd_line HAVING host_count <= 3",
+        "surface": "hb_process_activity",
+        "description": "Identify process execution in a 'local' user context that is rare across the fleet, avoiding hardcoded user names.",
+        "expected_signal": "Shell or tool execution within a local context that is unique to a few hosts. This matches the behavior of a user with host-scoped local activity."
+      },
+      "parents": [
+        {
+          "id": "early-triage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare local context execution",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_path",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_path, process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(user_name) LIKE '%local%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_path, process_cmd_line HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Shell or tool execution within a local context that is unique to a few hosts. This matches the behavior of a user with host-scoped local activity.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_path",
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "phased-synthesis-agent",
+      "type": "analytic",
+      "label": "Synthesize full intrusion chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "early-triage-agent",
+          "internal-access-pivot",
+          "rare-local-execution"
+        ],
+        "objective": "Determine if the rare internal connections and local shell execution constitute a direct continuation of a suspect identity compromise. Specifically, verify if the proxy-related DNS activity and the identity provider authentication occurred within 60 minutes of each other.",
+        "description": "Connect the early obfuscation results with the subsequent internal access and execution activity.",
+        "max_iterations": 5,
+        "expected_signal": "A confirmed intrusion path from external proxy to internal command execution with temporal correlation.",
+        "success_criteria": "The agent provides a verdict citing the timing and linkage between network obfuscation, authentication, and internal activity."
+      },
+      "parents": [
+        {
+          "id": "internal-access-pivot",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-local-execution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-decision",
+      "type": "checkpoint",
+      "label": "Route on intrusion verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the phased-synthesis-agent confirms a malicious intrusion where proxy-related DNS activity and identity provider authentication occur within 60 minutes of each other, followed by rare internal access or local execution",
+        "condition": "the phased-synthesis-agent confirms a malicious intrusion where proxy-related DNS activity and identity provider authentication occur within 60 minutes of each other, followed by rare internal access or local execution",
+        "blind_spot": "missing-auth-context",
+        "confidence": "high",
+        "description": "Direct the response based on the synthesis of the multi-stage evidence and temporal correlation.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "phased-synthesis-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate suspect host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the potentially compromised beachhead to prevent further lateral movement.",
+        "instructions": "Isolate the host identified by the triage agent. Rotate credentials for the involved identity provider account and revoke any active OAuth sessions.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the findings and investigate the extent of the local entity activity.",
+        "instructions": "Examine the process activity and network logs for the suspect hosts. Confirm if the local user execution aligns with the timing of the identity provider sign-in. Review the EUID derivation logic to see if multiple accounts were resolved into the same malicious actor."
+      },
+      "parents": [
+        {
+          "id": "route-decision",
+          "branch": "default"
+        },
+        {
+          "id": "route-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out and reporting",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the investigation and document the observed entity identifiers.",
+        "instructions": "Document the Entity Unique IDs (EUIDs) involved across providers. Record any tuning notes regarding the baseline of internal connections or local context execution. Provide feedback on proxy domain efficacy."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

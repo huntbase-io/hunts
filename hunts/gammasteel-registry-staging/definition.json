@@ -1,0 +1,531 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "GammaSteel's DPAPI-bound registry staging bypasses traditional file-system monitoring; verifying the integrity of these registry hives is essential for detecting persistent, fileless espionage."
+      },
+      "name": "Gammasteel Fileless PowerShell Registry Staging",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001",
+        "attack.t1547.001"
+      ],
+      "series": {
+        "slug": "fsb-s-matryoshka-3-3-gamaredon-s-gammasteel-infostealer",
+        "index": 1,
+        "title": "FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "gamaredon-run-key-persistence",
+          "reason": "The Run key persistence pointer is handled in a separate hunt in this series.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt pivots from anomalous registry volumes to script-level encryption calls and correlates them within a narrow time window, providing context that a single detection rule lacks.",
+      "coverage": [
+        {
+          "stage": "execution-powershell-dropper",
+          "steps": [
+            "hidden-powershell-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "registry-payload-staging",
+          "steps": [
+            "registry-staging-scoping",
+            "dpapi-script-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-run-key-pointer",
+          "reason": "Belongs to another part of the \"FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer\" series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "drive-and-profile-discovery",
+          "reason": "Belongs to another part of the \"FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer\" series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "s3-exfiltration",
+          "reason": "Belongs to another part of the \"FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer\" series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "PowerShell Dropper Execution",
+            "slug": "execution-powershell-dropper",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "powershell.exe -nol -nop -enc",
+              "Start-Process -FilePath \"powershell\" -ArgumentList \"-noexit\"",
+              "-WindowStyle Hidden",
+              "Global\\assembly307"
+            ]
+          },
+          {
+            "name": "Fileless Registry Staging via DPAPI",
+            "slug": "registry-payload-staging",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "HKCU\\Printers",
+              "KeZdDboas5kpxbkgxxvBx",
+              "ConvertTo-SecureString",
+              "ConvertFrom-SecureString",
+              "71 PowerShell functions"
+            ]
+          },
+          {
+            "name": "Persistence via Run Key Pointer",
+            "slug": "persistence-run-key-pointer",
+            "tactic": "persistence",
+            "techniques": [
+              "T1547.001"
+            ],
+            "observables": [
+              "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+              "Value name: $env:os",
+              "YxwHku2chu0bznt3kkyAB",
+              "powershell.exe -w hidden -command \"$a='HKCU:\\Printers'; $b=Get-ItemProperty ...\""
+            ]
+          },
+          {
+            "name": "WMI Drive and Profile Discovery",
+            "slug": "drive-and-profile-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1047",
+              "T1555"
+            ],
+            "observables": [
+              "gwmi win32_userprofile",
+              "S-1-5-21",
+              "Get-PSDrive -PSProvider FileSystem",
+              "Get-CimInstance Win32_LogicalDisk",
+              "System.Timers.Timer",
+              "Interval: 3600000"
+            ]
+          },
+          {
+            "name": "Data Exfiltration to S3 Storage",
+            "slug": "s3-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "tebi.io",
+              "MD5 hash deduplication log",
+              "plLmfuh4uctxjtrQSXC"
+            ]
+          }
+        ],
+        "summary": "Gamaredon's GammaSteel infostealer utilizes an advanced fileless mechanism, staging 71 encrypted PowerShell functions directly in the Windows registry using DPAPI. The malware achieves persistence through Run key pointers and employs recurring WMI-based scans and hardware listeners to identify and exfiltrate user documents to S3-compatible cloud storage."
+      },
+      "severity": "high",
+      "rationale": "Focus on user workstations where sensitive documentation is handled; Gamaredon targets HKCU, so the staging is user-specific.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has staged encrypted PowerShell payloads in the user Printers registry hive and is executing them via hidden processes that avoid file-based detection.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2026-06-11"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hosts to narrow the hunt; leave empty to scan the full estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2026-06-11"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "staging_registry_path": {
+          "from": {
+            "ref": "sekoia-gammasteel",
+            "kind": "article",
+            "observed": "2026-06-11"
+          },
+          "type": "string",
+          "default": "%\\printers\\%",
+          "description": "Registry path pattern where Gammasteel functions are staged, accounting for provider variations in hive naming."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.sekoia.com/blog/fsbs-matryoshka-3-3-gamaredons-gifts-that-keeps-unpacking-gammasteel",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.sekoia.com/blog/fsbs-matryoshka-3-3-gamaredons-gifts-that-keeps-unpacking-gammasteel",
+          "name": "FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-script-block-logging",
+          "risk": "We might see the registry artifacts but fail to confirm the malicious script logic without full block logging.",
+          "stage": "registry-payload-staging",
+          "question": "What specific logic was executed to decrypt the staged registry payloads?",
+          "requires": "hb_script_activity with full auditing (Event ID 4104)"
+        },
+        {
+          "id": "registry-retention",
+          "risk": "If only snapshots are available, we identify the staged payloads but not the historical actor process that wrote them.",
+          "stage": "registry-payload-staging",
+          "question": "Which process performed the registry writes?",
+          "requires": "hb_registry_activity (Sysmon event stream / log rows)"
+        }
+      ]
+    },
+    "name": "Gammasteel Fileless PowerShell Registry Staging",
+    "description": "This hunt identifies the initial staging and orchestrator execution of the GammaSteel infostealer. The malware uses DPAPI to encrypt over 70 functions directly into the HKCU\\Printers registry key, achieving fileless persistence. The orchestrator then runs from a hidden PowerShell process, reading and executing these functions directly in memory. We correlate unusual registry write volume in the Printers hive with script execution patterns involving DPAPI and hidden process command lines."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "fsb-s-matryoshka-3-3-gamaredon-s-gammasteel-infostealer",
+          "index": 1,
+          "title": "FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "execution-powershell-dropper",
+            "steps": [
+              "hidden-powershell-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "registry-payload-staging",
+            "steps": [
+              "registry-staging-scoping",
+              "dpapi-script-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-run-key-pointer",
+            "reason": "Belongs to another part of the \"FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer\" series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "drive-and-profile-discovery",
+            "reason": "Belongs to another part of the \"FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer\" series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "s3-exfiltration",
+            "reason": "Belongs to another part of the \"FSB\u2019s matryoshka #3/3: Gamaredon's Gammasteel Infostealer\" series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has staged encrypted PowerShell payloads in the user Printers registry hive and is executing them via hidden processes that avoid file-based detection.",
+        "blind_spots": [
+          {
+            "id": "no-script-block-logging",
+            "risk": "We might see the registry artifacts but fail to confirm the malicious script logic without full block logging.",
+            "stage": "registry-payload-staging",
+            "question": "What specific logic was executed to decrypt the staged registry payloads?",
+            "requires": "hb_script_activity with full auditing (Event ID 4104)"
+          },
+          {
+            "id": "registry-retention",
+            "risk": "If only snapshots are available, we identify the staged payloads but not the historical actor process that wrote them.",
+            "stage": "registry-payload-staging",
+            "question": "Which process performed the registry writes?",
+            "requires": "hb_registry_activity (Sysmon event stream / log rows)"
+          }
+        ],
+        "scoping_notes": "Focus on user workstations where sensitive documentation is handled; Gamaredon targets HKCU, so the staging is user-specific.",
+        "beyond_detection": "This hunt pivots from anomalous registry volumes to script-level encryption calls and correlates them within a narrow time window, providing context that a single detection rule lacks."
+      }
+    },
+    {
+      "id": "registry-staging-scoping",
+      "type": "query",
+      "label": "Scoping Registry Staging Volume",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, COUNT(DISTINCT reg_target) AS unique_keys, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '{{staging_registry_path}}' AND activity_id = 2 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING unique_keys > 5 ORDER BY unique_keys DESC",
+        "surface": "hb_registry_activity",
+        "description": "Identify hosts where an anomalous number of registry values are written to the Printers key, indicating payload staging.",
+        "expected_signal": "Hosts with multiple registry values written to the Printers hive. GammaSteel typically writes 71 unique keys."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scoping Registry Staging Volume",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "activity_id",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, COUNT(DISTINCT reg_target) AS unique_keys, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '{{staging_registry_path}}' AND activity_id = 2 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname HAVING unique_keys > 5 ORDER BY unique_keys DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts with multiple registry values written to the Printers hive. GammaSteel typically writes 71 unique keys.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "dpapi-script-activity",
+      "type": "query",
+      "label": "PowerShell DPAPI and Registry Staging Logic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%convert%securestring%' OR LOWER(script_content) LIKE '%protecteddata%' OR LOWER(script_content) LIKE '%cryptprotectdata%' OR LOWER(script_content) LIKE '%cryptunprotectdata%') AND LOWER(script_content) LIKE '%printers%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Detect the script content that uses DPAPI or native cryptography calls to protect payloads before writing them to the Printers key.",
+        "expected_signal": "Script blocks calling DPAPI encryption cmdlets or the ProtectedData class alongside references to the Printers hive."
+      },
+      "parents": [
+        {
+          "id": "registry-staging-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "PowerShell DPAPI and Registry Staging Logic",
+        "reads": [
+          "device_hostname",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%convert%securestring%' OR LOWER(script_content) LIKE '%protecteddata%' OR LOWER(script_content) LIKE '%cryptprotectdata%' OR LOWER(script_content) LIKE '%cryptunprotectdata%') AND LOWER(script_content) LIKE '%printers%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks calling DPAPI encryption cmdlets or the ProtectedData class alongside references to the Printers hive.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "hidden-powershell-lead",
+      "type": "query",
+      "label": "Hidden PowerShell Execution Patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE LOWER(process_name) LIKE '%powershell.exe' AND (LOWER(process_cmd_line) LIKE '%-w hidden%' OR LOWER(process_cmd_line) LIKE '%-windowstyle hidden%' OR LOWER(process_cmd_line) LIKE '%-nol %' OR LOWER(process_cmd_line) LIKE '%-nop %') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find hidden PowerShell processes that execute around the same time as the registry activity to identify the orchestrator.",
+        "expected_signal": "PowerShell processes launched with hidden windows or suppressed profiles, especially when matching the timing of registry writes."
+      },
+      "parents": [
+        {
+          "id": "registry-staging-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Hidden PowerShell Execution Patterns",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE LOWER(process_name) LIKE '%powershell.exe' AND (LOWER(process_cmd_line) LIKE '%-w hidden%' OR LOWER(process_cmd_line) LIKE '%-windowstyle hidden%' OR LOWER(process_cmd_line) LIKE '%-nol %' OR LOWER(process_cmd_line) LIKE '%-nop %') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "PowerShell processes launched with hidden windows or suppressed profiles, especially when matching the timing of registry writes.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-28"
+      }
+    },
+    {
+      "id": "triage-staging",
+      "type": "analytic",
+      "label": "Evaluate Staging Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "registry-staging-scoping",
+          "dpapi-script-activity",
+          "hidden-powershell-lead"
+        ],
+        "objective": "Determine if a host shows the GammaSteel staging pattern. Specifically, correlate the hidden PowerShell process execution with registry writes in the Printers hive within a 10-minute window, and identify DPAPI-related script blocks.",
+        "description": "Weigh the registry volume, script logic, and hidden process activity to confirm GammaSteel presence.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict citing specific registry activity and related PowerShell behavior.",
+        "success_criteria": "A per-host verdict citing the registry keys, script blocks, and temporal correlation with hidden processes."
+      },
+      "parents": [
+        {
+          "id": "dpapi-script-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "hidden-powershell-lead",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Staging Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "no-script-block-logging",
+        "confidence": "high",
+        "description": "Direct the response based on the confirmed presence of GammaSteel tradecraft.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-staging"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further exfiltration by isolating the infected host.",
+        "instructions": "Isolate the host and collect the HKCU registry hive for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "remediate-registry",
+      "type": "task",
+      "label": "Analyst Review and Registry Remediation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify findings and purge the malicious registry keys.",
+        "instructions": "Review the cited script content. Check for the Global\\assembly307 mutex. Purge any confirmed malicious values under HKCU\\Printers and the corresponding Run key pointer."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize documentation and close the hunt.",
+        "instructions": "Record the findings and ensure the hidden PowerShell detection is tuned to monitor for high-volume registry activity in the Printers hive."
+      },
+      "parents": [
+        {
+          "id": "remediate-registry"
+        }
+      ]
+    }
+  ]
+}

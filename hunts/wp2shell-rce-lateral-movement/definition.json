@@ -1,0 +1,594 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "wp2shell is a critical unauthenticated RCE in a ubiquitous CMS. Identifying successful exploitation before lateral movement can contain the blast radius of a public-facing compromise."
+      },
+      "name": "wp2shell: Endpoint RCE and Lateral Movement",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1021.001",
+        "attack.t1021.004",
+        "attack.t1078",
+        "attack.t1090.003"
+      ],
+      "series": {
+        "slug": "wp2shell-critical-rce-in-wordpress-core",
+        "index": 2,
+        "title": "wp2shell: critical RCE in WordPress core",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "wp-batch-api-sqli-exploit",
+          "reason": "Targets the HTTP-level exploitation of the batch API logic flaw.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "account-persistence-creation",
+          "reason": "Targets the database or identity-level creation of the administrative user.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "wordpress-core-rest-api-rce-wp2shell",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard rule alerts on sh spawning from a web server; this hunt adds critical context by scoping specifically to vulnerable WordPress versions and using stack-counting to differentiate malicious one-offs from routine maintenance scripts.",
+      "coverage": [
+        {
+          "stage": "host-rce-execution",
+          "steps": [
+            "rare-web-server-children"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "post-exploit-rdp-access",
+          "steps": [
+            "rdp-ssh-auth-on-exposed-hosts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "wordpress-vulnerability-exposure",
+          "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "wp-batch-api-sqli-exploit",
+          "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "account-persistence-creation",
+          "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "plugin-webshell-deployment",
+          "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Vulnerable WordPress Core Detection",
+            "slug": "wordpress-vulnerability-exposure",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "WordPress version 6.9.0-6.9.4",
+              "WordPress version 7.0.0-7.0.1",
+              "CVE-2026-63030",
+              "CVE-2026-60137"
+            ]
+          },
+          {
+            "name": "REST API Batch Endpoint SQLi",
+            "slug": "wp-batch-api-sqli-exploit",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190",
+              "T1090.003"
+            ],
+            "observables": [
+              "POST /wp-json/batch/v1",
+              "POST ?rest_route=/batch/v1",
+              "author__not_in parameter with UNION SELECT payloads",
+              "Traffic from Tor or proxy exit nodes"
+            ]
+          },
+          {
+            "name": "Unauthorized Administrator Creation",
+            "slug": "account-persistence-creation",
+            "tactic": "persistence",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "New administrator user creation via internal WordPress logic",
+              "Unexpected login to /wp-admin/ or /wp-login.php"
+            ]
+          },
+          {
+            "name": "Malicious Plugin Persistence",
+            "slug": "plugin-webshell-deployment",
+            "tactic": "persistence",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "Upload of .zip plugin files to /wp-admin/plugin-install.php",
+              "New .php files created in wp-content/plugins/"
+            ]
+          },
+          {
+            "name": "Remote Code Execution via Web Server",
+            "slug": "host-rce-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Web server (php-fpm, apache, nginx) spawning sh, bash, or cmd.exe",
+              "Execution of whoami, id, or net commands from web directory"
+            ]
+          },
+          {
+            "name": "Lateral Movement via RDP",
+            "slug": "post-exploit-rdp-access",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1021.001"
+            ],
+            "observables": [
+              "Inbound RDP connections on port 3389",
+              "Authentication to RDP using credentials created during the WordPress exploit"
+            ]
+          }
+        ],
+        "summary": "An unauthenticated attacker exploits a logic flaw in the WordPress REST API batch processor (CVE-2026-63030) combined with a SQL injection vulnerability (CVE-2026-60137) to bypass authentication. This exploit chain allows for the creation of unauthorized administrator accounts, which are subsequently used to upload malicious plugins for full remote code execution and lateral movement."
+      },
+      "severity": "high",
+      "rationale": "Focus on internet-facing servers identified in hb_software_inventory. Widen to internal staging servers if external hits are found.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has exploited the WordPress wp2shell vulnerability to gain shell access and is now attempting to move laterally within the network via RDP or SSH using credentials compromised from the web server.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2026-07-22"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the search; defaults to all hosts if empty."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2026-07-22"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "discovery_cmds": {
+          "from": {
+            "ref": "rapid7-wp2shell",
+            "kind": "article",
+            "observed": "2026-07-22"
+          },
+          "type": "list[string]",
+          "default": [
+            "whoami",
+            "id",
+            "net",
+            "ip",
+            "uname"
+          ],
+          "description": "Discovery binaries often run immediately after gaining a shell."
+        },
+        "shell_binaries": {
+          "from": {
+            "ref": "standard-shells",
+            "kind": "manual",
+            "observed": "2026-07-22"
+          },
+          "type": "list[string]",
+          "default": [
+            "sh",
+            "bash",
+            "cmd.exe",
+            "powershell.exe"
+          ],
+          "description": "Standard shell interpreters used in RCE."
+        },
+        "web_server_binaries": {
+          "from": {
+            "ref": "rapid7-wp2shell",
+            "kind": "article",
+            "observed": "2026-07-22"
+          },
+          "type": "list[string]",
+          "default": [
+            "php-fpm",
+            "apache2",
+            "httpd",
+            "nginx",
+            "php"
+          ],
+          "description": "Common web server or PHP processor executable names."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/etr-cve-2026-63030-wp2shell-a-critical-remote-code-execution-vulnerability-in-wordpress-core/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/etr-cve-2026-63030-wp2shell-a-critical-remote-code-execution-vulnerability-in-wordpress-core/",
+          "name": "Rapid7 \u2014 wp2shell: critical RCE in WordPress core"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-endpoint-telemetry",
+          "risk": "A host without an agent will appear in software inventory but will not report the shell activity that confirms a compromise.",
+          "stage": "host-rce-execution",
+          "question": "Are there vulnerable WordPress hosts without an endpoint agent?",
+          "requires": "hb_process_activity from an endpoint agent"
+        },
+        {
+          "id": "restricted-auth-logs",
+          "risk": "If an attacker moves laterally via a proprietary protocol or one not integrated into the auth surface, it will be missed here.",
+          "stage": "post-exploit-rdp-access",
+          "question": "Was lateral movement performed via a protocol not captured in normalized auth logs?",
+          "requires": "SSH and RDP sign-in details in hb_auth_signin"
+        }
+      ]
+    },
+    "name": "wp2shell: Endpoint RCE and Lateral Movement",
+    "description": "This hunt targets the post-exploitation host-level impact of the wp2shell critical RCE chain (CVE-2026-63030 and CVE-2026-60137). We first identify vulnerable WordPress installations across the estate. We then look for anomalous child processes, specifically shells and system discovery tools, spawned by web server processes. Finally, we correlate these findings with subsequent RDP or SSH authentication events on those same hosts to identify lateral movement attempts. The hunt uses stack-counting to isolate rare attacker behavior from routine administrative activity on public-facing servers."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "wp2shell-critical-rce-in-wordpress-core",
+          "index": 2,
+          "title": "wp2shell: critical RCE in WordPress core",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "host-rce-execution",
+            "steps": [
+              "rare-web-server-children"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "post-exploit-rdp-access",
+            "steps": [
+              "rdp-ssh-auth-on-exposed-hosts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "wordpress-vulnerability-exposure",
+            "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "wp-batch-api-sqli-exploit",
+            "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "account-persistence-creation",
+            "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "plugin-webshell-deployment",
+            "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has exploited the WordPress wp2shell vulnerability to gain shell access and is now attempting to move laterally within the network via RDP or SSH using credentials compromised from the web server.",
+        "blind_spots": [
+          {
+            "id": "missing-endpoint-telemetry",
+            "risk": "A host without an agent will appear in software inventory but will not report the shell activity that confirms a compromise.",
+            "stage": "host-rce-execution",
+            "question": "Are there vulnerable WordPress hosts without an endpoint agent?",
+            "requires": "hb_process_activity from an endpoint agent"
+          },
+          {
+            "id": "restricted-auth-logs",
+            "risk": "If an attacker moves laterally via a proprietary protocol or one not integrated into the auth surface, it will be missed here.",
+            "stage": "post-exploit-rdp-access",
+            "question": "Was lateral movement performed via a protocol not captured in normalized auth logs?",
+            "requires": "SSH and RDP sign-in details in hb_auth_signin"
+          }
+        ],
+        "scoping_notes": "Focus on internet-facing servers identified in hb_software_inventory. Widen to internal staging servers if external hits are found.",
+        "beyond_detection": "A standard rule alerts on sh spawning from a web server; this hunt adds critical context by scoping specifically to vulnerable WordPress versions and using stack-counting to differentiate malicious one-offs from routine maintenance scripts."
+      }
+    },
+    {
+      "id": "scope-vulnerable-wordpress",
+      "type": "query",
+      "label": "Identify vulnerable WordPress hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_version FROM hb_software_inventory WHERE LOWER(package_name) = 'wordpress' AND ((package_version LIKE '6.8.%' AND package_version < '6.8.6') OR (package_version LIKE '6.9.%' AND package_version < '6.9.5') OR (package_version LIKE '7.0.%' AND package_version < '7.0.2'))",
+        "surface": "hb_software_inventory",
+        "description": "Scope the estate to hosts running WordPress versions affected by the SQLi and RCE vulnerabilities.",
+        "expected_signal": "A list of hosts running vulnerable WordPress versions (6.8.x < 6.8.6, 6.9.x < 6.9.5, or 7.0.x < 7.0.2). Silence means no vulnerable packages were found."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable WordPress hosts",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_version FROM hb_software_inventory WHERE LOWER(package_name) = 'wordpress' AND ((package_version LIKE '6.8.%' AND package_version < '6.8.6') OR (package_version LIKE '6.9.%' AND package_version < '6.9.5') OR (package_version LIKE '7.0.%' AND package_version < '7.0.2'))",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts running vulnerable WordPress versions (6.8.x < 6.8.6, 6.9.x < 6.9.5, or 7.0.x < 7.0.2). Silence means no vulnerable packages were found.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-web-server-children",
+      "type": "query",
+      "label": "Rare shells from web server processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, parent_process_name, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(parent_process_name) LIKE '%/php-fpm' OR LOWER(parent_process_name) LIKE '%/nginx' OR LOWER(parent_process_name) LIKE '%/httpd' OR LOWER(parent_process_name) LIKE '%/apache2' OR instr(',' || '{{web_server_binaries}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0) AND (LOWER(process_name) LIKE '%/sh' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%\\cmd.exe' OR LOWER(process_name) LIKE '%\\powershell.exe' OR instr(',' || '{{shell_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || '{{discovery_cmds}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, parent_process_name, process_name, process_cmd_line HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Identify instances where a web server spawned a shell or discovery tool that is rare across the fleet, indicative of RCE.",
+        "expected_signal": "One-off or rare shell executions from web server parents on vulnerable hosts. Silence suggests no active execution was observed in this window."
+      },
+      "parents": [
+        {
+          "id": "scope-vulnerable-wordpress"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Rare shells from web server processes",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, parent_process_name, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(parent_process_name) LIKE '%/php-fpm' OR LOWER(parent_process_name) LIKE '%/nginx' OR LOWER(parent_process_name) LIKE '%/httpd' OR LOWER(parent_process_name) LIKE '%/apache2' OR instr(',' || '{{web_server_binaries}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0) AND (LOWER(process_name) LIKE '%/sh' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%\\cmd.exe' OR LOWER(process_name) LIKE '%\\powershell.exe' OR instr(',' || '{{shell_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || '{{discovery_cmds}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, parent_process_name, process_name, process_cmd_line HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "One-off or rare shell executions from web server parents on vulnerable hosts. Silence suggests no active execution was observed in this window.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "parent_process_name",
+            "process_name",
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rdp-ssh-auth-on-exposed-hosts",
+      "type": "query",
+      "label": "RDP and SSH authentication on vulnerable hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "identity",
+        "content": "SELECT dst_endpoint_name, actor_user_name, auth_protocol, src_endpoint_ip, time FROM hb_auth_signin WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || dst_endpoint_name || ',') > 0)) AND (LOWER(auth_protocol) LIKE '%rdp%' OR LOWER(auth_protocol) LIKE '%ssh%' OR LOWER(auth_protocol) LIKE '%negotiate%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify potential lateral movement by searching for successful RDP or SSH sign-ins to the vulnerable WordPress hosts.",
+        "expected_signal": "Successful RDP or SSH sign-ins to the targeted hosts. Silence does not rule out lateral movement via other protocols."
+      },
+      "parents": [
+        {
+          "id": "rare-web-server-children"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "RDP and SSH authentication on vulnerable hosts",
+        "reads": [
+          "dst_endpoint_name",
+          "actor_user_name",
+          "auth_protocol",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT dst_endpoint_name, actor_user_name, auth_protocol, src_endpoint_ip, time FROM hb_auth_signin WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || dst_endpoint_name || ',') > 0)) AND (LOWER(auth_protocol) LIKE '%rdp%' OR LOWER(auth_protocol) LIKE '%ssh%' OR LOWER(auth_protocol) LIKE '%negotiate%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Successful RDP or SSH sign-ins to the targeted hosts. Silence does not rule out lateral movement via other protocols.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-triage",
+      "type": "analytic",
+      "label": "Evaluate exposure and post-exploit behavior",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "scope-vulnerable-wordpress",
+          "rare-web-server-children",
+          "rdp-ssh-auth-on-exposed-hosts"
+        ],
+        "objective": "Identify hosts that are both vulnerable to wp2shell and show signs of RCE or subsequent lateral movement via RDP/SSH.",
+        "description": "Determine which WordPress hosts are likely compromised based on vulnerability presence and anomalous behavioral telemetry.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict linking vulnerability status to observed process or authentication anomalies.",
+        "success_criteria": "A per-host verdict (malicious | suspicious | benign) citing command lines and RDP/SSH source IPs."
+      },
+      "parents": [
+        {
+          "id": "rdp-ssh-auth-on-exposed-hosts"
+        }
+      ]
+    },
+    {
+      "id": "route-results",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent triage verdict is malicious or suspicious for at least one host",
+        "condition": "the agent triage verdict is malicious or suspicious for at least one host",
+        "blind_spot": "missing-endpoint-telemetry",
+        "confidence": "high",
+        "description": "Route to remediation if compromise is likely, or close-out if only exposure is found.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-triage"
+        }
+      ]
+    },
+    {
+      "id": "task-remediation-review",
+      "type": "task",
+      "label": "Remediation and incident response",
+      "config": {
+        "assignee": "analyst",
+        "description": "Address confirmed compromise or vulnerability exposure.",
+        "instructions": "For hosts with malicious child process activity, initiate incident response. For those identified only as vulnerable, ensure WordPress is updated to 6.8.6, 6.9.5, or 7.0.2 immediately."
+      },
+      "parents": [
+        {
+          "id": "route-results",
+          "branch": "on_supports"
+        },
+        {
+          "id": "route-results",
+          "branch": "default"
+        },
+        {
+          "id": "route-results",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "task-close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and exposure state.",
+        "instructions": "Record the hosts reviewed and confirm that remediation or patching is completed for all vulnerable instances."
+      },
+      "parents": [
+        {
+          "id": "route-results",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "task-remediation-review"
+        }
+      ]
+    }
+  ]
+}

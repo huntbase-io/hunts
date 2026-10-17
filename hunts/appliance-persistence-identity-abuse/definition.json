@@ -1,0 +1,567 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Compromised network appliances provide deep persistence; monitoring for script-driven MFA removal and native webhook exfiltration protects the core identity boundary even when traditional endpoint logs are unavailable."
+      },
+      "name": "Appliance Persistence and Identity Abuse",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1556",
+        "attack.t1566",
+        "attack.t1684.001"
+      ],
+      "series": {
+        "slug": "identity-abuse-through-trusted-communication-channels",
+        "index": 2,
+        "title": "Identity Abuse Through Trusted Communication Channels",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "initial-access-collaboration-phishing",
+          "reason": "This hunt focuses on post-compromise appliance persistence; the initial phishing via Teams or Slack is handled by a separate hunt focusing on communication logs.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "collaboration-platform-phishing-and-execution",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule on Slack webhooks would trigger on legitimate IT notifications. This hunt is effective because it pivots from suspicious security-related task modifications to specific exfiltration behaviors and then corroborates with identity-provider anomalies (MFA bypass) to confirm malicious intent.",
+      "coverage": [
+        {
+          "stage": "authentication-process-modification",
+          "steps": [
+            "suspicious-appliance-jobs",
+            "non-mfa-logins"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-exfiltration-webhook",
+          "steps": [
+            "exfiltration-webhooks"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-collaboration-phishing",
+          "reason": "Belongs to another part of the 'Identity Abuse Through Trusted Communication Channels' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "trusted-channel-impersonation",
+          "reason": "Belongs to another part of the 'Identity Abuse Through Trusted Communication Channels' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "endpoint-payload-execution",
+          "reason": "Belongs to another part of the 'Identity Abuse Through Trusted Communication Channels' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Identity Phishing via Collaboration Tools",
+            "slug": "initial-access-collaboration-phishing",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "hooks.slack.com",
+              "Google Sites authentication links",
+              "External federation chat requests in Microsoft Teams",
+              "Requests to approve MFA notifications"
+            ]
+          },
+          {
+            "name": "Impersonation of Trusted Personas",
+            "slug": "trusted-channel-impersonation",
+            "tactic": "stealth",
+            "techniques": [
+              "T1684.001"
+            ],
+            "observables": [
+              "Google Meet interview sessions",
+              "IT support impersonation",
+              "Recruitment-themed social engineering",
+              "Malicious GitHub repository cloning"
+            ]
+          },
+          {
+            "name": "User-Executed Malicious Payloads",
+            "slug": "endpoint-payload-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "WinRAR.exe",
+              "lpk.dll",
+              "npm install",
+              "Explorer.exe launching RAR files",
+              "Extraction of masquerading DLLs"
+            ]
+          },
+          {
+            "name": "Modification of Authentication Process",
+            "slug": "authentication-process-modification",
+            "tactic": "persistence",
+            "techniques": [
+              "T1556"
+            ],
+            "observables": [
+              "Removal of MFA/2FA from privileged accounts",
+              "Scripts on VPN/firewall appliances disabling security settings",
+              "Creation of weekly scheduled tasks for credential collection"
+            ]
+          },
+          {
+            "name": "Exfiltration via Native Slack Webhook",
+            "slug": "credential-exfiltration-webhook",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1556"
+            ],
+            "observables": [
+              "POST requests to hooks.slack.com",
+              "curl user-agent in outbound appliance traffic",
+              "Native Slack notification integrations on network hardware"
+            ]
+          }
+        ],
+        "summary": "Threat actors exploit trusted collaboration platforms like Microsoft Teams and Slack to deliver phishing links and impersonate internal stakeholders for initial access. Post-compromise, they maintain persistence by modifying authentication settings on network appliances and use native Slack webhook integrations to exfiltrate credentials and sensitive data."
+      },
+      "severity": "high",
+      "rationale": "Focus on hostnames indicating network infrastructure (e.g., vpn-*, fw-*). Use the output of the first query to populate the scope_hosts parameter for the parallel branch.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has modified appliance scheduled tasks to disable MFA and is exfiltrating credentials via native Slack webhook integrations.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames of appliances or services to focus on; leave empty to scan the whole estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "slack_hook_domain": {
+          "from": {
+            "ref": "unit42-comm-channels",
+            "kind": "article",
+            "observed": "2026-08-20"
+          },
+          "type": "domain",
+          "default": "hooks.slack.com",
+          "description": "Slack webhook endpoint used for exfiltration."
+        },
+        "suspicious_user_agents": {
+          "type": "list[string]",
+          "default": [
+            "curl",
+            "python-requests",
+            "wget",
+            "go-http-client"
+          ],
+          "description": "User agents typically used by scripts rather than standard integrations."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://unit42.paloaltonetworks.com/communication-channel-identity-risks/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://unit42.paloaltonetworks.com/communication-channel-identity-risks/",
+          "name": "Unit 42 \u2014 Identity Abuse Through Trusted Communication Channels"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "appliance-visibility-gap",
+          "risk": "Low-level persistence within the appliance OS would be missed by hb_scheduled_job.",
+          "stage": "authentication-process-modification",
+          "question": "whether the adversary modified an internal configuration file or binary that does not appear in the scheduled task list",
+          "requires": "Deep OS-level auditing on network appliances"
+        },
+        {
+          "id": "webhook-content-blindness",
+          "risk": "We can detect the destination and the exfiltration tool (curl), but cannot confirm which specific credentials or tokens were stolen.",
+          "stage": "credential-exfiltration-webhook",
+          "question": "the specific content of the exfiltrated data",
+          "requires": "TLS inspection for outbound HTTPS"
+        }
+      ]
+    },
+    "name": "Appliance Persistence and Identity Abuse",
+    "description": "The adversary disables multifactor authentication and exfiltrates credentials by modifying network appliance configuration scripts. This hunt identifies these post-compromise activities. It focuses on the discovery of suspicious scheduled tasks referencing identity controls, correlated with outbound webhook traffic to Slack and successful sign-ins where MFA was bypassed. An analyst reviews the resulting behavioral signals to confirm an appliance-based intrusion."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "identity-abuse-through-trusted-communication-channels",
+          "index": 2,
+          "title": "Identity Abuse Through Trusted Communication Channels",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "authentication-process-modification",
+            "steps": [
+              "suspicious-appliance-jobs",
+              "non-mfa-logins"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-exfiltration-webhook",
+            "steps": [
+              "exfiltration-webhooks"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-collaboration-phishing",
+            "reason": "Belongs to another part of the 'Identity Abuse Through Trusted Communication Channels' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "trusted-channel-impersonation",
+            "reason": "Belongs to another part of the 'Identity Abuse Through Trusted Communication Channels' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "endpoint-payload-execution",
+            "reason": "Belongs to another part of the 'Identity Abuse Through Trusted Communication Channels' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has modified appliance scheduled tasks to disable MFA and is exfiltrating credentials via native Slack webhook integrations.",
+        "blind_spots": [
+          {
+            "id": "appliance-visibility-gap",
+            "risk": "Low-level persistence within the appliance OS would be missed by hb_scheduled_job.",
+            "stage": "authentication-process-modification",
+            "question": "whether the adversary modified an internal configuration file or binary that does not appear in the scheduled task list",
+            "requires": "Deep OS-level auditing on network appliances"
+          },
+          {
+            "id": "webhook-content-blindness",
+            "risk": "We can detect the destination and the exfiltration tool (curl), but cannot confirm which specific credentials or tokens were stolen.",
+            "stage": "credential-exfiltration-webhook",
+            "question": "the specific content of the exfiltrated data",
+            "requires": "TLS inspection for outbound HTTPS"
+          }
+        ],
+        "scoping_notes": "Focus on hostnames indicating network infrastructure (e.g., vpn-*, fw-*). Use the output of the first query to populate the scope_hosts parameter for the parallel branch.",
+        "beyond_detection": "A standard detection rule on Slack webhooks would trigger on legitimate IT notifications. This hunt is effective because it pivots from suspicious security-related task modifications to specific exfiltration behaviors and then corroborates with identity-provider anomalies (MFA bypass) to confirm malicious intent."
+      }
+    },
+    {
+      "id": "suspicious-appliance-jobs",
+      "type": "query",
+      "label": "Suspicious scheduled tasks on appliances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_user_name, time FROM hb_scheduled_job WHERE (LOWER(job_cmd_line) LIKE '%.conf%' OR LOWER(job_cmd_line) LIKE '%/etc/%' OR LOWER(job_cmd_line) LIKE '%sed -i%' OR LOWER(job_cmd_line) LIKE '%auth sufficient%' OR LOWER(job_cmd_line) LIKE '%mfa%' OR LOWER(job_cmd_line) LIKE '%2fa%' OR LOWER(job_cmd_line) LIKE '%password%' OR LOWER(job_cmd_line) LIKE '%disable%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_scheduled_job",
+        "description": "Identify tasks that reference MFA or credential modification, indicating unauthorized persistence.",
+        "expected_signal": "Tasks that modify authentication or collect secrets. Results identify potential appliance hosts for subsequent pivots."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Suspicious scheduled tasks on appliances",
+        "reads": [
+          "device_hostname",
+          "job_name",
+          "job_cmd_line",
+          "job_user_name",
+          "time"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_user_name, time FROM hb_scheduled_job WHERE (LOWER(job_cmd_line) LIKE '%.conf%' OR LOWER(job_cmd_line) LIKE '%/etc/%' OR LOWER(job_cmd_line) LIKE '%sed -i%' OR LOWER(job_cmd_line) LIKE '%auth sufficient%' OR LOWER(job_cmd_line) LIKE '%mfa%' OR LOWER(job_cmd_line) LIKE '%2fa%' OR LOWER(job_cmd_line) LIKE '%password%' OR LOWER(job_cmd_line) LIKE '%disable%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Tasks that modify authentication or collect secrets. Results identify potential appliance hosts for subsequent pivots.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "exfiltration-webhooks",
+      "type": "query",
+      "label": "Slack webhook exfiltration attempts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, http_method, COUNT(*) as request_count, MIN(time) as first_seen FROM hb_http_activity WHERE url_hostname = '{{slack_hook_domain}}' AND http_method = 'POST' AND (instr(',' || LOWER('{{suspicious_user_agents}}') || ',', ',' || LOWER(user_agent) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, url_hostname, url_path, user_agent HAVING request_count <= 10",
+        "surface": "hb_http_activity",
+        "description": "Detect outbound POST requests to Slack hooks from script-based tools, isolating traffic patterns atypical for standard appliance integrations.",
+        "expected_signal": "Outbound Slack traffic from a scoped appliance using a generic tool like curl. Silence suggests no active exfiltration via this channel."
+      },
+      "parents": [
+        {
+          "id": "suspicious-appliance-jobs"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Slack webhook exfiltration attempts",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "url_path",
+          "user_agent",
+          "http_method",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, http_method, COUNT(*) as request_count, MIN(time) as first_seen FROM hb_http_activity WHERE url_hostname = '{{slack_hook_domain}}' AND http_method = 'POST' AND (instr(',' || LOWER('{{suspicious_user_agents}}') || ',', ',' || LOWER(user_agent) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, url_hostname, url_path, user_agent HAVING request_count <= 10",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Outbound Slack traffic from a scoped appliance using a generic tool like curl. Silence suggests no active exfiltration via this channel.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "user_agent",
+            "url_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "non-mfa-logins",
+      "type": "query",
+      "label": "Logins without MFA to sensitive services",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "identity",
+        "content": "SELECT actor_user_name, dst_endpoint_name, provider, src_endpoint_ip, mfa, status, time FROM hb_auth_signin WHERE (LOWER(mfa) IN ('false', '0', 'no', 'disabled') OR mfa IS NULL) AND status_id = 1 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || dst_endpoint_name || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Find successful authentications where MFA was bypassed, confirming the impact of the appliance modification.",
+        "expected_signal": "Success logins for privileged accounts without MFA. Focus on accounts associated with the compromised appliances."
+      },
+      "parents": [
+        {
+          "id": "suspicious-appliance-jobs"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Logins without MFA to sensitive services",
+        "reads": [
+          "actor_user_name",
+          "dst_endpoint_name",
+          "provider",
+          "src_endpoint_ip",
+          "mfa",
+          "status",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, dst_endpoint_name, provider, src_endpoint_ip, mfa, status, time FROM hb_auth_signin WHERE (LOWER(mfa) IN ('false', '0', 'no', 'disabled') OR mfa IS NULL) AND status_id = 1 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || dst_endpoint_name || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Success logins for privileged accounts without MFA. Focus on accounts associated with the compromised appliances.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-evidence",
+      "type": "analytic",
+      "label": "Triage appliance persistence and identity signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "suspicious-appliance-jobs",
+          "exfiltration-webhooks",
+          "non-mfa-logins"
+        ],
+        "objective": "Determine if the scheduled tasks on potential appliances correlate with suspicious Slack webhooks and subsequent MFA-less logins for related accounts.",
+        "description": "Evaluate whether the combination of script-based persistence, Slack exfiltration, and MFA-less logins indicates a confirmed appliance compromise.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict linking the three evidence types.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing the specific task commands and exfiltration timestamps."
+      },
+      "parents": [
+        {
+          "id": "exfiltration-webhooks",
+          "kind": "merge"
+        },
+        {
+          "id": "non-mfa-logins",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-investigation",
+      "type": "checkpoint",
+      "label": "Route based on compromise verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict identifies at least one host with both suspicious scheduled jobs and outbound Slack webhook traffic using script-based user agents",
+        "condition": "the triage verdict identifies at least one host with both suspicious scheduled jobs and outbound Slack webhook traffic using script-based user agents",
+        "blind_spot": "appliance-visibility-gap",
+        "confidence": "high",
+        "description": "Determine the next move based on the strength of the evidence.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-evidence"
+        }
+      ]
+    },
+    {
+      "id": "isolate-and-remediate",
+      "type": "action",
+      "label": "Isolate host and revoke credentials",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the breach by isolating the appliance and disabling the compromised user accounts.",
+        "instructions": "Isolate the reporting device, disable the compromised user identities, and revoke all active sessions for those users.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-investigation",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-appliance-audit",
+      "type": "task",
+      "label": "Forensic audit of appliance configuration",
+      "config": {
+        "assignee": "analyst",
+        "description": "Conduct a manual review of the appliance's configuration to identify hidden persistence.",
+        "instructions": "Review all configured scripts, webhooks, and local user settings on the appliance management console to identify hidden persistence mechanisms or modified 2FA policies."
+      },
+      "parents": [
+        {
+          "id": "route-investigation",
+          "branch": "default"
+        },
+        {
+          "id": "route-investigation",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-investigation",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-and-remediate"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and verify remediation.",
+        "instructions": "Record the findings, update the risk register regarding appliance visibility, and confirm the restoration of MFA controls."
+      },
+      "parents": [
+        {
+          "id": "forensic-appliance-audit"
+        }
+      ]
+    }
+  ]
+}
