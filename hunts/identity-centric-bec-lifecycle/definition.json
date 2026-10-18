@@ -1,0 +1,691 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Business Email Compromise is a primary driver of financial loss. Negative results provide assurance that communication channels and identities remain uncompromised."
+      },
+      "name": "Identity-Centric Business Email Compromise",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1566",
+        "attack.t1078",
+        "attack.t1564.008",
+        "attack.t1204.002",
+        "credential access",
+        "execution",
+        "initial access",
+        "persistence"
+      ],
+      "related": [
+        {
+          "hunt": "mfa-fatigue-investigation",
+          "reason": "This hunt focuses on AiTM and mailbox persistence; push-fatigue scenarios require distinct authentication success/failure counts.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard rule flags a mailbox rule change, but this hunt correlates those changes with anomalous identity sources and endpoint execution to provide confirming context.",
+      "coverage": [
+        {
+          "stage": "initial-access-phishing-aitm",
+          "steps": [
+            "scoping-vulnerable-assets",
+            "aitm-traffic-search"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "account-takeover-unauthorized-login",
+          "steps": [
+            "rare-proxy-logins"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-mailbox-manipulation",
+          "steps": [
+            "mailbox-rule-persistence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-malicious-attachments",
+          "steps": [
+            "suspicious-email-execution"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Phishing and Adversary-in-the-Middle",
+            "slug": "initial-access-phishing-aitm",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566",
+              "T1190"
+            ],
+            "observables": [
+              "Phishing domains",
+              "Adversary-in-the-Middle (AiTM) proxy URLs",
+              "Exploitation of internet-facing software vulnerabilities"
+            ]
+          },
+          {
+            "name": "Account Takeover and Unauthorized Authentication",
+            "slug": "account-takeover-unauthorized-login",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "Login attempts from unusual locations",
+              "Anonymizing proxy IPs (is_proxy=true)",
+              "Atypical User-Agent strings",
+              "MFA exhaustion or bypass"
+            ]
+          },
+          {
+            "name": "Persistence via Mailbox Rules",
+            "slug": "persistence-mailbox-manipulation",
+            "tactic": "persistence",
+            "techniques": [
+              "T1564.008"
+            ],
+            "observables": [
+              "Creation of new inbox rules (New-InboxRule)",
+              "Rules designed to move messages to 'RSS Feeds' or 'Deleted Items'",
+              "Modification of mailbox permissions",
+              "Changes to MFA settings or recovery options"
+            ]
+          },
+          {
+            "name": "Execution of Malicious Attachments",
+            "slug": "execution-malicious-attachments",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "Users opening suspicious attachments from 'trusted' internal senders",
+              "Spawning of interpreters or suspicious processes from email clients",
+              "Creation of unexpected files in temporary directories"
+            ]
+          }
+        ],
+        "summary": "Business Email Compromise (BEC) involves attackers gaining unauthorized access to corporate email accounts via phishing, AiTM, or vulnerability exploitation to perform financial fraud. Once inside, they often manipulate mailbox rules to hide their presence and impersonate trusted figures to redirect payments or steal data."
+      },
+      "severity": "medium",
+      "rationale": "Focus on users in finance, HR, and executive roles for proxy-based logins. Examine internet-facing servers with critical vulnerabilities first.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has hijacked an identity through an Adversary-in-the-Middle proxy or by exploiting a public-facing vulnerability, then manipulates mailbox rules to hide fraudulent communication and spreads malicious internal attachments.",
+      "parameters": {
+        "mailbox_ops": {
+          "from": {
+            "ref": "m365-audit-docs",
+            "kind": "manual",
+            "observed": "2024-10-14"
+          },
+          "type": "list[string]",
+          "default": [
+            "New-InboxRule",
+            "Set-InboxRule",
+            "UpdateInboxRule"
+          ],
+          "description": "Cloud API operations associated with mailbox rule persistence."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hostnames to narrow the hunt; leave empty for all."
+        },
+        "email_clients": {
+          "from": {
+            "ref": "endpoint-standard",
+            "kind": "manual",
+            "observed": "2024-10-14"
+          },
+          "type": "list[path]",
+          "default": [
+            "outlook.exe",
+            "thunderbird.exe"
+          ],
+          "description": "Common email client processes to monitor for suspicious child processes."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2024-10-14"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "phishing_domains": {
+          "from": {
+            "ref": "huntress-bec-2024",
+            "kind": "article",
+            "observed": "2024-10-14"
+          },
+          "type": "list[domain]",
+          "default": [
+            "outlook-security.com",
+            "verify-microsoft.net",
+            "login.microsoftonline.security-verify.com"
+          ],
+          "description": "Known or suspected AiTM/phishing domains from research."
+        },
+        "interpreter_names": {
+          "from": {
+            "ref": "common-attack-interpreters",
+            "kind": "manual",
+            "observed": "2024-10-14"
+          },
+          "type": "list[string]",
+          "default": [
+            "cmd.exe",
+            "powershell.exe",
+            "wscript.exe",
+            "cscript.exe"
+          ],
+          "description": "Suspicious child processes often spawned by malicious attachments."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/what-is-business-email-compromise-bec",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/what-is-business-email-compromise-bec",
+          "name": "Huntress — What Is Business Email Compromise (BEC)?"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "cloud-audit-latency",
+          "risk": "Attackers can manipulate rules and delete evidence within minutes; ingestion delays may mask transient persistence.",
+          "stage": "persistence-mailbox-manipulation",
+          "question": "Are rule changes missed that occurred just before the hunt window?",
+          "requires": "hb_cloud_api_activity for M365"
+        },
+        {
+          "id": "tls-inspection-gap",
+          "risk": "Without inspection, only the hostname is visible; attackers using legitimate compromised services for phishing remain hidden.",
+          "stage": "initial-access-phishing-aitm",
+          "question": "Can we see the full request URI for encrypted traffic?",
+          "requires": "TLS inspection in hb_http_activity"
+        }
+      ]
+    },
+    "name": "Identity-Centric Business Email Compromise",
+    "description": "This hunt follows the full lifecycle of a Business Email Compromise (BEC) attack using a phased approach. It first identifies early-stage risk: successful logins from anonymizing proxies and endpoint traffic to known phishing landing pages. It then pivots to look for follow-on persistence through M365 mailbox rule modifications and potential payload execution where the attacker uses a compromised account to deliver malicious attachments to internal peers. Two agents weigh the evidence sequentially to distinguish between legitimate administrative activity and a coordinated intrusion."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-phishing-aitm",
+            "steps": [
+              "scoping-vulnerable-assets",
+              "aitm-traffic-search"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "account-takeover-unauthorized-login",
+            "steps": [
+              "rare-proxy-logins"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-mailbox-manipulation",
+            "steps": [
+              "mailbox-rule-persistence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-malicious-attachments",
+            "steps": [
+              "suspicious-email-execution"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has hijacked an identity through an Adversary-in-the-Middle proxy or by exploiting a public-facing vulnerability, then manipulates mailbox rules to hide fraudulent communication and spreads malicious internal attachments.",
+        "blind_spots": [
+          {
+            "id": "cloud-audit-latency",
+            "risk": "Attackers can manipulate rules and delete evidence within minutes; ingestion delays may mask transient persistence.",
+            "stage": "persistence-mailbox-manipulation",
+            "question": "Are rule changes missed that occurred just before the hunt window?",
+            "requires": "hb_cloud_api_activity for M365"
+          },
+          {
+            "id": "tls-inspection-gap",
+            "risk": "Without inspection, only the hostname is visible; attackers using legitimate compromised services for phishing remain hidden.",
+            "stage": "initial-access-phishing-aitm",
+            "question": "Can we see the full request URI for encrypted traffic?",
+            "requires": "TLS inspection in hb_http_activity"
+          }
+        ],
+        "scoping_notes": "Focus on users in finance, HR, and executive roles for proxy-based logins. Examine internet-facing servers with critical vulnerabilities first.",
+        "beyond_detection": "A standard rule flags a mailbox rule change, but this hunt correlates those changes with anomalous identity sources and endpoint execution to provide confirming context."
+      }
+    },
+    {
+      "id": "scoping-vulnerable-assets",
+      "type": "query",
+      "label": "Identify exposed vulnerable assets",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_uid, affected_package_name, affected_package_version, severity, cve_uid FROM hb_vulnerability_finding WHERE (is_kev = 'true' OR severity_id >= 4) AND resource_type = 'device'",
+        "surface": "hb_vulnerability_finding",
+        "description": "Find internet-facing devices with high-severity vulnerabilities that could serve as initial access vectors.",
+        "expected_signal": "Hosts with unpatched critical vulnerabilities. Silence suggests the external surface is well-defended against known exploits."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify exposed vulnerable assets",
+        "reads": [
+          "device_uid",
+          "affected_package_name",
+          "affected_package_version",
+          "severity",
+          "cve_uid"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT device_uid, affected_package_name, affected_package_version, severity, cve_uid FROM hb_vulnerability_finding WHERE (is_kev = 'true' OR severity_id >= 4) AND resource_type = 'device'",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts with unpatched critical vulnerabilities. Silence suggests the external surface is well-defended against known exploits.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "rare-proxy-logins",
+      "type": "query",
+      "label": "Stack-count proxy-based logins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_attempts, MIN(time) AS first_seen FROM hb_auth_signin WHERE is_proxy = 'true' AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING user_count <= 2 ORDER BY user_count ASC",
+        "surface": "hb_auth_signin",
+        "description": "Find logins originating from anonymizing proxies to highlight rare actor behavior.",
+        "expected_signal": "A list of proxy IPs used by only one or two accounts, suggesting targeted attacker access."
+      },
+      "parents": [
+        {
+          "id": "scoping-vulnerable-assets"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Stack-count proxy-based logins",
+        "reads": [
+          "src_endpoint_ip",
+          "actor_user_name",
+          "time",
+          "is_proxy",
+          "status_id"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_attempts, MIN(time) AS first_seen FROM hb_auth_signin WHERE is_proxy = 'true' AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip HAVING user_count <= 2 ORDER BY user_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of proxy IPs used by only one or two accounts, suggesting targeted attacker access.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "aitm-traffic-search",
+      "type": "query",
+      "label": "Hunt for AiTM proxy domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_hostname, url_path, user_agent, time FROM hb_http_activity WHERE instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_http_activity",
+        "description": "Identify endpoints communicating with known phishing or AiTM proxy domains.",
+        "expected_signal": "Hosts contacting malicious domains. Silence means these specific domains were not used in the lookback window."
+      },
+      "parents": [
+        {
+          "id": "scoping-vulnerable-assets"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Hunt for AiTM proxy domains",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "url_hostname",
+          "url_path",
+          "user_agent",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_hostname, url_path, user_agent, time FROM hb_http_activity WHERE instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts contacting malicious domains. Silence means these specific domains were not used in the lookback window.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Triage initial identity risk",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "scoping-vulnerable-assets",
+          "rare-proxy-logins",
+          "aitm-traffic-search"
+        ],
+        "objective": "Determine if specific users have both successful logins from rare proxy IPs and HTTP traffic to phishing domains.",
+        "description": "Assess whether the observed proxy logins and HTTP traffic together confirm a high-likelihood account takeover.",
+        "max_iterations": 3,
+        "expected_signal": "A risk verdict on which users or hosts show confirmed signs of identity compromise.",
+        "success_criteria": "A per-user risk verdict citing specific proxy IPs and domain traffic rows."
+      },
+      "parents": [
+        {
+          "id": "rare-proxy-logins",
+          "kind": "merge"
+        },
+        {
+          "id": "aitm-traffic-search",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "mailbox-rule-persistence",
+      "type": "query",
+      "label": "Monitor for mailbox rule persistence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT cloud_account_uid, actor_user_name, api_operation, resource_name, status_detail, time FROM hb_cloud_api_activity WHERE api_service_name = 'm365' AND instr(',' || '{{mailbox_ops}}' || ',', ',' || api_operation || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Detect the creation of inbox rules used to hide attacker communication or redirect mail.",
+        "expected_signal": "Users creating rules to move mail to RSS Feeds or Deleted Items. Silence proves no such rules were created during the audit window."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Monitor for mailbox rule persistence",
+        "reads": [
+          "cloud_account_uid",
+          "actor_user_name",
+          "api_operation",
+          "resource_name",
+          "status_detail",
+          "time"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT cloud_account_uid, actor_user_name, api_operation, resource_name, status_detail, time FROM hb_cloud_api_activity WHERE api_service_name = 'm365' AND instr(',' || '{{mailbox_ops}}' || ',', ',' || api_operation || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Users creating rules to move mail to RSS Feeds or Deleted Items. Silence proves no such rules were created during the audit window.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "suspicious-email-execution",
+      "type": "query",
+      "label": "Execution from email clients",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE instr(',' || '{{email_clients}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0 AND instr(',' || '{{interpreter_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_process_activity",
+        "description": "Identify suspicious child processes launched from common email clients.",
+        "expected_signal": "Outlook or Thunderbird spawning interpreters. Silence indicates no macro-style execution was caught by the process sensor."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Execution from email clients",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE instr(',' || '{{email_clients}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0 AND instr(',' || '{{interpreter_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Outlook or Thunderbird spawning interpreters. Silence indicates no macro-style execution was caught by the process sensor.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "full-bec-assessment",
+      "type": "analytic",
+      "label": "Synthesize full BEC assessment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "early-stage-triage",
+          "mailbox-rule-persistence",
+          "suspicious-email-execution"
+        ],
+        "objective": "Confirm if any risky identities identified in the first stage also performed mailbox rule changes or suspicious endpoint execution.",
+        "description": "Consolidate identity triage results with follow-on persistence and execution evidence.",
+        "max_iterations": 4,
+        "expected_signal": "A comprehensive per-entity verdict with a clear timeline of the intrusion.",
+        "success_criteria": "A malicious/suspicious verdict per user, citing the relationship between login behavior and M365 actions."
+      },
+      "parents": [
+        {
+          "id": "mailbox-rule-persistence",
+          "kind": "merge"
+        },
+        {
+          "id": "suspicious-email-execution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route based on BEC verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the full-bec-assessment verdict is malicious for at least one user",
+        "condition": "the full-bec-assessment verdict is malicious for at least one user",
+        "blind_spot": "cloud-audit-latency",
+        "confidence": "high",
+        "description": "Direct the workflow to containment or manual investigation based on agent confidence.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "full-bec-assessment"
+        }
+      ]
+    },
+    {
+      "id": "contain-and-remediate",
+      "type": "action",
+      "label": "Contain and remediate compromise",
+      "config": {
+        "target": "identity",
+        "description": "Halt the attack by revoking sessions, isolating endpoints, and removing malicious rules.",
+        "instructions": "Revoke all active sessions and MFA tokens for the identified users; delete the identified malicious inbox rules; isolate identified endpoint hostnames to prevent lateral movement.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Manual analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify if financial damage occurred and audit for sensitive data exfiltration.",
+        "instructions": "Audit impacted mailboxes for access to sensitive financial files; verify outbound email for fraudulent payment instructions sent to vendors."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "contain-and-remediate"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize findings and hand off logic for standing detection.",
+        "instructions": "Document the proxy IPs and phishing domains as new indicators; promote the mailbox rule logic to a standing detection rule."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

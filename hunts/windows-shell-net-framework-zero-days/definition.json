@@ -1,0 +1,478 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Exploited-in-the-wild zero-day vulnerabilities targeting core OS security mechanisms (MOTW and Defender) represent a high risk of undetected initial access and evasion. A negative result confirms the estate is either patched or currently unexploited."
+      },
+      "name": "Windows Shell and .NET Framework Zero-Day Bypasses",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1566",
+        "attack.t1553.005",
+        "attack.t1204.002",
+        "attack.t1574",
+        "attack.t1127.001",
+        "defense evasion",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "unusual-process-loading-dotnet",
+          "reason": "This hunt specifically targets the October 2026 zero-day registry triggers; general .NET hijacking requires deeper process-to-module correlation.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single detection rule for these CVEs only confirms a vulnerability is present. This hunt pivots to rare registry stack-counts and MOTW alternate data stream contents to provide the behavioral evidence an analyst needs to differentiate exploitation from legitimate software updates.",
+      "coverage": [
+        {
+          "stage": "initial-access-motw-bypass",
+          "steps": [
+            "identify-vulnerable-hosts",
+            "motw-bypass-evidence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "defense-evasion-net-assembly-hijack",
+          "steps": [
+            "identify-vulnerable-hosts",
+            "rare-net-registrations"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Windows Shell MOTW Bypass",
+            "slug": "initial-access-motw-bypass",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190",
+              "T1566",
+              "T1553.005",
+              "T1204.002"
+            ],
+            "observables": [
+              "explorer.exe",
+              "specially crafted malicious file",
+              "attacker-controlled site visit",
+              "outlook.com"
+            ]
+          },
+          {
+            "name": ".NET Framework Assembly Hijack",
+            "slug": "defense-evasion-net-assembly-hijack",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1574",
+              "T1127.001"
+            ],
+            "observables": [
+              "malicious .NET assembly registration",
+              "assembly loaded by protected process",
+              "CVE-2026-108398"
+            ]
+          }
+        ],
+        "summary": "This campaign involves the exploitation of two zero-day vulnerabilities: CVE-2026-96951 to bypass Mark-of-the-Web (MOTW) security features via malicious files or websites, and CVE-2026-108398 to bypass Windows Defender Application Control (WDAC) by registering malicious .NET assemblies for loading by protected processes."
+      },
+      "severity": "high",
+      "rationale": "The scoping step identifies vulnerable devices by their provider UID. Resolve these UIDs to hostnames using hb_devices and then paste them into the scope_hosts parameter to focus the behavioral analysis.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has exploited a Windows Shell MOTW bypass to execute malicious web downloads without warning, or has achieved stealthy persistence by registering a rare .NET assembly that evades Defender signature checks.",
+      "parameters": {
+        "cve_ids": {
+          "from": {
+            "ref": "Rapid7 Patch Tuesday October 2026",
+            "kind": "article",
+            "observed": "2026-10-13"
+          },
+          "type": "list[string]",
+          "default": [
+            "CVE-2026-96951",
+            "CVE-2026-108398"
+          ],
+          "description": "Target CVE identifiers."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "scoping",
+            "kind": "manual",
+            "observed": "2026-10-13"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames to restrict the behavioral search; leave empty for fleet-wide scan."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-10-13"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for behavioral indicators."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/em-patch-tuesday-october-2026",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/em-patch-tuesday-october-2026",
+          "name": "Rapid7 — Patch Tuesday - October 2026"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-file-stream-telemetry",
+          "risk": "Without alternate data stream contents, the MOTW bypass is invisible and the triage query will return zero rows.",
+          "owner": "Infrastructure",
+          "stage": "initial-access-motw-bypass",
+          "question": "whether a file actually has the MOTW tag",
+          "requires": "hb_file_activity with file_contents (Sysmon Event ID 15)",
+          "remediation": "Enable Sysmon Event ID 15 logging for sensitive directories."
+        },
+        {
+          "id": "vulnerability-scan-lag",
+          "risk": "If the vulnerability scanner has not refreshed since the Patch Tuesday release, hosts may be missing from the scope despite being vulnerable.",
+          "owner": "Vulnerability Management",
+          "question": "whether the device is truly vulnerable today",
+          "requires": "hb_vulnerability_finding with CVE-2026-96951",
+          "remediation": "Trigger an immediate scan for the October 2026 CVEs."
+        }
+      ]
+    },
+    "name": "Windows Shell and .NET Framework Zero-Day Bypasses",
+    "description": "This hunt targets two zero-day vulnerabilities from the October 2026 Patch Tuesday: CVE-2026-96951 (Windows Shell MOTW bypass) and CVE-2026-108398 (.NET Framework assembly hijacking). The hunt identifies vulnerable hosts and then looks for behavioral indicators of exploitation, specifically monitoring for rare registry modifications within the .NET Framework and CLSID paths, and hunting for files in user-writable directories that contain Zone.Identifier tags indicating an untrusted internet origin. An agent triage step settles the findings across these independent surfaces."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-motw-bypass",
+            "steps": [
+              "identify-vulnerable-hosts",
+              "motw-bypass-evidence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "defense-evasion-net-assembly-hijack",
+            "steps": [
+              "identify-vulnerable-hosts",
+              "rare-net-registrations"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has exploited a Windows Shell MOTW bypass to execute malicious web downloads without warning, or has achieved stealthy persistence by registering a rare .NET assembly that evades Defender signature checks.",
+        "blind_spots": [
+          {
+            "id": "missing-file-stream-telemetry",
+            "risk": "Without alternate data stream contents, the MOTW bypass is invisible and the triage query will return zero rows.",
+            "owner": "Infrastructure",
+            "stage": "initial-access-motw-bypass",
+            "question": "whether a file actually has the MOTW tag",
+            "requires": "hb_file_activity with file_contents (Sysmon Event ID 15)",
+            "remediation": "Enable Sysmon Event ID 15 logging for sensitive directories."
+          },
+          {
+            "id": "vulnerability-scan-lag",
+            "risk": "If the vulnerability scanner has not refreshed since the Patch Tuesday release, hosts may be missing from the scope despite being vulnerable.",
+            "owner": "Vulnerability Management",
+            "question": "whether the device is truly vulnerable today",
+            "requires": "hb_vulnerability_finding with CVE-2026-96951",
+            "remediation": "Trigger an immediate scan for the October 2026 CVEs."
+          }
+        ],
+        "scoping_notes": "The scoping step identifies vulnerable devices by their provider UID. Resolve these UIDs to hostnames using hb_devices and then paste them into the scope_hosts parameter to focus the behavioral analysis.",
+        "beyond_detection": "A single detection rule for these CVEs only confirms a vulnerability is present. This hunt pivots to rare registry stack-counts and MOTW alternate data stream contents to provide the behavioral evidence an analyst needs to differentiate exploitation from legitimate software updates."
+      }
+    },
+    {
+      "id": "identify-vulnerable-hosts",
+      "type": "query",
+      "label": "Identify vulnerable hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_uid, resource_uid, cve_uid, severity, status FROM hb_vulnerability_finding WHERE instr(',' || '{{cve_ids}}' || ',', ',' || cve_uid || ',') > 0",
+        "surface": "hb_vulnerability_finding",
+        "description": "Locate devices reporting the specific zero-day vulnerabilities in their latest vulnerability scan.",
+        "expected_signal": "A list of device UIDs susceptible to the targeted bypasses. Silence indicates either no vulnerabilities were found or the scanner has not yet been updated with October 2026 logic."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable hosts",
+        "reads": [
+          "device_uid",
+          "resource_uid",
+          "cve_uid",
+          "severity",
+          "status"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT device_uid, resource_uid, cve_uid, severity, status FROM hb_vulnerability_finding WHERE instr(',' || '{{cve_ids}}' || ',', ',' || cve_uid || ',') > 0",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of device UIDs susceptible to the targeted bypasses. Silence indicates either no vulnerabilities were found or the scanner has not yet been updated with October 2026 logic.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-14"
+      }
+    },
+    {
+      "id": "rare-net-registrations",
+      "type": "query",
+      "label": "Rare .NET assembly registrations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(reg_target) AS target, reg_value_data, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE (('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(reg_target) LIKE '%\\\\software\\\\microsoft\\\\.netframework%' OR LOWER(reg_target) LIKE '%\\\\software\\\\classes\\\\clsid%') AND activity_id = 2 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2 HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_registry_activity",
+        "description": "Stack-count registry writes to .NET Framework paths to identify rare assembly registrations that may indicate hijacking.",
+        "expected_signal": "A registry value seen on very few hosts. Legitimate software updates may appear, but a rare path or value data is the primary indicator of assembly hijacking."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare .NET assembly registrations",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(reg_target) AS target, reg_value_data, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE (('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(reg_target) LIKE '%\\\\software\\\\microsoft\\\\.netframework%' OR LOWER(reg_target) LIKE '%\\\\software\\\\classes\\\\clsid%') AND activity_id = 2 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2 HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A registry value seen on very few hosts. Legitimate software updates may appear, but a rare path or value data is the primary indicator of assembly hijacking.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "reg_target",
+            "reg_value_data"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-14"
+      }
+    },
+    {
+      "id": "motw-bypass-evidence",
+      "type": "query",
+      "label": "MOTW bypass file indicators",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE (('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(file_path) LIKE '%\\\\downloads\\\\%' OR LOWER(file_path) LIKE '%\\\\temp\\\\%') AND LOWER(file_contents) LIKE '%zoneid=3%' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find files downloaded from the internet (ZoneID=3) into user folders that may have bypassed security warnings.",
+        "expected_signal": "Files with MOTW metadata in user-writable paths. The presence of such files on vulnerable hosts suggests a failure of the MOTW security feature."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "MOTW bypass file indicators",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "file_contents",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE (('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(file_path) LIKE '%\\\\downloads\\\\%' OR LOWER(file_path) LIKE '%\\\\temp\\\\%') AND LOWER(file_contents) LIKE '%zoneid=3%' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Files with MOTW metadata in user-writable paths. The presence of such files on vulnerable hosts suggests a failure of the MOTW security feature.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-14"
+      }
+    },
+    {
+      "id": "triage-exploitation",
+      "type": "analytic",
+      "label": "Triage exploitation",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "identify-vulnerable-hosts",
+          "rare-net-registrations",
+          "motw-bypass-evidence"
+        ],
+        "objective": "Determine whether any host identified as vulnerable also shows evidence of MOTW bypass downloads or rare .NET assembly registration.",
+        "description": "Correlate vulnerability presence with the rare registry and file indicators to identify successful zero-day exploitation.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict citing the specific behavioral rows found.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing the registry or file activity rows."
+      },
+      "parents": [
+        {
+          "id": "rare-net-registrations",
+          "kind": "merge"
+        },
+        {
+          "id": "motw-bypass-evidence",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "missing-file-stream-telemetry",
+        "confidence": "high",
+        "description": "Select the response path based on the agent's exploitation verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-exploitation"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat by isolating the compromised host while an analyst performs verification.",
+        "instructions": "Isolate the host to prevent further lateral movement and preserve the malicious files for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify the agent's findings and the context of the identified registry and file activity.",
+        "instructions": "Examine the registry values and files cited by the agent. Check whether the file_contents confirm a MOTW ZoneID=3 download and whether the registry process is a known legitimate installer or an untrusted binary."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and record findings for future tuning.",
+        "instructions": "Record the hosts examined and the evidence of absence. If vulnerabilities were present but no behavioral matches were found, recommend scheduling a follow-up hunt in two weeks."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

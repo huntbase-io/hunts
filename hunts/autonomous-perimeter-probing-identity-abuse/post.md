@@ -1,0 +1,20 @@
+# Hunting Autonomous Perimeter Probing and Identity Abuse Campaigns
+
+### Why Now
+The speed of initial access is accelerating as attackers adopt automated frameworks to scale their probing and exploitation efforts. A recent article by Talos, "One breach, please, and make no mistakes" (https://blog.talosintelligence.com/one-breach-please-and-make-no-mistakes/), highlights how these autonomous agents do not merely scan; they operate as coordinated swarms. Traditional security controls often block individual IP addresses or specific exploit strings but fail to link the background noise on the perimeter to the simultaneous pressure applied to the identity layer. This hunt provides a structured approach to correlate these signals across network, endpoint, and identity surfaces.
+
+### The Hypothesis
+An automated swarm of AI agents is relentlessly probing public-facing applications for vulnerabilities while simultaneously attempting to fatigue employees with MFA prompts to secure initial access. This adversary does not rely on a single exploit. Instead, they use a high-volume noisy phase to identify technical weaknesses and immediately pivot to identity-based attacks if the initial exploit is blocked or requires valid credentials to proceed. This multi-pronged approach allows the swarm to find the path of least resistance at a speed that exceeds manual triage capabilities.
+
+### How the Hunt Flows
+The hunt begins with a scoping phase on the network surface. The first query identifies hosts receiving excessive traffic from automated tools by filtering for non-browser user agents such as Python's request library, curl, and wget. We set a threshold of 100 requests within a seven-day lookback window to filter out transient internet scanning. This phase provides a list of source IPs and the internal hosts being targeted, which allows us to focus the subsequent endpoint and identity searches.
+
+Once we identify the targeted hosts, the hunt pivots to the process activity surface. We look for evidence of successful exploitation by identifying suspicious child processes. The query specifically flags common shells like bash, sh, or powershell.exe and reconnaissance tools like whoami when they are spawned by web server processes such as nginx, httpd, or Tomcat. Finding these processes on a host that was recently targeted by volumetric bot probing strongly suggests a successful breach and subsequent command execution.
+
+In parallel, the hunt investigates the identity surface. We correlate the source IPs identified in the scoping phase with authentication logs. The goal is to find signs of MFA fatigue, specifically more than 15 failed sign-in attempts for a single user originating from the same probing infrastructure. Correlating network noise with identity-layer pressure is the primary method for distinguishing a targeted agentic campaign from general internet scanning. Finally, a triage step evaluates the results from all three surfaces to provide a high-confidence verdict on whether a coordinated attack is in progress.
+
+### What the Hunt Cannot See
+This hunt has two primary blind spots. First, it depends on robust identity telemetry from all providers. If the organization uses a third-party SSO provider that does not feed its MFA failure logs into the central data lake, the coordinated pressure on those users remains invisible. Second, the hunt focuses on request metadata. It cannot see specific exploit payloads, such as SQL injection strings or directory traversal attempts, if they are contained within encrypted HTTP POST bodies and the inspection layer does not perform full decryption.
+
+### How to Run It
+This hunt is provided as an open-source hunt.md playbook. Analysts can import it into Huntbase or any hunt.md-aware runtime. The playbook is designed for periodic execution against internet-facing assets or as a rapid response tool when a spike in perimeter scanning is detected. By automating the correlation of network, process, and identity signals, the hunt allows teams to identify complex agentic threats before they move laterally into the internal environment.

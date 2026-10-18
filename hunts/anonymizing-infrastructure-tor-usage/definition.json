@@ -1,0 +1,588 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Unauthorized anonymization tools allow users or intruders to bypass perimeter monitoring, DLP controls, and identity restrictions, rendering the network perimeter uninspected."
+      },
+      "name": "Anonymizing Infrastructure and Tor Usage",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1090.003",
+        "attack.t1133",
+        "attack.t1190",
+        "command and control",
+        "defense evasion",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "tor-onion-dns-standing-rule",
+          "reason": "DNS-based Tor detection is already covered by a standing rule; this hunt focuses on software and connection patterns.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple rule flags a .onion domain query; this hunt correlates unauthorized software presence with fleet-wide port rarity and identity-plane proxy flags. This multi-surface correlation identifies persistent infrastructure even when domains are rotated or hidden.",
+      "coverage": [
+        {
+          "stage": "anonymizing-vpn-connection",
+          "steps": [
+            "lead-software-scan",
+            "network-relay-counts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "tor-browser-execution",
+          "steps": [
+            "lead-software-scan"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "onion-network-interaction",
+          "steps": [
+            "network-relay-counts",
+            "proxy-signins"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "VPN-Based Anonymization",
+            "slug": "anonymizing-vpn-connection",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "Connections to known VPN provider endpoints",
+              "High volume of encrypted outbound traffic to atypical external services",
+              "Presence of VPN client software in software inventory"
+            ]
+          },
+          {
+            "name": "Tor Browser Execution",
+            "slug": "tor-browser-execution",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Execution of tor.exe or firefox.exe from suspected Tor Browser installation paths",
+              "Installation of 'Tor Browser' software packages",
+              "Browser configuration changes to disable JavaScript",
+              "Execution of processes with 'Tor' or 'onion' in the file path or name"
+            ]
+          },
+          {
+            "name": "Interaction with Onion Infrastructure",
+            "slug": "onion-network-interaction",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion domains",
+              "Network connections to known Tor relay nodes or entry/exit nodes",
+              "Sign-in events flagged with is_proxy=true in authentication logs",
+              "Traffic destined for atypical ports associated with Tor relays (e.g., 9001, 9050)"
+            ]
+          }
+        ],
+        "summary": "This campaign involves the use of anonymizing infrastructure, specifically VPNs and the Tor network, to conduct activities such as accessing underground markets and maintaining anonymity. Threat actors leverage .onion domains and multi-hop proxies to host services and obscure their physical locations during operations."
+      },
+      "severity": "medium",
+      "rationale": "Start by identifying servers and admin workstations in the software inventory. If the lead is empty, run the expensive checks unscoped to find portable Tor binaries by port patterns alone.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder or unauthorized user is using commercial VPNs or the Tor Browser to bypass network security controls, leaving evidence in software inventory, rare outbound port patterns, and proxy-flagged authentications.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "A list of hostnames to focus on, typically populated from the lead query results."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for network and sign-in activity."
+        },
+        "tor_relay_ports": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/pulling-back-the-curtain-a-journey-through-the-dark-web",
+            "kind": "article",
+            "observed": "2026-10-14"
+          },
+          "type": "list[string]",
+          "default": [
+            "9001",
+            "9050",
+            "9150"
+          ],
+          "description": "Network ports associated with Tor relays and proxy listeners."
+        },
+        "anonymizer_keywords": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/pulling-back-the-curtain-a-journey-through-the-dark-web",
+            "kind": "article",
+            "observed": "2026-10-14"
+          },
+          "type": "list[string]",
+          "default": [
+            "tor browser",
+            "protonvpn",
+            "nordvpn",
+            "mullvad",
+            "expressvpn",
+            "windscribe",
+            "cyberghost"
+          ],
+          "description": "Keywords to identify anonymizing or VPN software in package names."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/pulling-back-the-curtain-a-journey-through-the-dark-web",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/pulling-back-the-curtain-a-journey-through-the-dark-web",
+          "name": "Huntress — What Does the Dark Web Look Like? Pulling Back the Curtain"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "portable-executables",
+          "risk": "The lead software query only finds registered packages; portable binaries will be missed, requiring behavioral network signals to detect.",
+          "stage": "tor-browser-execution",
+          "question": "whether Tor was run as a portable executable from a user-writable path",
+          "requires": "hb_process_activity with deep path inspection"
+        },
+        {
+          "id": "obfuscated-bridges",
+          "risk": "Standard port-based detection misses Tor traffic that is obfuscated to look like HTTPS web traffic.",
+          "stage": "onion-network-interaction",
+          "question": "whether Tor was using obfs4 bridges on port 443",
+          "requires": "hb_http_activity or protocol inspection on hb_network_connection"
+        }
+      ]
+    },
+    "name": "Anonymizing Infrastructure and Tor Usage",
+    "description": "This hunt identifies the presence and active use of anonymizing tools designed to obscure network traffic. It follows a gated flow: first performing a broad scan for known anonymizing software packages, then gating expensive network and identity checks behind a manual host scoping step. The hunt correlates rare outbound relay ports with identity-plane proxy flags to detect persistent tunnels that avoid standard domain-based detection rules."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "anonymizing-vpn-connection",
+            "steps": [
+              "lead-software-scan",
+              "network-relay-counts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "tor-browser-execution",
+            "steps": [
+              "lead-software-scan"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "onion-network-interaction",
+            "steps": [
+              "network-relay-counts",
+              "proxy-signins"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder or unauthorized user is using commercial VPNs or the Tor Browser to bypass network security controls, leaving evidence in software inventory, rare outbound port patterns, and proxy-flagged authentications.",
+        "blind_spots": [
+          {
+            "id": "portable-executables",
+            "risk": "The lead software query only finds registered packages; portable binaries will be missed, requiring behavioral network signals to detect.",
+            "stage": "tor-browser-execution",
+            "question": "whether Tor was run as a portable executable from a user-writable path",
+            "requires": "hb_process_activity with deep path inspection"
+          },
+          {
+            "id": "obfuscated-bridges",
+            "risk": "Standard port-based detection misses Tor traffic that is obfuscated to look like HTTPS web traffic.",
+            "stage": "onion-network-interaction",
+            "question": "whether Tor was using obfs4 bridges on port 443",
+            "requires": "hb_http_activity or protocol inspection on hb_network_connection"
+          }
+        ],
+        "scoping_notes": "Start by identifying servers and admin workstations in the software inventory. If the lead is empty, run the expensive checks unscoped to find portable Tor binaries by port patterns alone.",
+        "beyond_detection": "A simple rule flags a .onion domain query; this hunt correlates unauthorized software presence with fleet-wide port rarity and identity-plane proxy flags. This multi-surface correlation identifies persistent infrastructure even when domains are rotated or hidden."
+      }
+    },
+    {
+      "id": "lead-software-scan",
+      "type": "query",
+      "label": "Lead: Anonymizing software in inventory",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, vendor_name, package_version FROM hb_software_inventory WHERE (instr(',' || '{{anonymizer_keywords}}' || ',', ',' || LOWER(package_name) || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts where known VPN or Tor Browser packages are registered in the managed software inventory.",
+        "expected_signal": "A list of hostnames and the specific anonymizing packages they have installed. Absence suggests no known packages are in the managed inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Lead: Anonymizing software in inventory",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, vendor_name, package_version FROM hb_software_inventory WHERE (instr(',' || '{{anonymizer_keywords}}' || ',', ',' || LOWER(package_name) || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames and the specific anonymizing packages they have installed. Absence suggests no known packages are in the managed inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-16"
+      }
+    },
+    {
+      "id": "gate-read-software",
+      "type": "analytic",
+      "label": "Lead triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "lead-software-scan"
+        ],
+        "objective": "Summarize the software findings and identify specific hosts that appear to have unauthorized anonymization tools installed.",
+        "description": "Analyze the software inventory findings to determine if the installed packages warrant a deeper investigation.",
+        "max_iterations": 3,
+        "expected_signal": "A summary of whether unauthorized software is present and which hosts are affected.",
+        "success_criteria": "A list of hosts with confirmed unauthorized software."
+      },
+      "parents": [
+        {
+          "id": "lead-software-scan"
+        }
+      ]
+    },
+    {
+      "id": "is-software-concerning",
+      "type": "checkpoint",
+      "label": "Gate: Proceed to expensive checks?",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the gate-read-software verdict confirms unauthorized software on at least one host",
+        "condition": "the gate-read-software verdict confirms unauthorized software on at least one host",
+        "blind_spot": "portable-executables",
+        "confidence": "high",
+        "description": "Decide whether to run expensive network and identity queries based on the software lead.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "gate-read-software"
+        }
+      ]
+    },
+    {
+      "id": "network-relay-counts",
+      "type": "query",
+      "label": "Rare traffic to Tor relay ports",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, MIN(time) AS first_seen FROM hb_network_connection WHERE (instr(',' || '{{tor_relay_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip, dst_endpoint_port",
+        "surface": "hb_network_connection",
+        "description": "Identify active connections to typical Tor listener ports that are rare across the fleet.",
+        "expected_signal": "Connections to Tor relay ports that stand out from fleet-wide behavior. Silence suggests no active listeners on these specific ports for the scoped hosts."
+      },
+      "parents": [
+        {
+          "id": "is-software-concerning",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare traffic to Tor relay ports",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, MIN(time) AS first_seen FROM hb_network_connection WHERE (instr(',' || '{{tor_relay_ports}}' || ',', ',' || CAST(dst_endpoint_port AS TEXT) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip, dst_endpoint_port",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Connections to Tor relay ports that stand out from fleet-wide behavior. Silence suggests no active listeners on these specific ports for the scoped hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip",
+            "dst_endpoint_port"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-16"
+      }
+    },
+    {
+      "id": "proxy-signins",
+      "type": "query",
+      "label": "Sign-ins from anonymizing proxies",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "identity",
+        "content": "SELECT device_hostname, actor_user_name, src_endpoint_ip, src_location_country, is_proxy, time FROM hb_auth_signin WHERE is_proxy = 'true' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Find authentication events flagged as originating from known proxies in the identity plane.",
+        "expected_signal": "Sign-ins where is_proxy is true. This corroborates endpoint software with active identity usage from the dark web."
+      },
+      "parents": [
+        {
+          "id": "is-software-concerning",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Sign-ins from anonymizing proxies",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "src_endpoint_ip",
+          "src_location_country",
+          "is_proxy",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT device_hostname, actor_user_name, src_endpoint_ip, src_location_country, is_proxy, time FROM hb_auth_signin WHERE is_proxy = 'true' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Sign-ins where is_proxy is true. This corroborates endpoint software with active identity usage from the dark web.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-16"
+      }
+    },
+    {
+      "id": "final-triage",
+      "type": "analytic",
+      "label": "Final triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "gate-read-software",
+          "network-relay-counts",
+          "proxy-signins"
+        ],
+        "objective": "Determine if the presence of anonymizing software is coupled with active network relays or proxy-based sign-ins, suggesting bypass of security controls.",
+        "description": "Correlate software findings with network and identity evidence to identify active, unauthorized anonymization infrastructure.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict of malicious | suspicious | benign, citing software, ports, and proxy flags.",
+        "success_criteria": "A final verdict citing rows from all three surfaces for confirmed malicious hosts."
+      },
+      "parents": [
+        {
+          "id": "network-relay-counts",
+          "kind": "merge"
+        },
+        {
+          "id": "proxy-signins",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-remediation",
+      "type": "checkpoint",
+      "label": "Route based on triage",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-triage verdict is malicious for at least one host based on correlated software and network/identity activity",
+        "condition": "the final-triage verdict is malicious for at least one host based on correlated software and network/identity activity",
+        "blind_spot": "obfuscated-bridges",
+        "confidence": "high",
+        "description": "Isolate confirmed malicious hosts or route suspicious cases for manual analyst review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-triage"
+        }
+      ]
+    },
+    {
+      "id": "contain-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further unmonitored communication by isolating the affected host.",
+        "instructions": "Isolate the host and initiate a forensic review to capture active Tor sessions or unauthorized VPN tunnel data.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-remediation",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review the cited evidence and determine if the anonymizing activity is sanctioned by a business exception.",
+        "instructions": "Review the identified hosts and sign-ins. Confirm with the users whether the tools were used for a legitimate, sanctioned business purpose. Record any approved VPN clients as exclusions for future runs."
+      },
+      "parents": [
+        {
+          "id": "is-software-concerning",
+          "branch": "default"
+        },
+        {
+          "id": "is-software-concerning",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-remediation",
+          "branch": "default"
+        },
+        {
+          "id": "route-remediation",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-remediation",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "contain-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and document findings or missed signals.",
+        "instructions": "Record the results of the hunt. If no software was found but network port patterns were identified, document the risk of portable binaries."
+      },
+      "parents": [
+        {
+          "id": "is-software-concerning",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,568 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "CVE-2026-21589 allows unauthenticated remote access to sensitive configuration files like crowd.properties, which often contain plaintext credentials. This exposure directly enables persistence through administrative account creation."
+      },
+      "name": "Atlassian Path Traversal and Administrative Persistence",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1136",
+        "attack.t1098",
+        "initial access",
+        "persistence"
+      ],
+      "related": [
+        {
+          "hunt": "atlassian-rce-credential-reuse",
+          "reason": "This hunt focuses on file-read and administrative persistence; a subsequent RCE using the stolen credentials would involve process execution and belongs to a sibling hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule might fire on the path traversal sequence; this hunt correlates that request with a rare administrative group change on the same host and checks software inventory to confirm a successful breach rather than just a failed scan.",
+      "coverage": [
+        {
+          "stage": "vulnerability-exposure-assessment",
+          "steps": [
+            "check-software-vulnerability"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "unauthenticated-path-traversal",
+          "steps": [
+            "detect-traversal-attempts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "identity-manipulation-persistence",
+          "steps": [
+            "check-admin-group-changes"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Atlassian Vulnerability Exposure",
+            "slug": "vulnerability-exposure-assessment",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Bitbucket Data Center versions < 9.4.26",
+              "Confluence Data Center versions < 9.2.26",
+              "Jira Software Data Center versions < 9.12.40",
+              "Crowd Data Center versions < 6.3.7",
+              "Fisheye/Crucible versions < 4.9.15"
+            ]
+          },
+          {
+            "name": "Path Traversal via Double-Colon Sequences",
+            "slug": "unauthenticated-path-traversal",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "::",
+              "..",
+              "%252e%252e",
+              "%253a%253a",
+              "WEB-INF/classes/crowd.properties",
+              "urlrewrite.xml",
+              "Tomcat RewriteValve"
+            ]
+          },
+          {
+            "name": "Account Creation and Privilege Escalation",
+            "slug": "identity-manipulation-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1136",
+              "T1098"
+            ],
+            "observables": [
+              "jira-administrators",
+              "Atlassian Crowd user creation",
+              "application credentials in crowd.properties"
+            ]
+          }
+        ],
+        "summary": "Unauthenticated remote attackers exploit CVE-2026-21589 in Atlassian Data Center products by using double-colon (::) sequences as path separators to read sensitive configuration files like crowd.properties. Once credentials are stolen, they can be used to create new users and elevate privileges by adding them to the jira-administrators group."
+      },
+      "severity": "high",
+      "rationale": "Start with internet-facing servers identified as running Atlassian Data Center products. The hunt automates correlation between HTTP traversal leads and identity persistence checks on those specific hosts.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An unauthenticated attacker is using double-colon path traversal to read Atlassian configuration files and then creating administrative accounts for persistence.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hosts to narrow the hunt; leave empty to scan the entire estate."
+        },
+        "admin_groups": {
+          "from": {
+            "ref": "Atlassian default groups",
+            "kind": "manual"
+          },
+          "type": "list[string]",
+          "default": [
+            "jira-administrators",
+            "confluence-administrators",
+            "crowd-administrators"
+          ],
+          "description": "Atlassian administrative groups that attackers may target for persistence."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "traversal_patterns": {
+          "from": {
+            "ref": "Rapid7 ETR CVE-2026-21589",
+            "kind": "article",
+            "observed": "2026-10-07"
+          },
+          "type": "list[string]",
+          "default": [
+            "crowd.properties",
+            "urlrewrite.xml",
+            "WEB-INF"
+          ],
+          "description": "Specific Atlassian configuration files and directories targeted by attackers."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/etr-cve-2026-21589-critical-unauthenticated-arbitrary-file-access-in-atlassian-products",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/etr-cve-2026-21589-critical-unauthenticated-arbitrary-file-access-in-atlassian-products",
+          "name": "Rapid7 — CVE-2026-21589: Critical unauthenticated arbitrary file access in Atlassian products"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "http-log-blindness",
+          "risk": "An attacker using double-URL encoding might bypass the detect-traversal-attempts query if the log source does not normalize the URL before writing it.",
+          "stage": "unauthenticated-path-traversal",
+          "question": "whether complex URL encoding or WAF normalization bypassed the string matching",
+          "requires": "decrypted full-path HTTP logs"
+        },
+        {
+          "id": "identity-log-gaps",
+          "risk": "Persistence via a local Atlassian user database that does not emit standard OS group management logs would not be visible.",
+          "stage": "identity-manipulation-persistence",
+          "question": "whether group changes occurred on hosts not reporting to the identity surface",
+          "requires": "hb_group_management with complete coverage of Atlassian user databases"
+        }
+      ]
+    },
+    "name": "Atlassian Path Traversal and Administrative Persistence",
+    "description": "This hunt identifies unauthenticated path traversal attempts targeting Atlassian Data Center products and correlates them with subsequent identity manipulation. It follows a gated flow: a lead query identifies high-confidence traversal patterns in HTTP logs, followed by an agent evaluation. If the lead is valid, the hunt fans out to assess the software vulnerability status of those hosts and detect any unauthorized additions to administrative groups."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "vulnerability-exposure-assessment",
+            "steps": [
+              "check-software-vulnerability"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "unauthenticated-path-traversal",
+            "steps": [
+              "detect-traversal-attempts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "identity-manipulation-persistence",
+            "steps": [
+              "check-admin-group-changes"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An unauthenticated attacker is using double-colon path traversal to read Atlassian configuration files and then creating administrative accounts for persistence.",
+        "blind_spots": [
+          {
+            "id": "http-log-blindness",
+            "risk": "An attacker using double-URL encoding might bypass the detect-traversal-attempts query if the log source does not normalize the URL before writing it.",
+            "stage": "unauthenticated-path-traversal",
+            "question": "whether complex URL encoding or WAF normalization bypassed the string matching",
+            "requires": "decrypted full-path HTTP logs"
+          },
+          {
+            "id": "identity-log-gaps",
+            "risk": "Persistence via a local Atlassian user database that does not emit standard OS group management logs would not be visible.",
+            "stage": "identity-manipulation-persistence",
+            "question": "whether group changes occurred on hosts not reporting to the identity surface",
+            "requires": "hb_group_management with complete coverage of Atlassian user databases"
+          }
+        ],
+        "scoping_notes": "Start with internet-facing servers identified as running Atlassian Data Center products. The hunt automates correlation between HTTP traversal leads and identity persistence checks on those specific hosts.",
+        "beyond_detection": "A standard rule might fire on the path traversal sequence; this hunt correlates that request with a rare administrative group change on the same host and checks software inventory to confirm a successful breach rather than just a failed scan."
+      }
+    },
+    {
+      "id": "detect-traversal-attempts",
+      "type": "query",
+      "label": "Detect Atlassian traversal attempts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_full, status_code, user_agent, time FROM hb_http_activity WHERE (LOWER(url_full) LIKE '%::..%' OR LOWER(url_full) LIKE '%..::%' OR LOWER(url_full) LIKE '%::/..%' OR LOWER(url_full) LIKE '%..%253a%253a%' OR instr(',' || '{{traversal_patterns}}' || ',', ',' || LOWER(url_full) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify HTTP requests containing double-colon traversal sequences or attempts to access known Atlassian configuration files.",
+        "expected_signal": "HTTP requests showing double-colon sequences (::..) or paths containing WEB-INF or crowd.properties. Status code 200 suggests a successful file read."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect Atlassian traversal attempts",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "url_full",
+          "status_code",
+          "user_agent",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_full, status_code, user_agent, time FROM hb_http_activity WHERE (LOWER(url_full) LIKE '%::..%' OR LOWER(url_full) LIKE '%..::%' OR LOWER(url_full) LIKE '%::/..%' OR LOWER(url_full) LIKE '%..%253a%253a%' OR instr(',' || '{{traversal_patterns}}' || ',', ',' || LOWER(url_full) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests showing double-colon sequences (::..) or paths containing WEB-INF or crowd.properties. Status code 200 suggests a successful file read.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-08"
+      }
+    },
+    {
+      "id": "evaluate-lead",
+      "type": "analytic",
+      "label": "Evaluate traversal lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "detect-traversal-attempts"
+        ],
+        "objective": "Determine if the HTTP requests in detect-traversal-attempts show malicious intent to exploit Atlassian path traversal vulnerabilities.",
+        "description": "Decide whether the observed HTTP patterns represent a credible exploit attempt against an Atlassian asset.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict of malicious, suspicious, or benign citing the URL and source IP.",
+        "success_criteria": "A clear verdict on whether to proceed with the full investigation."
+      },
+      "parents": [
+        {
+          "id": "detect-traversal-attempts"
+        }
+      ]
+    },
+    {
+      "id": "gate-decision",
+      "type": "checkpoint",
+      "label": "Gate decision",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-lead verdict is suspicious or malicious for at least one host",
+        "condition": "the evaluate-lead verdict is suspicious or malicious for at least one host",
+        "blind_spot": "http-log-blindness",
+        "confidence": "high",
+        "description": "Stop the hunt early if no credible exploitation is found, saving analyst time and compute resources.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-lead"
+        }
+      ]
+    },
+    {
+      "id": "check-software-vulnerability",
+      "type": "query",
+      "label": "Check Atlassian software vulnerability",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%jira%' OR LOWER(package_name) LIKE '%confluence%' OR LOWER(package_name) LIKE '%bitbucket%' OR LOWER(package_name) LIKE '%crowd%' OR LOWER(package_name) LIKE '%bamboo%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Verify if the hosts targeted by traversal attempts are running affected Atlassian products.",
+        "expected_signal": "A list of Atlassian software and versions. Comparison with the advisory confirms whether the host is vulnerable."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Check Atlassian software vulnerability",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%jira%' OR LOWER(package_name) LIKE '%confluence%' OR LOWER(package_name) LIKE '%bitbucket%' OR LOWER(package_name) LIKE '%crowd%' OR LOWER(package_name) LIKE '%bamboo%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of Atlassian software and versions. Comparison with the advisory confirms whether the host is vulnerable.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-08"
+      }
+    },
+    {
+      "id": "check-admin-group-changes",
+      "type": "query",
+      "label": "Check rare admin group changes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, group_name, user_name, activity_name, MIN(time) AS first_seen, COUNT(DISTINCT device_hostname) AS host_count FROM hb_group_management WHERE (LOWER(group_name) LIKE '%admin%' OR LOWER(group_name) LIKE '%atlassian%' OR instr(',' || '{{admin_groups}}' || ',', ',' || LOWER(group_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, group_name, user_name, activity_name HAVING host_count <= 2",
+        "surface": "hb_group_management",
+        "description": "Search for administrative group changes on the target hosts, highlighting rare additions that may indicate persistence.",
+        "expected_signal": "Additions to groups like jira-administrators seen only on a few hosts. High frequency on one host with a traversal lead is a strong indicator of compromise."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Check rare admin group changes",
+        "reads": [
+          "device_hostname",
+          "group_name",
+          "user_name",
+          "activity_name",
+          "time"
+        ],
+        "source": "hb_group_management",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, group_name, user_name, activity_name, MIN(time) AS first_seen, COUNT(DISTINCT device_hostname) AS host_count FROM hb_group_management WHERE (LOWER(group_name) LIKE '%admin%' OR LOWER(group_name) LIKE '%atlassian%' OR instr(',' || '{{admin_groups}}' || ',', ',' || LOWER(group_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, group_name, user_name, activity_name HAVING host_count <= 2",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Additions to groups like jira-administrators seen only on a few hosts. High frequency on one host with a traversal lead is a strong indicator of compromise.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "group_name",
+            "user_name",
+            "activity_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-08"
+      }
+    },
+    {
+      "id": "triage-breach",
+      "type": "analytic",
+      "label": "Triage breach verdict",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "evaluate-lead",
+          "check-software-vulnerability",
+          "check-admin-group-changes"
+        ],
+        "objective": "Determine if the observed traversal attempts resulted in a successful compromise, evidenced by unpatched software and unauthorized administrative changes.",
+        "description": "Integrate the traversal lead, software vulnerability status, and group changes into a single verdict per host.",
+        "max_iterations": 6,
+        "expected_signal": "A final verdict of malicious or suspicious for hosts where all three signals correlate.",
+        "success_criteria": "A comprehensive per-host verdict citing evidence from all three surfaces."
+      },
+      "parents": [
+        {
+          "id": "check-software-vulnerability",
+          "kind": "merge"
+        },
+        {
+          "id": "check-admin-group-changes",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-response",
+      "type": "checkpoint",
+      "label": "Route response",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-breach verdict is malicious for at least one host",
+        "condition": "the triage-breach verdict is malicious for at least one host",
+        "blind_spot": "identity-log-gaps",
+        "confidence": "high",
+        "description": "Initiate automated containment for confirmed breaches or refer to manual review for suspicious findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-breach"
+        }
+      ]
+    },
+    {
+      "id": "contain-breach",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop the attacker from using stolen administrative credentials to move laterally or exfiltrate more data.",
+        "instructions": "Isolate the host immediately. Revoke all credentials that might have been stored in crowd.properties or urlrewrite.xml and force a password reset for all members of the identified administrative groups.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-response",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final confirmation of hunt findings and audit of credential rotation status.",
+        "instructions": "Review the traversal leads and the group changes. Confirm if the Atlassian product was internet-facing and if any Crowd IP allowlist was bypassed."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "default"
+        },
+        {
+          "id": "gate-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-response",
+          "branch": "default"
+        },
+        {
+          "id": "route-response",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-response",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "contain-breach"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the hunt results and confirm the patching status of the estate.",
+        "instructions": "Log the hosts examined and the software versions found. If no malicious activity was identified, confirm that all vulnerable instances have been patched to the versions listed in the advisory."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
