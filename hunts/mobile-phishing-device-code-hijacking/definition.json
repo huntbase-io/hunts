@@ -1,0 +1,647 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries are increasingly using mobile phishing to bypass MFA via device-code hijacking (EvilTokens); identifying these ingress attempts is critical for preventing unauthorized cloud access."
+      },
+      "name": "Mobile Ingress and Device Code Hijacking",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1566",
+        "collection",
+        "initial access"
+      ],
+      "series": {
+        "slug": "sekoia-zimperium-investigate-mobile-threats-in-your-soc",
+        "index": 1,
+        "title": "Sekoia + Zimperium: Investigate Mobile Threats In Your SOC",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "cloud-token-theft-reconnaissance",
+          "reason": "This hunt identifies the ingress; a subsequent hunt should examine the post-compromise actions in M365.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single rule on DNS or Entra ID is often too noisy to promote. This hunt uses a gated flow to confirm a phishing lead (DNS) before examining identity signals (device-code) and mobile health (Zimperium) together, providing the cross-surface context needed for a confident verdict.",
+      "coverage": [
+        {
+          "stage": "phishing-and-smishing-delivery",
+          "steps": [
+            "phishing-dns-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "device-code-phishing-interaction",
+          "steps": [
+            "auth-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "vulnerability-and-zero-day-exploitation",
+          "steps": [
+            "inventory-scoping",
+            "mobile-risk"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "unauthorized-authentication-bypass",
+          "reason": "Belongs to another part of the 'Sekoia + Zimperium: Investigate Mobile Threats In Your SOC' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "cloud-discovery-and-collection",
+          "reason": "Belongs to another part of the 'Sekoia + Zimperium: Investigate Mobile Threats In Your SOC' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Mobile Phishing and Smishing Delivery",
+            "slug": "phishing-and-smishing-delivery",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "SMS and text messages containing malicious links",
+              "mishing",
+              "smishing",
+              "malicious URLs"
+            ]
+          },
+          {
+            "name": "EvilTokens Device Code Interaction",
+            "slug": "device-code-phishing-interaction",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "microsoft.com/devicelogin",
+              "EvilTokens kit lure",
+              "Entry of device codes by users"
+            ]
+          },
+          {
+            "name": "Mobile Device and Application Exploitation",
+            "slug": "vulnerability-and-zero-day-exploitation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Zero-day exploits",
+              "Exploitation of corporate services",
+              "Malicious application installation",
+              "Rooted or jailbroken devices"
+            ]
+          },
+          {
+            "name": "Unauthorized Authentication and MFA Bypass",
+            "slug": "unauthorized-authentication-bypass",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Entra ID sign-in activity",
+              "Unauthorized session tokens",
+              "Sign-ins from unfamiliar locations",
+              "MFA bypass via device code",
+              "resultType 0"
+            ]
+          },
+          {
+            "name": "Cloud Resource Discovery and Collection",
+            "slug": "cloud-discovery-and-collection",
+            "tactic": "collection",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Mailbox reconnaissance",
+              "Exchange Online API calls",
+              "SharePoint file access",
+              "Business Email Compromise (BEC) activity"
+            ]
+          }
+        ],
+        "summary": "Attackers utilize mobile-first strategies including smishing and 'EvilTokens' device code phishing to bypass multi-factor authentication and gain unauthorized access to corporate accounts. Once access is established, the compromised identities are used to perform reconnaissance and data collection within Microsoft 365 and Entra ID environments."
+      },
+      "severity": "medium",
+      "rationale": "The hunt first scopes the estate to identify devices with Zimperium or other MTD software. If no mobile management software is present, the hunt still proceeds across the entire fleet using the DNS phishing lead as the primary discovery mechanism.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is targeting employees with mobile phishing links (smishing) that lure them into performing Entra ID device-code authentication, allowing the attacker to hijack cloud sessions from compromised or unmanaged mobile devices.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hostnames to narrow the hunt, such as those found in the scoping inventory step."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for phishing and authentication events."
+        },
+        "phishing_domains": {
+          "from": {
+            "ref": "sekoia-zimperium-integration",
+            "kind": "article",
+            "observed": "2026-10-21"
+          },
+          "type": "list[domain]",
+          "default": [
+            "login.microsoftonline.com.re.st",
+            "microsoft.com-device.login",
+            "microsoft-devicecode.com",
+            "eviltokens.io"
+          ],
+          "description": "Domains associated with mobile phishing kits and EvilTokens lures."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.sekoia.com/blog/from-mobile-threat-detection-to-autonomous-investigation-connecting-zimperium-with-sekoia",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.sekoia.com/blog/from-mobile-threat-detection-to-autonomous-investigation-connecting-zimperium-with-sekoia",
+          "name": "Sekoia — From mobile threat detection to autonomous investigation"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "limited-dns-visibility",
+          "risk": "Ingress over cellular data or home Wi-Fi without an active corporate VPN will not leave a trace in hb_dns_activity.",
+          "stage": "phishing-and-smishing-delivery",
+          "question": "whether the phishing link was clicked on a mobile device not using a corporate DNS resolver",
+          "requires": "DNS logging for mobile devices (VPN/Proxy)"
+        },
+        {
+          "id": "no-mobile-telemetry",
+          "risk": "Without MTD telemetry, the hunt cannot confirm if a device was exploited or tampered with before the token theft occurred.",
+          "stage": "vulnerability-and-zero-day-exploitation",
+          "question": "whether the device used for authentication was in a compromised state (rooted/jailbroken)",
+          "requires": "Zimperium/MTD integration with hb_detection_finding"
+        }
+      ]
+    },
+    "name": "Mobile Ingress and Device Code Hijacking",
+    "description": "This hunt identifies the early stages of mobile-centric intrusions by correlating phishing ingress signals with subsequent authentication anomalies. It starts by identifying hosts running mobile management software, then hunts for resolutions to known phishing and EvilTokens infrastructure. A gate assessments the lead before fan-out queries examine device-code authentication flows and Zimperium-style device risk detections (like rooting or jailbreaking) side-by-side. An agent weighs the combined evidence to identify successful session theft before a revocation action stops the attack."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "sekoia-zimperium-investigate-mobile-threats-in-your-soc",
+          "index": 1,
+          "title": "Sekoia + Zimperium: Investigate Mobile Threats In Your SOC",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "phishing-and-smishing-delivery",
+            "steps": [
+              "phishing-dns-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "device-code-phishing-interaction",
+            "steps": [
+              "auth-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "vulnerability-and-zero-day-exploitation",
+            "steps": [
+              "inventory-scoping",
+              "mobile-risk"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "unauthorized-authentication-bypass",
+            "reason": "Belongs to another part of the 'Sekoia + Zimperium: Investigate Mobile Threats In Your SOC' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "cloud-discovery-and-collection",
+            "reason": "Belongs to another part of the 'Sekoia + Zimperium: Investigate Mobile Threats In Your SOC' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is targeting employees with mobile phishing links (smishing) that lure them into performing Entra ID device-code authentication, allowing the attacker to hijack cloud sessions from compromised or unmanaged mobile devices.",
+        "blind_spots": [
+          {
+            "id": "limited-dns-visibility",
+            "risk": "Ingress over cellular data or home Wi-Fi without an active corporate VPN will not leave a trace in hb_dns_activity.",
+            "stage": "phishing-and-smishing-delivery",
+            "question": "whether the phishing link was clicked on a mobile device not using a corporate DNS resolver",
+            "requires": "DNS logging for mobile devices (VPN/Proxy)"
+          },
+          {
+            "id": "no-mobile-telemetry",
+            "risk": "Without MTD telemetry, the hunt cannot confirm if a device was exploited or tampered with before the token theft occurred.",
+            "stage": "vulnerability-and-zero-day-exploitation",
+            "question": "whether the device used for authentication was in a compromised state (rooted/jailbroken)",
+            "requires": "Zimperium/MTD integration with hb_detection_finding"
+          }
+        ],
+        "scoping_notes": "The hunt first scopes the estate to identify devices with Zimperium or other MTD software. If no mobile management software is present, the hunt still proceeds across the entire fleet using the DNS phishing lead as the primary discovery mechanism.",
+        "beyond_detection": "A single rule on DNS or Entra ID is often too noisy to promote. This hunt uses a gated flow to confirm a phishing lead (DNS) before examining identity signals (device-code) and mobile health (Zimperium) together, providing the cross-surface context needed for a confident verdict."
+      }
+    },
+    {
+      "id": "inventory-scoping",
+      "type": "query",
+      "label": "Mobile management software inventory",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%zimperium%' OR LOWER(vendor_name) LIKE '%zimperium%' OR LOWER(package_name) LIKE '%mobile%')",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts with mobile defense or management software installed to focus the triage context on the most relevant devices.",
+        "expected_signal": "A list of hosts likely being mobile devices or running MTD software. Silence means no such software was detected in the package database."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Mobile management software inventory",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, vendor_name FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%zimperium%' OR LOWER(vendor_name) LIKE '%zimperium%' OR LOWER(package_name) LIKE '%mobile%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts likely being mobile devices or running MTD software. Silence means no such software was detected in the package database.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-22"
+      }
+    },
+    {
+      "id": "phishing-dns-lead",
+      "type": "query",
+      "label": "Phishing domain DNS resolutions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Find resolutions to known phishing infrastructure as a cheap lead to gate further investigation.",
+        "expected_signal": "Any resolution of a matched domain is a high-priority lead. Silence proves no matched domains were resolved via monitored resolvers."
+      },
+      "parents": [
+        {
+          "id": "inventory-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Phishing domain DNS resolutions",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Any resolution of a matched domain is a high-priority lead. Silence proves no matched domains were resolved via monitored resolvers.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-10-22"
+      }
+    },
+    {
+      "id": "lead-agent",
+      "type": "analytic",
+      "label": "Assess phishing DNS lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "phishing-dns-lead"
+        ],
+        "objective": "Determine if DNS resolutions to phishing domains indicate a credible attempt to lure users into a device-code authentication flow.",
+        "description": "Evaluate whether the DNS hits represent a credible phishing ingress warranting deeper investigation.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the DNS activity is suspicious.",
+        "success_criteria": "A verdict for each host citing the DNS resolutions."
+      },
+      "parents": [
+        {
+          "id": "phishing-dns-lead"
+        }
+      ]
+    },
+    {
+      "id": "gate-decision",
+      "type": "checkpoint",
+      "label": "Gate on lead assessment",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the lead-agent verdict is suspicious or malicious for at least one host",
+        "condition": "the lead-agent verdict is suspicious or malicious for at least one host",
+        "blind_spot": "limited-dns-visibility",
+        "confidence": "high",
+        "description": "Open expensive authentication and risk queries only when the lead assessment identifies suspicious ingress.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "lead-agent"
+        }
+      ]
+    },
+    {
+      "id": "auth-activity",
+      "type": "query",
+      "label": "Entra ID device-code interactions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "identity",
+        "content": "SELECT actor_user_name, device_hostname, auth_protocol, client_app, dst_endpoint_name, status, time FROM hb_auth_signin WHERE (LOWER(auth_protocol) LIKE '%device%' OR LOWER(client_app) LIKE '%browser%') AND (LOWER(dst_endpoint_name) LIKE '%microsoft%' OR LOWER(dst_endpoint_name) LIKE '%entra%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify authentication events using the device-code flow or browser targeting Microsoft identity services, which are central to EvilTokens attacks.",
+        "expected_signal": "Any sign-in event using a device flow protocol or browser on a host that resolved phishing domains. Silence means no such authentication was recorded."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Entra ID device-code interactions",
+        "reads": [
+          "actor_user_name",
+          "auth_protocol",
+          "client_app",
+          "dst_endpoint_name",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, device_hostname, auth_protocol, client_app, dst_endpoint_name, status, time FROM hb_auth_signin WHERE (LOWER(auth_protocol) LIKE '%device%' OR LOWER(client_app) LIKE '%browser%') AND (LOWER(dst_endpoint_name) LIKE '%microsoft%' OR LOWER(dst_endpoint_name) LIKE '%entra%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Any sign-in event using a device flow protocol or browser on a host that resolved phishing domains. Silence means no such authentication was recorded.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-22"
+      }
+    },
+    {
+      "id": "mobile-risk",
+      "type": "query",
+      "label": "Mobile risk and compromise signals",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, finding_title, malware_name, provider, severity, time FROM hb_detection_finding WHERE (LOWER(finding_title) LIKE '%root%' OR LOWER(finding_title) LIKE '%jailbreak%' OR LOWER(malware_name) LIKE '%mishing%' OR LOWER(malware_name) LIKE '%eviltoken%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_detection_finding",
+        "description": "Identify Zimperium alerts or other mobile-specific detections indicating a high-risk or compromised device state.",
+        "expected_signal": "Detections related to device tampering or mobile malware. Silence suggests no automated mobile threats were flagged."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Mobile risk and compromise signals",
+        "reads": [
+          "device_hostname",
+          "finding_title",
+          "malware_name",
+          "provider",
+          "time"
+        ],
+        "source": "hb_detection_finding",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, finding_title, malware_name, provider, severity, time FROM hb_detection_finding WHERE (LOWER(finding_title) LIKE '%root%' OR LOWER(finding_title) LIKE '%jailbreak%' OR LOWER(malware_name) LIKE '%mishing%' OR LOWER(malware_name) LIKE '%eviltoken%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Detections related to device tampering or mobile malware. Silence suggests no automated mobile threats were flagged.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-22"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Final triage of mobile threat",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "lead-agent",
+          "auth-activity",
+          "mobile-risk",
+          "inventory-scoping"
+        ],
+        "objective": "Correlate the suspected phishing ingress with Entra ID authentication patterns and mobile device risk signals to confirm an active token-theft or compromise event.",
+        "description": "Correlate the suspected phishing ingress with authentication patterns and device risk signals to confirm an active session theft attack.",
+        "max_iterations": 4,
+        "expected_signal": "A detailed verdict per host citing the interaction between phishing, authentication, and device state.",
+        "success_criteria": "A verdict of malicious, suspicious, or benign per host, citing relevant rows from all surfaces."
+      },
+      "parents": [
+        {
+          "id": "auth-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "mobile-risk",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-decision",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-agent verdict is malicious for at least one host or user",
+        "condition": "the triage-agent verdict is malicious for at least one host or user",
+        "blind_spot": "no-mobile-telemetry",
+        "confidence": "high",
+        "description": "Direct confirmed threats to immediate containment and manual validation for suspicious findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "containment-action",
+      "type": "action",
+      "label": "Revoke sessions and isolate",
+      "config": {
+        "target": "identity",
+        "description": "Stop active session theft by revoking identity tokens after a malicious verdict.",
+        "instructions": "Revoke all active sessions and refresh tokens for the compromised user in Entra ID to stop EvilTokens hijacking.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-review",
+      "type": "task",
+      "label": "Analyst manual review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent findings and check for follow-on reconnaissance activity.",
+        "instructions": "Review Entra ID sign-in logs and M365 Unified Audit Logs for the identified user. Look for unusual mailbox logins or changes to MFA settings occurring immediately after the suspected device-code interaction."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "default"
+        },
+        {
+          "id": "gate-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-decision",
+          "branch": "default"
+        },
+        {
+          "id": "route-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "containment-action"
+        }
+      ]
+    },
+    {
+      "id": "final-report",
+      "type": "task",
+      "label": "Hunt closure and reporting",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and telemetry gaps discovered during the hunt.",
+        "instructions": "Record the hunt outcome, update the phishing domain list, and document any identified gaps in mobile telemetry coverage."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "manual-review"
+        }
+      ]
+    }
+  ]
+}

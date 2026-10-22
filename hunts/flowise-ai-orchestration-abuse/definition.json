@@ -1,0 +1,636 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "AI orchestration platforms bridge the gap between external users and internal data vaults; a breach here allows an attacker to bypass traditional security boundaries by proxying their intent through the AI model itself."
+      },
+      "name": "Abuse of Flowise AI Orchestration Platforms",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1041",
+        "attack.t1505.003",
+        "attack.t1552.001",
+        "credential access",
+        "discovery",
+        "exfiltration",
+        "initial access",
+        "persistence"
+      ],
+      "related": [
+        {
+          "hunt": "prompt-injection-reconnaissance",
+          "reason": "This hunt focuses on the compromise of the Flowise platform itself, while prompt injection is a broader concern for any LLM-based application.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule could fire on access to /api/v1/credentials, but this hunt correlates the phased chain: initial fingerprinting, secret harvesting, and the semantic abuse of prompts targeting internal resources. This correlation is necessary to distinguish an active intrusion from legitimate developer activity.",
+      "coverage": [
+        {
+          "stage": "vulnerability-inventory",
+          "steps": [
+            "scope-flowise-hosts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "unauthenticated-api-reconnaissance",
+          "steps": [
+            "api-recon-and-exfiltration"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-harvesting-exfiltration",
+          "steps": [
+            "api-recon-and-exfiltration"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "chatflow-manipulation-callback",
+          "steps": [
+            "anomalous-outbound-connections",
+            "llm-hijacking-and-manipulation"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "llm-agent-hijacking",
+          "steps": [
+            "llm-hijacking-and-manipulation"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Flowise Vulnerability Assessment",
+            "slug": "vulnerability-inventory",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Flowise version 2.2.8",
+              "CVE-2024-31621",
+              "CVE-2025-59528",
+              "CVE-2026-41264"
+            ]
+          },
+          {
+            "name": "Unauthenticated API Reconnaissance",
+            "slug": "unauthenticated-api-reconnaissance",
+            "tactic": "discovery",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "GET /api/v1/ping",
+              "GET /api/v1/version",
+              "GET /api/v1/node-configs",
+              "GET /api/v1/chatflows"
+            ]
+          },
+          {
+            "name": "Credential Harvesting and Exfiltration",
+            "slug": "credential-harvesting-exfiltration",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1552.001"
+            ],
+            "observables": [
+              "GET /api/v1/credentials",
+              "GET /credentials/{uuid}"
+            ]
+          },
+          {
+            "name": "Chatflow Manipulation and Persistent Callback",
+            "slug": "chatflow-manipulation-callback",
+            "tactic": "persistence",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "POST /api/v1/chatflows/",
+              "chatflow name: System Status",
+              "http://154.217.251.226:19999/flowise-hb"
+            ]
+          },
+          {
+            "name": "LLM Agent Hijacking and Internal Probing",
+            "slug": "llm-agent-hijacking",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041",
+              "T1567"
+            ],
+            "observables": [
+              "/prediction/{id}",
+              "/chatflows/{id}/prediction",
+              "query targeting 10.0.0.5",
+              "prompt: query the RAG store",
+              "prompt: list all financial records"
+            ]
+          }
+        ],
+        "summary": "A threat actor, likely Chinese-speaking, targeted unauthenticated Flowise AI orchestration servers to perform automated reconnaissance and exfiltrate API credentials. The campaign involved the creation of malicious chatflows for persistent callbacks and attempts to hijack LLM agents to exfiltrate financial data from internal databases."
+      },
+      "severity": "high",
+      "rationale": "Start by identifying hosts with Flowise installed. If no software inventory match is found, widen the search to any internal server running Node.js with high outbound HTTP traffic volume to AI model providers.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker is exploiting unauthenticated Flowise instances to harvest stored API credentials and hijack AI agents for internal network reconnaissance and financial data exfiltration.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to restrict the hunt to; leave empty for the whole estate."
+        },
+        "callback_ips": {
+          "from": {
+            "ref": "sekoia-flowise-2026",
+            "kind": "article",
+            "observed": "2026-08-30"
+          },
+          "type": "list[ip]",
+          "default": [
+            "154.217.251.226"
+          ],
+          "description": "Attacker callback infrastructure identified in the report."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.sekoia.com/blog/a-honeypots-tale-deconstructing-an-attack-on-genai-infrastructure",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.sekoia.com/blog/a-honeypots-tale-deconstructing-an-attack-on-genai-infrastructure",
+          "name": "Sekoia — Sekoia Honeypot Captures an Attack on GenAI Infrastructure"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "encrypted-http-bodies",
+          "risk": "If traffic is encrypted and the body is not captured, the semantic intent of LLM prompts (hijacking) remains invisible, leaving only URL-path metadata.",
+          "stage": "unauthenticated-api-reconnaissance",
+          "question": "whether the 'log_line' column in hb_http_activity contains the request body",
+          "requires": "TLS decryption at a proxy or application-level request logging"
+        },
+        {
+          "id": "agent-network-isolation",
+          "risk": "If only internet-facing logs are collected, the agent's internal reconnaissance against internal databases remains hidden.",
+          "stage": "llm-agent-hijacking",
+          "question": "whether the AI server successfully queried internal IPs like 10.0.0.5",
+          "requires": "internal VPC flow logs or host-based firewall logs"
+        }
+      ]
+    },
+    "name": "Abuse of Flowise AI Orchestration Platforms",
+    "description": "Flowise AI orchestration servers are high-value targets because they consolidate API keys for LLMs and maintain bridges into internal data via RAG pipelines. This hunt follows a phased flow: first, it identifies hosts running Flowise and examines them for unauthenticated API reconnaissance and secret exfiltration; second, it looks for anomalous outbound callbacks to reported attacker infrastructure; third, it analyzes inference logs for malicious prompts that attempt to manipulate the agent into probing internal systems. An agent correlates the early discovery with the follow-on abuse to identify successful platform breaches."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "vulnerability-inventory",
+            "steps": [
+              "scope-flowise-hosts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "unauthenticated-api-reconnaissance",
+            "steps": [
+              "api-recon-and-exfiltration"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-harvesting-exfiltration",
+            "steps": [
+              "api-recon-and-exfiltration"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "chatflow-manipulation-callback",
+            "steps": [
+              "anomalous-outbound-connections",
+              "llm-hijacking-and-manipulation"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "llm-agent-hijacking",
+            "steps": [
+              "llm-hijacking-and-manipulation"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker is exploiting unauthenticated Flowise instances to harvest stored API credentials and hijack AI agents for internal network reconnaissance and financial data exfiltration.",
+        "blind_spots": [
+          {
+            "id": "encrypted-http-bodies",
+            "risk": "If traffic is encrypted and the body is not captured, the semantic intent of LLM prompts (hijacking) remains invisible, leaving only URL-path metadata.",
+            "stage": "unauthenticated-api-reconnaissance",
+            "question": "whether the 'log_line' column in hb_http_activity contains the request body",
+            "requires": "TLS decryption at a proxy or application-level request logging"
+          },
+          {
+            "id": "agent-network-isolation",
+            "risk": "If only internet-facing logs are collected, the agent's internal reconnaissance against internal databases remains hidden.",
+            "stage": "llm-agent-hijacking",
+            "question": "whether the AI server successfully queried internal IPs like 10.0.0.5",
+            "requires": "internal VPC flow logs or host-based firewall logs"
+          }
+        ],
+        "scoping_notes": "Start by identifying hosts with Flowise installed. If no software inventory match is found, widen the search to any internal server running Node.js with high outbound HTTP traffic volume to AI model providers.",
+        "beyond_detection": "A single rule could fire on access to /api/v1/credentials, but this hunt correlates the phased chain: initial fingerprinting, secret harvesting, and the semantic abuse of prompts targeting internal resources. This correlation is necessary to distinguish an active intrusion from legitimate developer activity."
+      }
+    },
+    {
+      "id": "scope-flowise-hosts",
+      "type": "query",
+      "label": "Identify Flowise Orchestration Instances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_version FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%flowise%'",
+        "surface": "hb_software_inventory",
+        "description": "Find hosts running the Flowise package to define the search space for the rest of the hunt.",
+        "expected_signal": "A list of hosts running Flowise. If no hosts are returned, the estate may not use this specific AI orchestration platform."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Flowise Orchestration Instances",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_version FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%flowise%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts running Flowise. If no hosts are returned, the estate may not use this specific AI orchestration platform.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-20"
+      }
+    },
+    {
+      "id": "api-recon-and-exfiltration",
+      "type": "query",
+      "label": "API Reconnaissance and Secret Access",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_path, status_code, http_method, COUNT(*) as request_count, MIN(time) as first_seen FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/api/v1/ping%' OR LOWER(url_path) LIKE '%/api/v1/version%' OR LOWER(url_path) LIKE '%/api/v1/node-configs%' OR LOWER(url_path) LIKE '%/api/v1/chatflows%' OR LOWER(url_path) LIKE '%/api/v1/credentials%' OR LOWER(url_path) LIKE '%/credentials/%') AND status_code = 200 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, url_path, status_code, http_method",
+        "surface": "hb_http_activity",
+        "description": "Detect successful GET requests to sensitive Flowise endpoints that expose version data and credentials.",
+        "expected_signal": "Successful GET requests to credential and metadata routes suggest an attacker is harvesting secrets."
+      },
+      "parents": [
+        {
+          "id": "scope-flowise-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "API Reconnaissance and Secret Access",
+        "reads": [
+          "device_hostname",
+          "url_path",
+          "status_code",
+          "http_method",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_path, status_code, http_method, COUNT(*) as request_count, MIN(time) as first_seen FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/api/v1/ping%' OR LOWER(url_path) LIKE '%/api/v1/version%' OR LOWER(url_path) LIKE '%/api/v1/node-configs%' OR LOWER(url_path) LIKE '%/api/v1/chatflows%' OR LOWER(url_path) LIKE '%/api/v1/credentials%' OR LOWER(url_path) LIKE '%/credentials/%') AND status_code = 200 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, url_path, status_code, http_method",
+        "silence": "not_evidence_of_absence",
+        "expected": "Successful GET requests to credential and metadata routes suggest an attacker is harvesting secrets.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-20"
+      }
+    },
+    {
+      "id": "anomalous-outbound-connections",
+      "type": "query",
+      "label": "Anomalous Outbound Network Callbacks",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, COUNT(*) AS connection_count, MIN(time) as first_seen FROM hb_network_connection WHERE direction = 'outbound' AND (instr(',' || '{{callback_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 OR dst_endpoint_port = 19999) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip, dst_endpoint_port",
+        "surface": "hb_network_connection",
+        "description": "Identify outbound connections to known attacker infrastructure or rare high ports from the AI servers.",
+        "expected_signal": "Outbound connections to the reported IPs or on port 19999 indicate the creation of a persistent callback channel."
+      },
+      "parents": [
+        {
+          "id": "scope-flowise-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Anomalous Outbound Network Callbacks",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, COUNT(*) AS connection_count, MIN(time) as first_seen FROM hb_network_connection WHERE direction = 'outbound' AND (instr(',' || '{{callback_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 OR dst_endpoint_port = 19999) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip, dst_endpoint_port",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Outbound connections to the reported IPs or on port 19999 indicate the creation of a persistent callback channel.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip",
+            "dst_endpoint_port"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-20"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Early-Stage Evidence Triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network",
+          "web"
+        ],
+        "context": [
+          "scope-flowise-hosts",
+          "api-recon-and-exfiltration",
+          "anomalous-outbound-connections"
+        ],
+        "objective": "Determine if any host has been successfully fingerprinted and established a callback to the reported attacker infrastructure.",
+        "description": "Weigh the API secret access and network callbacks to identify hosts currently undergoing active exploitation.",
+        "max_iterations": 3,
+        "expected_signal": "Verdicts identifying which Flowise hosts show a combination of unauthenticated discovery and suspicious outbound activity.",
+        "success_criteria": "A per-host verdict citing specific API paths and network destinations."
+      },
+      "parents": [
+        {
+          "id": "api-recon-and-exfiltration",
+          "kind": "merge"
+        },
+        {
+          "id": "anomalous-outbound-connections",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "llm-hijacking-and-manipulation",
+      "type": "query",
+      "label": "LLM Agent Hijacking and Manipulation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, url_path, http_method, log_line, time FROM hb_http_activity WHERE (http_method IN ('POST', 'PUT', 'PATCH')) AND (LOWER(url_path) LIKE '%/prediction%' OR LOWER(url_path) LIKE '%/chatflows%') AND (LOWER(log_line) LIKE '%system status%' OR LOWER(log_line) LIKE '%154.217.251.226%' OR LOWER(log_line) LIKE '%rag%' OR LOWER(log_line) LIKE '%financial%' OR LOWER(log_line) LIKE '%10.0.0.5%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Analyze HTTP request payloads for attempts to modify chatflows or hijack the agent via malicious prompts.",
+        "expected_signal": "Requests containing keywords like 'system status', 'financial', or 'RAG' in the payload indicate the agent is being manipulated to exfiltrate internal data."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "LLM Agent Hijacking and Manipulation",
+        "reads": [
+          "device_hostname",
+          "url_path",
+          "http_method",
+          "log_line",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_path, http_method, log_line, time FROM hb_http_activity WHERE (http_method IN ('POST', 'PUT', 'PATCH')) AND (LOWER(url_path) LIKE '%/prediction%' OR LOWER(url_path) LIKE '%/chatflows%') AND (LOWER(log_line) LIKE '%system status%' OR LOWER(log_line) LIKE '%154.217.251.226%' OR LOWER(log_line) LIKE '%rag%' OR LOWER(log_line) LIKE '%financial%' OR LOWER(log_line) LIKE '%10.0.0.5%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Requests containing keywords like 'system status', 'financial', or 'RAG' in the payload indicate the agent is being manipulated to exfiltrate internal data.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-20"
+      }
+    },
+    {
+      "id": "final-compromise-assessment",
+      "type": "analytic",
+      "label": "Final Compromise Assessment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network",
+          "web"
+        ],
+        "context": [
+          "early-stage-triage",
+          "llm-hijacking-and-manipulation"
+        ],
+        "objective": "Decide whether the observed activity constitutes a successful breach and hijacking of the Flowise orchestration platform.",
+        "description": "Correlate early reconnaissance and secret access with follow-on LLM hijacking attempts to confirm a successful breach.",
+        "max_iterations": 4,
+        "expected_signal": "Confirmation of malicious hijacking for the purpose of internal reconnaissance or data theft.",
+        "success_criteria": "A final verdict per host citing the sequence of reconnaissance, callback creation, and malicious prompting."
+      },
+      "parents": [
+        {
+          "id": "llm-hijacking-and-manipulation"
+        }
+      ]
+    },
+    {
+      "id": "route-on-compromise",
+      "type": "checkpoint",
+      "label": "Route on Compromise Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-compromise-assessment verdict is malicious for at least one host",
+        "condition": "the final-compromise-assessment verdict is malicious for at least one host",
+        "blind_spot": "encrypted-http-bodies",
+        "confidence": "high",
+        "description": "Direct response actions based on the agent's assessment of platform compromise.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-compromise-assessment"
+        }
+      ]
+    },
+    {
+      "id": "isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate Compromised Flowise Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the attack and prevent further internal reconnaissance from the platform.",
+        "instructions": "Isolate the identified Flowise host to prevent the attacker from using the LLM agent to probe internal systems (e.g., 10.0.0.5) or exfiltrate RAG data.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-compromise",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "revoke-leaked-credentials",
+      "type": "task",
+      "label": "Revoke and Rotate Leaked Credentials",
+      "config": {
+        "assignee": "analyst",
+        "description": "Mitigate the impact of stolen API keys and database credentials stored in Flowise.",
+        "instructions": "Flowise stores API keys (OpenAI, Anthropic) and database connection strings. Rotate every credential found in the Flowise store of the affected host."
+      },
+      "parents": [
+        {
+          "id": "isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "manual-analyst-review",
+      "type": "task",
+      "label": "Manual Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review HTTP logs manually when semantic prompts cannot be definitively classified.",
+        "instructions": "Review the hb_http_activity log_line for the identified hosts; look for prompts attempting to list financial data or probe internal network resources that the agent may have flagged as indeterminate."
+      },
+      "parents": [
+        {
+          "id": "route-on-compromise",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-compromise",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "remediation-and-hardening",
+      "type": "task",
+      "label": "Remediation and Hardening",
+      "config": {
+        "assignee": "analyst",
+        "description": "Harden the Flowise deployment to prevent future exploitation.",
+        "instructions": "Update Flowise to version 3.1.0 or later to ensure authentication is enforced on all API routes. Place the instance behind a WAF or restrict network access to a management IP whitelist."
+      },
+      "parents": [
+        {
+          "id": "route-on-compromise",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "revoke-leaked-credentials"
+        },
+        {
+          "id": "manual-analyst-review"
+        }
+      ]
+    }
+  ]
+}
