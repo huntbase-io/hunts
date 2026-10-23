@@ -1,0 +1,575 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries exploit legacy APIs to bypass modern monitoring; visibility into these logs closes a decade-long gap in Entra ID defense."
+      },
+      "name": "Bulk Directory Discovery via AAD Graph API",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001",
+        "attack.t1190"
+      ],
+      "related": [
+        {
+          "hunt": "microsoft-graph-bulk-discovery",
+          "reason": "Adversaries may use modern Microsoft Graph endpoints; this hunt focuses exclusively on the legacy gap.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "This hunt correlates authentication (Sign-in logs), endpoint execution (Script Blocks), and server-side traffic (Activity Logs) to identify rare patterns that a single detection rule would miss.",
+      "coverage": [
+        {
+          "stage": "aad-graph-authentication",
+          "steps": [
+            "auth-lead-query",
+            "assess-auth-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "aad-graph-tool-execution",
+          "steps": [
+            "endpoint-script-patterns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "aad-graph-bulk-discovery",
+          "steps": [
+            "rare-user-agents"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Legacy Graph OAuth Authentication",
+            "slug": "aad-graph-authentication",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "roadrecon auth --device-code",
+              "Client ID: 04b07795-8ddb-461a-bbee-02f9e1bf7b46 (Azure CLI)",
+              "Client ID: 1b730954-1685-4b74-9bfd-dac224a7b894 (Azure PowerShell)",
+              "resource: https://graph.windows.net"
+            ]
+          },
+          {
+            "name": "Recon Tooling Execution",
+            "slug": "aad-graph-tool-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "roadrecon gather",
+              "az account get-access-token --resource https://graph.windows.net",
+              "powershell.exe",
+              "python.exe",
+              "pip install roadrecon"
+            ]
+          },
+          {
+            "name": "Directory Object Enumeration",
+            "slug": "aad-graph-bulk-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "graph.windows.net",
+              "api-version=1.61-internal",
+              "api-version=1.6",
+              "api-version=1.5",
+              "url_path: /users",
+              "url_path: /groups",
+              "url_path: /servicePrincipals",
+              "url_path: /applications",
+              "url_path: /tenantDetails",
+              "User-Agent: Microsoft.OData.Client",
+              "User-Agent: Microsoft Azure Graph Client Library",
+              "User-Agent: Microsoft ADO.NET Data Services",
+              "User-Agent: Python aiohttp",
+              "User-Agent: curl",
+              "strongAuthenticationDetail",
+              "application.authenticationBehaviors"
+            ]
+          }
+        ],
+        "summary": "Adversaries exploit the legacy Azure AD Graph API (graph.windows.net) to perform bulk directory enumeration using tools like ROADrecon and AADInternals. By leveraging deprecated internal API versions such as 1.61-internal, they can bypass modern security controls to extract sensitive information like MFA details and conditional access policies."
+      },
+      "severity": "high",
+      "rationale": "Focus on users who successfully authenticated to legacy Graph endpoints. Widen the hunt if offensive Client IDs are found in Sign-in logs.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary uses legacy Azure AD Graph API endpoints and known offensive Client IDs to perform bulk directory enumeration, specifically targeting internal API versions that expose sensitive authentication methods.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to narrow the search; if empty, all hosts are examined."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "foci_client_ids": {
+          "from": {
+            "ref": "elastic-security-labs-aad-graph",
+            "kind": "article",
+            "observed": "2026-06-19"
+          },
+          "type": "list[string]",
+          "default": [
+            "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
+            "1b730954-1685-4b74-9bfd-dac224a7b894"
+          ],
+          "description": "Known offensive Client IDs for Azure CLI and PowerShell often used in FOCI-swap attacks."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/aad-graph-activity-logs-threat-detection",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/aad-graph-activity-logs-threat-detection",
+          "name": "Elastic Security Labs \u2014 Azure AD Graph Activity Logs: Ingestion and threat detection"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-graph-logging",
+          "risk": "If this diagnostic category is not enabled, server-side API activity remains invisible.",
+          "owner": "Cloud Platform Team",
+          "stage": "aad-graph-bulk-discovery",
+          "question": "whether directory objects were enumerated via the legacy API",
+          "requires": "AzureADGraphActivityLogs category in Entra ID Diagnostic Settings",
+          "remediation": "Enable the AzureADGraphActivityLogs diagnostic setting in the Entra ID portal."
+        },
+        {
+          "id": "no-http-telemetry",
+          "risk": "Without HTTP logs or decryption, the defender only sees a generic encrypted connection.",
+          "owner": "Network Security",
+          "stage": "aad-graph-bulk-discovery",
+          "question": "the specific URL parameters revealing internal API use",
+          "requires": "hb_http_activity or HTTPS inspection",
+          "remediation": "Ensure hb_http_activity is populated via the Azure Graph Activity Logs integration."
+        }
+      ]
+    },
+    "name": "Bulk Directory Discovery via AAD Graph API",
+    "description": "Adversaries leverage the legacy graph.windows.net API because it has historically lacked the granular logging of modern Microsoft Graph. This hunt identifies the use of ROADrecon and AADInternals by first gating on successful authentication events using offensive FOCI (Family of Client IDs) applications. If an authentication lead is found, the hunt fans out to correlate rare User-Agents in server-side Graph Activity Logs with behavioural script execution patterns on the endpoint. This specifically targets the abuse of the internal-only 1.61-internal API version which exposes sensitive authentication details."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "aad-graph-authentication",
+            "steps": [
+              "auth-lead-query",
+              "assess-auth-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "aad-graph-tool-execution",
+            "steps": [
+              "endpoint-script-patterns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "aad-graph-bulk-discovery",
+            "steps": [
+              "rare-user-agents"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary uses legacy Azure AD Graph API endpoints and known offensive Client IDs to perform bulk directory enumeration, specifically targeting internal API versions that expose sensitive authentication methods.",
+        "blind_spots": [
+          {
+            "id": "no-graph-logging",
+            "risk": "If this diagnostic category is not enabled, server-side API activity remains invisible.",
+            "owner": "Cloud Platform Team",
+            "stage": "aad-graph-bulk-discovery",
+            "question": "whether directory objects were enumerated via the legacy API",
+            "requires": "AzureADGraphActivityLogs category in Entra ID Diagnostic Settings",
+            "remediation": "Enable the AzureADGraphActivityLogs diagnostic setting in the Entra ID portal."
+          },
+          {
+            "id": "no-http-telemetry",
+            "risk": "Without HTTP logs or decryption, the defender only sees a generic encrypted connection.",
+            "owner": "Network Security",
+            "stage": "aad-graph-bulk-discovery",
+            "question": "the specific URL parameters revealing internal API use",
+            "requires": "hb_http_activity or HTTPS inspection",
+            "remediation": "Ensure hb_http_activity is populated via the Azure Graph Activity Logs integration."
+          }
+        ],
+        "scoping_notes": "Focus on users who successfully authenticated to legacy Graph endpoints. Widen the hunt if offensive Client IDs are found in Sign-in logs.",
+        "beyond_detection": "This hunt correlates authentication (Sign-in logs), endpoint execution (Script Blocks), and server-side traffic (Activity Logs) to identify rare patterns that a single detection rule would miss."
+      }
+    },
+    {
+      "id": "auth-lead-query",
+      "type": "query",
+      "label": "Authentication to legacy Graph resource",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%graph.windows.net%' OR instr(',' || '{{foci_client_ids}}' || ',', ',' || dst_endpoint_name || ',') > 0) AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify successful authentication events to the legacy Azure AD Graph resource using client IDs commonly associated with offensive tools.",
+        "expected_signal": "Successful token acquisition for the legacy Graph resource by unexpected users or using offensive client IDs."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Authentication to legacy Graph resource",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, dst_endpoint_name, time FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%graph.windows.net%' OR instr(',' || '{{foci_client_ids}}' || ',', ',' || dst_endpoint_name || ',') > 0) AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Successful token acquisition for the legacy Graph resource by unexpected users or using offensive client IDs.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "assess-auth-lead",
+      "type": "analytic",
+      "label": "Assess authentication lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "auth-lead-query"
+        ],
+        "objective": "Determine if any successful authentication to the legacy Graph resource represents an anomalous lead.",
+        "description": "Evaluate whether the identified authentications are anomalous for the environment.",
+        "max_iterations": 3,
+        "expected_signal": "A prioritized list of suspicious user sessions using legacy Graph endpoints.",
+        "success_criteria": "Identification of suspicious identities for follow-on behavioral queries."
+      },
+      "parents": [
+        {
+          "id": "auth-lead-query"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-lead",
+      "type": "checkpoint",
+      "label": "Gate on lead",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the assess-auth-lead agent identifies a successful authentication that is anomalous for the user or involves a known offensive client ID",
+        "condition": "the assess-auth-lead agent identifies a successful authentication that is anomalous for the user or involves a known offensive client ID",
+        "blind_spot": "no-graph-logging",
+        "confidence": "high",
+        "description": "Decide whether to execute expensive behavioral and traffic queries based on the initial authentication lead.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "assess-auth-lead"
+        }
+      ]
+    },
+    {
+      "id": "rare-user-agents",
+      "type": "query",
+      "label": "Rare User-Agents for Graph Activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT user_agent, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS request_count, MIN(time) AS first_seen FROM hb_http_activity WHERE LOWER(url_hostname) = 'graph.windows.net' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_agent HAVING user_count <= 2 ORDER BY user_count ASC, request_count DESC",
+        "surface": "hb_http_activity",
+        "description": "Stack-count User-Agents hitting the legacy Graph API to find rare or offensive tooling strings across the user population.",
+        "expected_signal": "User-Agents used by only 1 or 2 identities hitting the legacy API; these often belong to tools like ROADrecon or custom Python scripts."
+      },
+      "parents": [
+        {
+          "id": "gate-on-lead",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare User-Agents for Graph Activity",
+        "reads": [
+          "user_agent",
+          "actor_user_name",
+          "url_hostname",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT user_agent, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS request_count, MIN(time) AS first_seen FROM hb_http_activity WHERE LOWER(url_hostname) = 'graph.windows.net' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_agent HAVING user_count <= 2 ORDER BY user_count ASC, request_count DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "User-Agents used by only 1 or 2 identities hitting the legacy API; these often belong to tools like ROADrecon or custom Python scripts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "user_agent"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "endpoint-script-patterns",
+      "type": "query",
+      "label": "Endpoint Graph tool execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%graph.windows.net%' OR LOWER(script_content) LIKE '%1.61-internal%' OR LOWER(script_content) LIKE '%roadrecon%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Search script blocks for the logic of known offensive tools that target the legacy Graph API or use internal API versions.",
+        "expected_signal": "Script contents referencing the legacy Graph URL, the internal API version, or tool-specific strings like 'roadrecon'."
+      },
+      "parents": [
+        {
+          "id": "gate-on-lead",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Endpoint Graph tool execution",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%graph.windows.net%' OR LOWER(script_content) LIKE '%1.61-internal%' OR LOWER(script_content) LIKE '%roadrecon%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script contents referencing the legacy Graph URL, the internal API version, or tool-specific strings like 'roadrecon'.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-investigation",
+      "type": "analytic",
+      "label": "Triage legacy Graph activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "assess-auth-lead",
+          "rare-user-agents",
+          "endpoint-script-patterns"
+        ],
+        "objective": "Determine if the combined telemetry indicates an active intrusion beachhead performing directory enumeration via the legacy Graph API.",
+        "description": "Synthesize authentication leads, rare User-Agents, and endpoint script activity to confirm unauthorized enumeration.",
+        "max_iterations": 6,
+        "expected_signal": "A definitive verdict per user and host.",
+        "success_criteria": "A verdict of malicious or suspicious for identities showing successful auth followed by discovery behavior."
+      },
+      "parents": [
+        {
+          "id": "rare-user-agents",
+          "kind": "merge"
+        },
+        {
+          "id": "endpoint-script-patterns",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "final-route",
+      "type": "checkpoint",
+      "label": "Route on triage",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-investigation agent confirms that an identity performed unauthorized discovery using the legacy Graph API",
+        "condition": "the triage-investigation agent confirms that an identity performed unauthorized discovery using the legacy Graph API",
+        "blind_spot": "no-http-telemetry",
+        "confidence": "high",
+        "description": "Initiate containment for confirmed malicious activity.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-investigation"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate beachhead",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat by isolating the endpoint.",
+        "instructions": "Isolate the host where the discovery tools were executed. Revoke all Entra ID refresh tokens for the affected user account.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "final-route",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify findings and document any legacy automation discovered.",
+        "instructions": "Review the API call volume for the identified user. Distinguish between bulk automated walking and legitimate legacy automation."
+      },
+      "parents": [
+        {
+          "id": "gate-on-lead",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-lead",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "final-route",
+          "branch": "default"
+        },
+        {
+          "id": "final-route",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "final-route",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document gaps and finalize the hunt.",
+        "instructions": "Record whether the AzureADGraphActivityLogs category was enabled. If not, mark this as a priority remediation item."
+      },
+      "parents": [
+        {
+          "id": "gate-on-lead",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

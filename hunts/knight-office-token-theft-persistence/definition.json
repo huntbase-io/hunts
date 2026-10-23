@@ -1,0 +1,583 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Knight Office specifically bypass MFA by stealing persistent session tokens; a negative result over the enrolled estate confirms that no rogue devices have been registered through this specific kit chain, which is a critical persistence indicator."
+      },
+      "name": "Knight Office Token Theft and Device Persistence",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1090.003",
+        "attack.t1098"
+      ],
+      "series": {
+        "slug": "inside-knight-office-a-new-m365-aitm-phishing-kit",
+        "index": 2,
+        "title": "Inside Knight Office, a New M365 AiTM Phishing Kit",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "phishing-redirect-obfuscation",
+          "reason": "The redirect chain involving Monday.com and compromised Joomla sites is better handled on proxy or web-filter logs.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "knight-office-delivery-redirection",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple rule might fire on a kit IP, but this hunt correlates the initial deviceauth flow on the endpoint with the follow-on persistence mechanism in the cloud. It uses a baseline to find rare User-Agents that standard rules would miss and pivots between network activity and identity inventory to settle the verdict.",
+      "coverage": [
+        {
+          "stage": "aitm-device-code-theft",
+          "steps": [
+            "kit-interaction-lead",
+            "rare-user-agents-to-microsoft"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "rogue-device-persistence",
+          "steps": [
+            "rogue-device-registration"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "phishing-lure-delivery",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "redirect-chain-obfuscation",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "whfb-key-binding",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "DocuSign-themed Phishing Delivery",
+            "slug": "phishing-lure-delivery",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "IP: 154.127.53.78",
+              "Subject: Reminder: Signature Required - Approval Pending Your Review!!!",
+              "Character substitution: lmportant, Slgnature, VERlVIED (l instead of i)"
+            ]
+          },
+          {
+            "name": "Multi-stage URL Redirection",
+            "slug": "redirect-chain-obfuscation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Domain: monday.com",
+              "Compromised Joomla websites",
+              "TLD: .vu domains"
+            ]
+          },
+          {
+            "name": "AiTM Token Theft via Device Code Flow",
+            "slug": "aitm-device-code-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1566",
+              "T1090.003"
+            ],
+            "observables": [
+              "URL: microsoft.com/devicelogin",
+              "Nine-letter deviceauth codes",
+              "IP: 73.125.13.x (Callback proxy)",
+              "User-Agent: Microsoft Authentication Broker / OfficeHome"
+            ]
+          },
+          {
+            "name": "Entra ID Rogue Device Registration",
+            "slug": "rogue-device-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1098"
+            ],
+            "observables": [
+              "IP: 104.37.188.94",
+              "User-Agent: python-requests/2.34.2",
+              "Unauthorized host enrollment into Microsoft Entra ID"
+            ]
+          },
+          {
+            "name": "Windows Hello for Business Key Binding",
+            "slug": "whfb-key-binding",
+            "tactic": "persistence",
+            "techniques": [
+              "T1098"
+            ],
+            "observables": [
+              "User-Agent: Dsreg/10.0 (Windows 10.0.19044.1826)",
+              "NGC key binding",
+              "WHfB passwordless authentication success"
+            ]
+          }
+        ],
+        "summary": "Threat actors use the Knight Office phishing kit to perform Adversary-in-the-Middle (AiTM) attacks against Microsoft 365 accounts via the Device Code flow. After harvesting session tokens using residential callback proxies and redirect infrastructure, the attackers establish persistence by enrolling rogue devices in Microsoft Entra ID and binding Windows Hello for Business (WHfB) keys to the compromised accounts."
+      },
+      "severity": "high",
+      "rationale": "The lead query identifies users interacting with the deviceauth flow, which is the kit's primary method for token theft. Focus on identities that visited the Microsoft devicelogin page followed by any interaction with the identified kit IPs. If the HTTP surface is encrypted or unavailable, prioritize the rogue-device-registration check.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has stolen Microsoft 365 session tokens via a device-code phishing flow and secured persistence by enrolling an unauthorized rogue device into the Entra ID tenant.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2026-09-02"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts identified in the lead step; leave empty for a global check."
+        },
+        "attacker_ips": {
+          "from": {
+            "ref": "huntress-knight-office",
+            "kind": "article",
+            "observed": "2026-09-02"
+          },
+          "type": "list[ip]",
+          "default": [
+            "104.37.188.94",
+            "154.127.53.78"
+          ],
+          "description": "Known Knight Office management and delivery IPs."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-09-02"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/inside-knight-office-m365-aitm-attack",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/inside-knight-office-m365-aitm-attack",
+          "name": "Inside Knight Office, a New M365 AiTM Phishing Kit"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "external-token-replay-visibility",
+          "risk": "Corporate HTTP telemetry only sees the victim's interaction with the kit; the subsequent authentication from the attacker's infrastructure is invisible to endpoint-based sensors.",
+          "stage": "aitm-device-code-theft",
+          "question": "Whether a stolen token was replayed from an external VPS via python-requests",
+          "requires": "Native Entra ID sign-in logs",
+          "remediation": "Ingest M365/Entra ID Unified Audit Logs (UAL) to capture all authentication attempts and User-Agents globally."
+        },
+        {
+          "id": "device-inventory-sync-delay",
+          "risk": "Cloud inventory collectors may have a lag between a device registration event and its appearance in the hb_devices surface, leading to a temporary coverage gap.",
+          "stage": "rogue-device-persistence",
+          "question": "Whether a newly registered device has populated the inventory during the lookback window",
+          "requires": "hb_devices (azure_ad provider)"
+        }
+      ]
+    },
+    "name": "Knight Office Token Theft and Device Persistence",
+    "description": "This hunt identifies the lifecycle of a Knight Office kit attack, focusing on the transition from initial phishing to long-term persistence. It begins by scoping users and hosts interacting with the Microsoft device login endpoint or known kit infrastructure. It then correlates these leads with rare User-Agents on endpoint HTTP traffic and unauthorized device registrations in Entra ID. An agent weighs the evidence to confirm if a successful token theft led to a rogue host enrollment, which survives password resets and MFA changes."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "inside-knight-office-a-new-m365-aitm-phishing-kit",
+          "index": 2,
+          "title": "Inside Knight Office, a New M365 AiTM Phishing Kit",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "aitm-device-code-theft",
+            "steps": [
+              "kit-interaction-lead",
+              "rare-user-agents-to-microsoft"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "rogue-device-persistence",
+            "steps": [
+              "rogue-device-registration"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "phishing-lure-delivery",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "redirect-chain-obfuscation",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "whfb-key-binding",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has stolen Microsoft 365 session tokens via a device-code phishing flow and secured persistence by enrolling an unauthorized rogue device into the Entra ID tenant.",
+        "blind_spots": [
+          {
+            "id": "external-token-replay-visibility",
+            "risk": "Corporate HTTP telemetry only sees the victim's interaction with the kit; the subsequent authentication from the attacker's infrastructure is invisible to endpoint-based sensors.",
+            "stage": "aitm-device-code-theft",
+            "question": "Whether a stolen token was replayed from an external VPS via python-requests",
+            "requires": "Native Entra ID sign-in logs",
+            "remediation": "Ingest M365/Entra ID Unified Audit Logs (UAL) to capture all authentication attempts and User-Agents globally."
+          },
+          {
+            "id": "device-inventory-sync-delay",
+            "risk": "Cloud inventory collectors may have a lag between a device registration event and its appearance in the hb_devices surface, leading to a temporary coverage gap.",
+            "stage": "rogue-device-persistence",
+            "question": "Whether a newly registered device has populated the inventory during the lookback window",
+            "requires": "hb_devices (azure_ad provider)"
+          }
+        ],
+        "scoping_notes": "The lead query identifies users interacting with the deviceauth flow, which is the kit's primary method for token theft. Focus on identities that visited the Microsoft devicelogin page followed by any interaction with the identified kit IPs. If the HTTP surface is encrypted or unavailable, prioritize the rogue-device-registration check.",
+        "beyond_detection": "A simple rule might fire on a kit IP, but this hunt correlates the initial deviceauth flow on the endpoint with the follow-on persistence mechanism in the cloud. It uses a baseline to find rare User-Agents that standard rules would miss and pivots between network activity and identity inventory to settle the verdict."
+      }
+    },
+    {
+      "id": "kit-interaction-lead",
+      "type": "query",
+      "label": "Lead interaction with kit infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "web",
+        "content": "SELECT DISTINCT device_hostname, actor_user_name, dst_endpoint_ip, url_hostname, url_path, time FROM hb_http_activity WHERE ((instr(LOWER(url_hostname), 'microsoft.com') > 0 AND instr(LOWER(url_path), 'devicelogin') > 0) OR instr(',' || '{{attacker_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify hosts and identities interacting with the device-code login flow or known kit management IPs.",
+        "expected_signal": "Internal identities and hostnames visiting the device login page or kit management infrastructure. Results scope the subsequent behavioral queries."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Lead interaction with kit infrastructure",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "dst_endpoint_ip",
+          "url_hostname",
+          "url_path",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT DISTINCT device_hostname, actor_user_name, dst_endpoint_ip, url_hostname, url_path, time FROM hb_http_activity WHERE ((instr(LOWER(url_hostname), 'microsoft.com') > 0 AND instr(LOWER(url_path), 'devicelogin') > 0) OR instr(',' || '{{attacker_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Internal identities and hostnames visiting the device login page or kit management infrastructure. Results scope the subsequent behavioral queries.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-user-agents-to-microsoft",
+      "type": "query",
+      "label": "Rare User-Agents to authentication endpoints",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT user_agent, url_hostname, device_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_http_activity WHERE (instr(LOWER(url_hostname), 'microsoft.com') > 0 OR instr(LOWER(url_hostname), 'login') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_agent, url_hostname HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_http_activity",
+        "description": "Stack-count User-Agents on interaction with login infrastructure to find automated kit tools like python-requests.",
+        "expected_signal": "Rare User-Agents like python-requests or Microsoft Authentication Broker associated with a small number of hosts."
+      },
+      "parents": [
+        {
+          "id": "kit-interaction-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare User-Agents to authentication endpoints",
+        "reads": [
+          "user_agent",
+          "url_hostname",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT user_agent, url_hostname, device_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_http_activity WHERE (instr(LOWER(url_hostname), 'microsoft.com') > 0 OR instr(LOWER(url_hostname), 'login') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_agent, url_hostname HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare User-Agents like python-requests or Microsoft Authentication Broker associated with a small number of hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "user_agent",
+            "url_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rogue-device-registration",
+      "type": "query",
+      "label": "New Entra ID device registration",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT hostname, device_owner, os_name, os_version, device_uid, provider, time FROM hb_devices WHERE provider = 'azure_ad' AND time >= datetime('now', '-{{lookback_days}} days') ORDER BY time DESC",
+        "surface": "hb_devices",
+        "description": "Find newly enrolled cloud devices that may represent the attacker's persistence mechanism.",
+        "expected_signal": "Newly registered devices in Entra ID. The hostname typically differs from the victim's standard machine, identifying the rogue enrollment."
+      },
+      "parents": [
+        {
+          "id": "kit-interaction-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "New Entra ID device registration",
+        "reads": [
+          "hostname",
+          "device_owner",
+          "os_name",
+          "os_version",
+          "device_uid",
+          "provider",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname, device_owner, os_name, os_version, device_uid, provider, time FROM hb_devices WHERE provider = 'azure_ad' AND time >= datetime('now', '-{{lookback_days}} days') ORDER BY time DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "Newly registered devices in Entra ID. The hostname typically differs from the victim's standard machine, identifying the rogue enrollment.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-knight-office",
+      "type": "analytic",
+      "label": "Triage Knight Office indicators",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "kit-interaction-lead",
+          "rare-user-agents-to-microsoft",
+          "rogue-device-registration"
+        ],
+        "objective": "Determine if any user who visited the device login flow or kit infrastructure also registered a new Azure AD device and utilized a rare User-Agent during authentication.",
+        "description": "Correlate kit traffic, rare User-Agents, and new device enrollments to confirm a successful AiTM compromise.",
+        "max_iterations": 4,
+        "expected_signal": "A per-user and per-host verdict indicating whether a session theft and rogue enrollment occurred.",
+        "success_criteria": "A verdict citing specific identities, the rare HTTP indicators, and the rogue cloud device identifiers."
+      },
+      "parents": [
+        {
+          "id": "rare-user-agents-to-microsoft",
+          "kind": "merge"
+        },
+        {
+          "id": "rogue-device-registration",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Knight Office verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one identity, indicating both suspicious deviceauth interaction and an unauthorized device enrollment",
+        "condition": "the triage verdict is malicious for at least one identity, indicating both suspicious deviceauth interaction and an unauthorized device enrollment",
+        "blind_spot": "external-token-replay-visibility",
+        "confidence": "high",
+        "description": "Direct the response based on the agent's confidence in the identity compromise.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-knight-office"
+        }
+      ]
+    },
+    {
+      "id": "contain-compromised-identity",
+      "type": "action",
+      "label": "Revoke sessions and remove device",
+      "config": {
+        "target": "identity",
+        "description": "Neutralize the attacker's persistence by revoking authentication and removing the rogue device.",
+        "instructions": "Revoke all active M365 refresh tokens and sessions for the affected identities. Remove the rogue device UID identified in the triage step from the Microsoft Entra ID tenant.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "verify-key-persistence",
+      "type": "task",
+      "label": "Verify Windows Hello persistence",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually check for Windows Hello for Business (WHfB) keys that survive standard token revocation.",
+        "instructions": "Inspect native Entra ID audit logs for the compromised users to identify 'Add registered key to device' events. Confirm if the Dsreg User-Agent was used to bind a WHfB key, as this allows the attacker to regain access after token revocation."
+      },
+      "parents": [
+        {
+          "id": "contain-compromised-identity"
+        }
+      ]
+    },
+    {
+      "id": "close-out-clean",
+      "type": "task",
+      "label": "Hunt closure",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update organizational blocklists.",
+        "instructions": "Record the identified malicious IPs and User-Agents in the organization's perimeter security controls. Document the efficacy of the rarity-based HTTP triage for future tuning."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "verify-key-persistence"
+        },
+        {
+          "id": "analyst-investigation"
+        }
+      ]
+    },
+    {
+      "id": "analyst-investigation",
+      "type": "task",
+      "label": "Analyst manual investigation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Resolve cases where the automated triage was inconclusive or data was unavailable.",
+        "instructions": "Manually review the cited HTTP interactions and cross-reference with Entra ID sign-in logs. Look for replayed tokens from unusual ASN/IP ranges that match the timing of the kit interaction."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        }
+      ]
+    }
+  ]
+}

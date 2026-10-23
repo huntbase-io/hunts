@@ -1,0 +1,598 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "ClickFix attacks bypass file-based defenses by utilizing user interaction to execute signed system binaries. Confirming the absence of this behavior ensures the estate is resilient to this high-velocity social engineering campaign."
+      },
+      "name": "ClickFix Run-Dialog Social Engineering and LOLBIN Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1204.002",
+        "attack.t1059.001",
+        "attack.t1218",
+        "attack.t1105",
+        "attack.t1555",
+        "command and control",
+        "credential access",
+        "execution"
+      ],
+      "related": [
+        {
+          "hunt": "infostealer-post-execution-behavior",
+          "reason": "This hunt focuses on the initial access; follow-on behavior like browser credential theft is covered in the infostealer hunt.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple rule might alert on finger.exe usage, but this hunt correlates explorer.exe parentage, caretaker obfuscation, and fleet-wide rarity into a single decision, reducing false positives from legitimate administrator activity.",
+      "coverage": [
+        {
+          "stage": "social-engineering-run-dialog",
+          "steps": [
+            "identify-obfuscated-launchers",
+            "rare-explorer-children"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "lolbin-payload-retrieval",
+          "steps": [
+            "dns-c2-lookups"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-access-theft",
+          "reason": "General hb_ surfaces do not track specific file-level access to browser sqlite databases required for high-fidelity credential theft detection.",
+          "status": "not_visible"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Social Engineering via Run Dialog",
+            "slug": "social-engineering-run-dialog",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002",
+              "T1059.003"
+            ],
+            "observables": [
+              "explorer.exe spawning cmd.exe",
+              "Process command line containing cmd.exe /c start \"\" /min",
+              "Caret obfuscation in command line (e.g., s^t^a^r^t, f^^i^^n^^g^^e^^r)",
+              "Social engineering strings in command line (e.g., ---P_u_s_h----t_h_e----_E_n_t_e_r_----k_e_y--)",
+              "Command line containing 'for /f' loops to execute captured text"
+            ]
+          },
+          {
+            "name": "LOLBIN Payload Retrieval",
+            "slug": "lolbin-payload-retrieval",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1218",
+              "T1105"
+            ],
+            "observables": [
+              "finger.exe fetching data from linkeders.net",
+              "finger.exe fetching data from finger.linkeders.net",
+              "Network connection to port 79",
+              "finger.exe used within a 'for' loop to capture and execute output"
+            ]
+          },
+          {
+            "name": "Infostealer Credential Access",
+            "slug": "credential-access-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555"
+            ],
+            "observables": [
+              "Access to browser credential stores",
+              "Execution of infostealer payloads (stage two)"
+            ]
+          }
+        ],
+        "summary": "ClickFix is a social engineering campaign that tricks users into pasting obfuscated commands into the Windows Run dialog, which are then executed by explorer.exe. These commands leverage native LOLBINs like finger.exe to download and execute follow-on payloads such as infostealers without writing files to disk."
+      },
+      "severity": "medium",
+      "rationale": "Scope focuses on Windows endpoints where users interact with the Run dialog. Explorer.exe parentage is the primary scoping mechanism within behavioral telemetry.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder is using social engineering to trick users into pasting obfuscated commands into the Windows Run dialog, using explorer.exe to launch downloaders like finger.exe for payload retrieval.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "huntress-clickfix-blog",
+            "kind": "article",
+            "observed": "2024-10-05"
+          },
+          "type": "list[domain]",
+          "default": [
+            "linkeders.net",
+            "finger.linkeders.net"
+          ],
+          "description": "C2 domains observed in ClickFix campaigns."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2024-10-05"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the hunt; leave empty for fleet-wide."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2024-10-05"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for process and network events."
+        },
+        "social_eng_strings": {
+          "from": {
+            "ref": "huntress-clickfix-blog",
+            "kind": "article",
+            "observed": "2024-10-05"
+          },
+          "type": "list[string]",
+          "default": [
+            "push the enter key",
+            "en_t_e_r_ k_e_y"
+          ],
+          "description": "Strings used in social engineering padding to scroll real commands out of view."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/fix-for-clickfix",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/fix-for-clickfix",
+          "name": "Huntress \u2014 How Huntress Detects and Responds to a ClickFix Attack"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-process-visibility",
+          "risk": "Without parent process lineage, the lead query cannot distinguish user-pasted commands from standard system activity.",
+          "stage": "social-engineering-run-dialog",
+          "question": "Can we see explorer.exe spawning cmd.exe?",
+          "requires": "hb_process_activity with parent process tracking"
+        },
+        {
+          "id": "no-dns-logging",
+          "risk": "If DNS logging is missing, we cannot confirm if the Social Engineering attempt successfully retrieved its payload.",
+          "stage": "lolbin-payload-retrieval",
+          "question": "Did the finger.exe cradle reach the C2?",
+          "requires": "hb_dns_activity"
+        }
+      ]
+    },
+    "name": "ClickFix Run-Dialog Social Engineering and LOLBIN Execution",
+    "description": "ClickFix attacks bypass traditional file-based defenses by delivering commands directly into the user interactive session via the Windows Run dialog. The command usually contains caret obfuscation to defeat string matching and uses built-in Microsoft binaries like finger.exe to fetch and execute a remote payload. This hunt identifies the specific explorer.exe to cmd.exe or LOLBIN process relationship, detects the obfuscated command patterns, and stack-counts rare explorer children to separate legitimate activity from the attack."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "social-engineering-run-dialog",
+            "steps": [
+              "identify-obfuscated-launchers",
+              "rare-explorer-children"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "lolbin-payload-retrieval",
+            "steps": [
+              "dns-c2-lookups"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-access-theft",
+            "reason": "General hb_ surfaces do not track specific file-level access to browser sqlite databases required for high-fidelity credential theft detection.",
+            "status": "not_visible"
+          }
+        ],
+        "rationale": "An intruder is using social engineering to trick users into pasting obfuscated commands into the Windows Run dialog, using explorer.exe to launch downloaders like finger.exe for payload retrieval.",
+        "blind_spots": [
+          {
+            "id": "no-process-visibility",
+            "risk": "Without parent process lineage, the lead query cannot distinguish user-pasted commands from standard system activity.",
+            "stage": "social-engineering-run-dialog",
+            "question": "Can we see explorer.exe spawning cmd.exe?",
+            "requires": "hb_process_activity with parent process tracking"
+          },
+          {
+            "id": "no-dns-logging",
+            "risk": "If DNS logging is missing, we cannot confirm if the Social Engineering attempt successfully retrieved its payload.",
+            "stage": "lolbin-payload-retrieval",
+            "question": "Did the finger.exe cradle reach the C2?",
+            "requires": "hb_dns_activity"
+          }
+        ],
+        "scoping_notes": "Scope focuses on Windows endpoints where users interact with the Run dialog. Explorer.exe parentage is the primary scoping mechanism within behavioral telemetry.",
+        "beyond_detection": "A simple rule might alert on finger.exe usage, but this hunt correlates explorer.exe parentage, caretaker obfuscation, and fleet-wide rarity into a single decision, reducing false positives from legitimate administrator activity."
+      }
+    },
+    {
+      "id": "scoping-windows-inventory",
+      "type": "query",
+      "label": "Scope to Windows endpoints",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(vendor_name) LIKE '%microsoft%' AND LOWER(package_name) LIKE '%windows%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify Windows systems which are the primary target for ClickFix social engineering via the Run dialog.",
+        "expected_signal": "A list of hostnames running Windows. This list is used to scope subsequent behavioral queries."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to Windows endpoints",
+        "reads": [
+          "device_hostname",
+          "vendor_name",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(vendor_name) LIKE '%microsoft%' AND LOWER(package_name) LIKE '%windows%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames running Windows. This list is used to scope subsequent behavioral queries.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-06"
+      }
+    },
+    {
+      "id": "identify-obfuscated-launchers",
+      "type": "query",
+      "label": "Identify explorer-spawned obfuscated shells",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%\\explorer.exe' AND (process_cmd_line LIKE '%^%' OR LOWER(process_cmd_line) LIKE '%finger%' OR LOWER(process_cmd_line) LIKE '%for /f%' OR instr(',' || '{{social_eng_strings}}' || ',', ',' || LOWER(process_cmd_line) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find instances where explorer.exe spawns cmd.exe or LOLBINs with caretaker obfuscation, finger usage, or social engineering strings.",
+        "expected_signal": "A shell or system binary launched by explorer.exe containing caret characters, for-loops, or the social engineering padding. This is the primary lead."
+      },
+      "parents": [
+        {
+          "id": "scoping-windows-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Identify explorer-spawned obfuscated shells",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time",
+          "parent_process_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%\\explorer.exe' AND (process_cmd_line LIKE '%^%' OR LOWER(process_cmd_line) LIKE '%finger%' OR LOWER(process_cmd_line) LIKE '%for /f%' OR instr(',' || '{{social_eng_strings}}' || ',', ',' || LOWER(process_cmd_line) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A shell or system binary launched by explorer.exe containing caret characters, for-loops, or the social engineering padding. This is the primary lead.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-06"
+      }
+    },
+    {
+      "id": "evaluate-launcher-logic",
+      "type": "analytic",
+      "label": "Evaluate launcher suspiciousness",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "identify-obfuscated-launchers"
+        ],
+        "objective": "Determine if the command lines in identify-obfuscated-launchers contain caretaker obfuscation, for/f loops used for execution, or long strings of dashes/social engineering instructions.",
+        "description": "Analyze the command line for ClickFix characteristics like social engineering padding and download cradle logic.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict on whether the command line represents a ClickFix lead.",
+        "success_criteria": "A per-host verdict of suspicious | malicious | benign citing the command line rows."
+      },
+      "parents": [
+        {
+          "id": "identify-obfuscated-launchers"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-suspicion",
+      "type": "checkpoint",
+      "label": "Gate on lead suspicion",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-launcher-logic verdict is suspicious or malicious for at least one host",
+        "condition": "the evaluate-launcher-logic verdict is suspicious or malicious for at least one host",
+        "blind_spot": "no-process-visibility",
+        "confidence": "high",
+        "description": "Only proceed to expensive prevalence and network queries if the lead shows ClickFix behavior.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-launcher-logic"
+        }
+      ]
+    },
+    {
+      "id": "rare-explorer-children",
+      "type": "query",
+      "label": "Rare processes spawned by explorer",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_name) AS binary, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS launches FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%\\explorer.exe' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count children of explorer.exe to find anomalous launchers across the fleet.",
+        "expected_signal": "The binary name used in the ClickFix attack appearing on very few hosts compared to standard Windows activity."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicion",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare processes spawned by explorer",
+        "reads": [
+          "process_name",
+          "device_hostname",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_name) AS binary, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS launches FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%\\explorer.exe' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "The binary name used in the ClickFix attack appearing on very few hosts compared to standard Windows activity.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-06"
+      }
+    },
+    {
+      "id": "dns-c2-lookups",
+      "type": "query",
+      "label": "DNS resolutions to ClickFix infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, time FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Search for DNS lookups to domains associated with ClickFix payload delivery.",
+        "expected_signal": "A hostname resolving linkeders infrastructure shortly after the explorer launcher event."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicion",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS resolutions to ClickFix infrastructure",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, time FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A hostname resolving linkeders infrastructure shortly after the explorer launcher event.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-06"
+      }
+    },
+    {
+      "id": "triage-full-chain",
+      "type": "analytic",
+      "label": "Triage ClickFix intrusion chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "evaluate-launcher-logic",
+          "rare-explorer-children",
+          "dns-c2-lookups"
+        ],
+        "objective": "Confirm if any host shows the complete ClickFix chain: explorer.exe spawning an obfuscated command, that command being rare in the environment, and follow-on DNS activity to linkeders infrastructure.",
+        "description": "Synthesize the launcher lead, the rarity baseline, and the network indicators to confirm a successful intrusion.",
+        "max_iterations": 6,
+        "expected_signal": "A detailed malicious verdict linking the user paste to successful payload retrieval.",
+        "success_criteria": "A final malicious verdict per host with a summary of the evidence chain and timing correlation."
+      },
+      "parents": [
+        {
+          "id": "rare-explorer-children",
+          "kind": "merge"
+        },
+        {
+          "id": "dns-c2-lookups",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-full-chain verdict is malicious for at least one host",
+        "condition": "the triage-full-chain verdict is malicious for at least one host",
+        "blind_spot": "no-dns-logging",
+        "confidence": "high",
+        "description": "Direct the analyst to isolation for confirmed threats or review for ambiguous findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-full-chain"
+        }
+      ]
+    },
+    {
+      "id": "contain-intrusion",
+      "type": "action",
+      "label": "Isolate host and revoke sessions",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the attack chain and prevent data exfiltration by the infostealer payload.",
+        "instructions": "Isolate the host immediately. Revoke all active web and application sessions for the affected user, as infostealer payloads often harvest session tokens.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-forensic-review",
+      "type": "task",
+      "label": "Analyst forensic remediation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Inspect the host for persistence and stage-two payloads.",
+        "instructions": "Review the full process tree around the identified launcher. Look for randomly named executables or scripts in %APPDATA% or %TEMP% that may represent the infostealer stage. Confirm browser profiles are intact and force user password resets."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicion",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-suspicion",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-intrusion"
+        }
+      ]
+    },
+    {
+      "id": "close-out-negative",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the hunt outcome and any negative results.",
+        "instructions": "Record the examined scope and findings. If ClickFix was not found, note that no users executed obfuscated cradles via explorer.exe in the lookback period."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicion",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-forensic-review"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,514 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Ransomware recovery depends on VSS integrity; identifying its disruption confirms a critical disruption of disaster recovery processes."
+      },
+      "name": "Ransomware Recovery Inhibition and Encryption",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1486",
+        "attack.t1490",
+        "impact"
+      ],
+      "related": [
+        {
+          "hunt": "ransomware-exfiltration-detection",
+          "reason": "Data exfiltration typically precedes encryption and requires network/cloud telemetry analysis.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt correlates recovery inhibition across process and script surfaces with fleet-wide file activity baselining, providing the context needed to distinguish a live intrusion from administrative backup maintenance.",
+      "coverage": [
+        {
+          "stage": "inhibit-recovery-vss-deletion",
+          "steps": [
+            "vss-deletion-lead",
+            "scripted-shadow-deletion"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "impact-data-encryption",
+          "steps": [
+            "ransom-note-creation",
+            "mass-encryption-baseline"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "VSS Snapshot Deletion",
+            "slug": "inhibit-recovery-vss-deletion",
+            "tactic": "impact",
+            "techniques": [
+              "T1490"
+            ],
+            "observables": [
+              "vssadmin.exe delete shadows /all /quiet",
+              "wmic.exe shadowcopy delete",
+              "powershell.exe -Command Get-WmiObject Win32_Shadowcopy | ForEach-Object { $_.Delete() }",
+              "Execution of vssadmin.exe with administrative privileges"
+            ]
+          },
+          {
+            "name": "Data Encryption for Impact",
+            "slug": "impact-data-encryption",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "High volume of file modification events",
+              "Creation of ransom notes (e.g., .txt, .html files in multiple directories)",
+              "Renaming of files to include ransomware-specific extensions",
+              "Modification of files on SQL Server or Active Directory database volumes"
+            ]
+          }
+        ],
+        "summary": "Ransomware operators frequently target the Windows Volume Shadow Copy Service (VSS) to delete local snapshots before or during the encryption process. By inhibiting system recovery, adversaries ensure that victims cannot use 'Previous Versions' or other local restore points to recover data, thereby increasing the likelihood of ransom payment."
+      },
+      "severity": "medium",
+      "rationale": "Focus on file servers and database servers where VSS snapshots are critical for recovery. Start with any host showing vssadmin or wmic deletion activity.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is inhibiting system recovery by deleting volume shadow copies using standard tools or scripts before performing mass file encryption with rare extensions.",
+      "parameters": {
+        "vss_tools": {
+          "from": {
+            "ref": "huntress-vss",
+            "kind": "article",
+            "observed": "2026-10-14"
+          },
+          "type": "list[string]",
+          "default": [
+            "vssadmin.exe",
+            "wmic.exe",
+            "powershell.exe",
+            "pwsh.exe"
+          ],
+          "description": "Binary names of tools used to delete shadow copies."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts to narrow the investigation."
+        },
+        "ransom_notes": {
+          "from": {
+            "ref": "common-ransom-notes",
+            "kind": "manual",
+            "observed": "2026-10-14"
+          },
+          "type": "list[string]",
+          "default": [
+            "readme.txt",
+            "decrypt.txt",
+            "restore_files.txt",
+            "how_to_decrypt.html"
+          ],
+          "description": "Common filenames for ransom notes."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/microsoft-vss-limits-and-best-practices",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/microsoft-vss-limits-and-best-practices",
+          "name": "Microsoft VSS: Still Essential, But Not the Whole Story"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-vss-api-telemetry",
+          "risk": "Adversaries using custom binaries to call VSS APIs directly will not be caught by command-line based queries.",
+          "stage": "inhibit-recovery-vss-deletion",
+          "question": "Was the shadow copy deletion performed using direct API calls rather than command-line tools?",
+          "requires": "Direct VSS API monitoring via EDR"
+        },
+        {
+          "id": "event-truncation",
+          "risk": "Mass encryption generates thousands of events; sensor-level truncation can mask the scale of the impact.",
+          "stage": "impact-data-encryption",
+          "question": "Did the endpoint sensor truncate high-volume rename events during the encryption phase?",
+          "requires": "High-fidelity file modification logging"
+        }
+      ]
+    },
+    "name": "Ransomware Recovery Inhibition and Encryption",
+    "description": "This hunt identifies the destructive impact phase of a ransomware intrusion by looking for recovery inhibition and data encryption. It lead-scopes the estate for the use of VSS-manipulation tools, then fans out to corroborate this with scripted shadow copy deletion, the creation of known ransom-note filenames, and fleet-wide anomalous file rename activity. An agent evaluates the combined evidence to distinguish between legitimate administrative maintenance and a live ransomware event."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "inhibit-recovery-vss-deletion",
+            "steps": [
+              "vss-deletion-lead",
+              "scripted-shadow-deletion"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "impact-data-encryption",
+            "steps": [
+              "ransom-note-creation",
+              "mass-encryption-baseline"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is inhibiting system recovery by deleting volume shadow copies using standard tools or scripts before performing mass file encryption with rare extensions.",
+        "blind_spots": [
+          {
+            "id": "no-vss-api-telemetry",
+            "risk": "Adversaries using custom binaries to call VSS APIs directly will not be caught by command-line based queries.",
+            "stage": "inhibit-recovery-vss-deletion",
+            "question": "Was the shadow copy deletion performed using direct API calls rather than command-line tools?",
+            "requires": "Direct VSS API monitoring via EDR"
+          },
+          {
+            "id": "event-truncation",
+            "risk": "Mass encryption generates thousands of events; sensor-level truncation can mask the scale of the impact.",
+            "stage": "impact-data-encryption",
+            "question": "Did the endpoint sensor truncate high-volume rename events during the encryption phase?",
+            "requires": "High-fidelity file modification logging"
+          }
+        ],
+        "scoping_notes": "Focus on file servers and database servers where VSS snapshots are critical for recovery. Start with any host showing vssadmin or wmic deletion activity.",
+        "beyond_detection": "This hunt correlates recovery inhibition across process and script surfaces with fleet-wide file activity baselining, providing the context needed to distinguish a live intrusion from administrative backup maintenance."
+      }
+    },
+    {
+      "id": "vss-deletion-lead",
+      "type": "query",
+      "label": "Lead: VSS Snapshot Deletion Command",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(',' || '{{vss_tools}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0 OR instr(',' || '{{vss_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND (instr(LOWER(process_cmd_line), 'delete') > 0 AND instr(LOWER(process_cmd_line), 'shadow') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify execution of tools known to delete shadow copies by matching binary names and looking for deletion keywords in the command line.",
+        "expected_signal": "Rows showing specific hosts and processes attempting shadow copy deletion. Silence suggests no obvious recovery inhibition via command line tools."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Lead: VSS Snapshot Deletion Command",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "process_original_file_name",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (instr(',' || '{{vss_tools}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0 OR instr(',' || '{{vss_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND (instr(LOWER(process_cmd_line), 'delete') > 0 AND instr(LOWER(process_cmd_line), 'shadow') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows showing specific hosts and processes attempting shadow copy deletion. Silence suggests no obvious recovery inhibition via command line tools.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "scripted-shadow-deletion",
+      "type": "query",
+      "label": "Scripted WMI Shadow Copy Deletion",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_name, script_content, actor_user_name, time FROM hb_script_activity WHERE (instr(LOWER(script_content), 'win32_shadowcopy') > 0 AND instr(LOWER(script_content), '.delete()') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Find programmatic shadow copy deletion in script blocks that might bypass process monitoring.",
+        "expected_signal": "Script blocks calling the WMI Delete method on shadow objects. Silence proof of absence depends on script block logging coverage."
+      },
+      "parents": [
+        {
+          "id": "vss-deletion-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Scripted WMI Shadow Copy Deletion",
+        "reads": [
+          "device_hostname",
+          "script_name",
+          "script_content",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_name, script_content, actor_user_name, time FROM hb_script_activity WHERE (instr(LOWER(script_content), 'win32_shadowcopy') > 0 AND instr(LOWER(script_content), '.delete()') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks calling the WMI Delete method on shadow objects. Silence proof of absence depends on script block logging coverage.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "ransom-note-creation",
+      "type": "query",
+      "label": "Ransom Note Creation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE instr(',' || '{{ransom_notes}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find creation of files matching a known list of ransom-note names.",
+        "expected_signal": "Creation of files like readme.txt or decrypt.txt in multiple directories."
+      },
+      "parents": [
+        {
+          "id": "vss-deletion-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Ransom Note Creation",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE instr(',' || '{{ransom_notes}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation of files like readme.txt or decrypt.txt in multiple directories.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "mass-encryption-baseline",
+      "type": "query",
+      "label": "Mass Renames to Rare Extensions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, actor_user_name AS user_name, LOWER(SUBSTR(file_name, INSTR(file_name, '.') + 1)) AS extension, COUNT(*) AS event_count, MIN(time) AS first_seen FROM hb_file_activity WHERE activity_id = 5 AND file_name LIKE '%.%' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, process_name, user_name, extension HAVING event_count > 500",
+        "surface": "hb_file_activity",
+        "description": "Stack-count file renames to identify anomalous volume of extensions that are rare across the fleet.",
+        "expected_signal": "A high volume of renames to a single extension that is not common across the fleet."
+      },
+      "parents": [
+        {
+          "id": "vss-deletion-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Mass Renames to Rare Extensions",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "activity_id",
+          "time",
+          "process_name",
+          "actor_user_name"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, actor_user_name AS user_name, LOWER(SUBSTR(file_name, INSTR(file_name, '.') + 1)) AS extension, COUNT(*) AS event_count, MIN(time) AS first_seen FROM hb_file_activity WHERE activity_id = 5 AND file_name LIKE '%.%' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, process_name, user_name, extension HAVING event_count > 500",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "A high volume of renames to a single extension that is not common across the fleet.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "extension"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "agent-triage",
+      "type": "analytic",
+      "label": "Evaluate Evidence Triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "vss-deletion-lead",
+          "scripted-shadow-deletion",
+          "ransom-note-creation",
+          "mass-encryption-baseline"
+        ],
+        "objective": "Identify hosts where shadow deletion was followed by ransom note creation or mass file renames with rare extensions, specifically examining if the same process is responsible for both deletion and encryption.",
+        "description": "Determine if recovery inhibition and file activity patterns indicate a ransomware event on a per-host basis.",
+        "max_iterations": 6,
+        "expected_signal": "A verdict per host with supporting citations.",
+        "success_criteria": "A verdict per host citing specific rows and indicators."
+      },
+      "parents": [
+        {
+          "id": "scripted-shadow-deletion",
+          "kind": "merge"
+        },
+        {
+          "id": "ransom-note-creation",
+          "kind": "merge"
+        },
+        {
+          "id": "mass-encryption-baseline",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent-triage verdict is malicious for at least one host showing both recovery inhibition and impact indicators",
+        "condition": "the agent-triage verdict is malicious for at least one host showing both recovery inhibition and impact indicators",
+        "blind_spot": "no-vss-api-telemetry",
+        "confidence": "high",
+        "description": "Route the workflow based on the agent's finding of malicious encryption activity.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Isolate the host to stop the encryption process and prevent lateral movement.",
+        "instructions": "Isolate the host from the network immediately and initiate incident response protocols for confirmed ransomware.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Provide manual oversight for suspicious or indeterminate cases.",
+        "instructions": "Review the cited evidence. Confirm if the 'rare extensions' are known encryption markers and if the process performing them is unauthorized. Check if deletion was part of scheduled backup maintenance."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt when no malicious activity is found.",
+        "instructions": "Document absence of malicious recovery inhibition. Record benign administrative VSS manipulation for tuning."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

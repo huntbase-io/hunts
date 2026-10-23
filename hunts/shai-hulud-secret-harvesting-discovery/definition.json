@@ -1,0 +1,645 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The Shai-Hulud frameworks ability to extract secrets from process memory bypasses standard masking; a negative result over the fleet provides assurance that this pervasive supply chain threat has not established a beachhead."
+      },
+      "name": "Shai-Hulud Secret Harvesting and Discovery",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1003.001",
+        "attack.t1082",
+        "attack.t1552.001",
+        "attack.t1555",
+        "attack.t1580"
+      ],
+      "series": {
+        "slug": "shai-hulud-open-source-framework-static-analysis",
+        "index": 2,
+        "title": "Shai-Hulud open source framework static analysis",
+        "total": 3
+      },
+      "related": [
+        {
+          "hunt": "shai-hulud-loader-execution",
+          "reason": "The loader must execute first to bootstrap the environment that performs the harvesting.",
+          "relation": "precedes"
+        },
+        {
+          "hunt": "shai-hulud-exfiltration-c2",
+          "reason": "Harvested and discovered secrets are later exfiltrated via encrypted channels.",
+          "relation": "follows"
+        },
+        {
+          "hunt": "shai-hulud-supply-chain-loader",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule might detect an individual file read; this hunt correlates secret harvesting from memory with a surge in discovery traffic across multiple surfaces, identifying a coordinated campaign rather than a lone anomalous event.",
+      "coverage": [
+        {
+          "stage": "credential-access-memory-and-file-harvesting",
+          "steps": [
+            "lead-sensitive-file-access",
+            "baseline-memory-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "discovery-cloud-infrastructure-enumeration",
+          "steps": [
+            "cloud-discovery-traffic"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-supply-chain-poisoning",
+          "reason": "Covered in the supply chain poisoning hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "execution-loader-bootstrap",
+          "reason": "Covered in the execution hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "persistence-daemon-and-deadman-monitor",
+          "reason": "Covered in the persistence hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "c2-encrypted-communications",
+          "reason": "Covered in the exfiltration hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "exfiltration-github-dead-drops",
+          "reason": "Covered in the exfiltration hunt of this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "impact-destructive-wipe",
+          "reason": "Covered in the exfiltration hunt of this series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Supply Chain Poisoning & Repository Hijacking",
+            "slug": "initial-access-supply-chain-poisoning",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195",
+              "T1133"
+            ],
+            "observables": [
+              "hijacked Trivy and Checkmarx KICS tags",
+              "poisoned LiteLLM, TanStack, and UiPath npm/PyPI packages",
+              ".vscode/tasks.json with runOn: folderOpen",
+              ".claude/settings.json SessionStart hook",
+              "claude@users.noreply.github.com"
+            ]
+          },
+          {
+            "name": "Multi-language Loader Execution",
+            "slug": "execution-loader-bootstrap",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.004",
+              "T1059.007"
+            ],
+            "observables": [
+              "BASH_LOADER.sh",
+              "PYTHON_LOADER.py",
+              "config.mjs",
+              "setup.mjs",
+              "router_init.js",
+              "opensearch_init.js",
+              "node .claude/setup.mjs",
+              "Bun runtime download"
+            ]
+          },
+          {
+            "name": "Daemonized Persistence & Token Monitoring",
+            "slug": "persistence-daemon-and-deadman-monitor",
+            "tactic": "persistence",
+            "techniques": [
+              "T1543.001",
+              "T1543.002"
+            ],
+            "observables": [
+              "/tmp/tmp.ts018051808.lock",
+              "~/Library/LaunchAgents/com.user.gh-token-monitor.plist",
+              "~/.config/systemd/user/gh-token-monitor.service",
+              "loginctl enable-linger",
+              "__DAEMONIZED=1"
+            ]
+          },
+          {
+            "name": "Memory Secret Extraction & Credential Harvesting",
+            "slug": "credential-access-memory-and-file-harvesting",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1003.001",
+              "T1552.001",
+              "T1555"
+            ],
+            "observables": [
+              "Runner.Worker",
+              "/proc/*/mem scanning",
+              "gh auth token",
+              "~/.aws/credentials",
+              "~/.azure/accessTokens.json",
+              "~/.config/gcloud/credentials.db",
+              "~/.kube/config",
+              "/var/run/secrets/kubernetes.io/serviceaccount/token",
+              ".npmrc",
+              ".pypirc",
+              ".claude.json"
+            ]
+          },
+          {
+            "name": "Cloud and K8s Secret Discovery",
+            "slug": "discovery-cloud-infrastructure-enumeration",
+            "tactic": "discovery",
+            "techniques": [
+              "T1580",
+              "T1082"
+            ],
+            "observables": [
+              "AWS Secrets Manager enumeration",
+              "SSM Parameter Store enumeration",
+              "Kubernetes namespace listing",
+              "HashiCorp Vault KV mount enumeration"
+            ]
+          },
+          {
+            "name": "Encrypted Domain-based C2",
+            "slug": "c2-encrypted-communications",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001",
+              "T1090.003"
+            ],
+            "observables": [
+              "git-tanstack[.]com",
+              "thebeautifulmarchoftime GitHub commit search",
+              "RSA-4096-OAEP",
+              "AES-256-GCM"
+            ]
+          },
+          {
+            "name": "GitHub Dead-drop Exfiltration",
+            "slug": "exfiltration-github-dead-drops",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1567.001"
+            ],
+            "observables": [
+              "Shai-Hulud: Here We Go Again repository description",
+              "Dune-themed repo names (sardaukar, mentat, stillsuit)",
+              "results/ directory JSON commits",
+              "IfYouRevokeThisTokenItWillWipeTheComputerOfTheOwner"
+            ]
+          },
+          {
+            "name": "Conditional Data Destruction",
+            "slug": "impact-destructive-wipe",
+            "tactic": "impact",
+            "techniques": [
+              "T1485"
+            ],
+            "observables": [
+              "rm -rf ~/",
+              "HTTP 40x response from https://api.github.com/user"
+            ]
+          }
+        ],
+        "summary": "The Shai-Hulud framework by TeamPCP is a modular TypeScript toolkit that targets CI/CD pipelines and developer workstations through supply chain poisoning of npm/PyPI packages and IDE configurations. It extracts credentials from process memory, cloud environments, and local files before exfiltrating encrypted data to C2 domains or GitHub dead-drop repositories, featuring a 'deadman switch' that wipes the user directory if stolen tokens are revoked."
+      },
+      "severity": "high",
+      "rationale": "Prioritize GitHub Actions runners (self-hosted and managed) and developer workstations. Focus on hosts running Linux or macOS where /proc or configuration directories are accessible.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has deployed the Shai-Hulud framework to extract credentials from filesystem paths and process memory, subsequently using them to automate the discovery of cloud and Kubernetes infrastructure secrets.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2026-05-12"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts to focus investigation; if empty, the entire fleet is queried."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-05-12"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://securitylabs.datadoghq.com/articles/shai-hulud-open-source-framework-static-analysis/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://securitylabs.datadoghq.com/articles/shai-hulud-open-source-framework-static-analysis/",
+          "name": "Shai-Hulud open source framework static analysis"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-endpoint-visibility",
+          "risk": "An intruder can harvest secrets from an unmanaged machine and use them to pivot into the cloud environment invisibly to this hunt.",
+          "stage": "credential-access-memory-and-file-harvesting",
+          "question": "Whether secret files were accessed on unmanaged workstations or BYOD devices.",
+          "requires": "hb_file_activity with endpoint agent coverage"
+        },
+        {
+          "id": "encrypted-discovery-traffic",
+          "risk": "Without TLS inspection, discovery activity appears as generic HTTPS traffic to AWS, masking the volume and nature of the enumeration.",
+          "stage": "discovery-cloud-infrastructure-enumeration",
+          "question": "Whether specific Secrets Manager or SSM Parameter Store API calls were made.",
+          "requires": "hb_http_activity with TLS inspection for AWS API endpoints"
+        }
+      ]
+    },
+    "name": "Shai-Hulud Secret Harvesting and Discovery",
+    "description": "This hunt targets the internal logic of the Shai-Hulud framework as it traverses the filesystem and memory to aggregate credentials. Shai-Hulud specifically targets AWS, Azure, and Kubernetes configuration files, and it attempts to dump the memory of the GitHub Runner.Worker process to bypass secret masking. The hunt identifies these harvesting patterns and correlates them with subsequent automated enumeration of cloud secret stores like AWS Secrets Manager or the Kubernetes API. We start by scoping for sensitive file access, then fan out to baseline memory reads and cloud discovery traffic."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "shai-hulud-open-source-framework-static-analysis",
+          "index": 2,
+          "title": "Shai-Hulud open source framework static analysis",
+          "total": 3
+        },
+        "coverage": [
+          {
+            "stage": "credential-access-memory-and-file-harvesting",
+            "steps": [
+              "lead-sensitive-file-access",
+              "baseline-memory-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "discovery-cloud-infrastructure-enumeration",
+            "steps": [
+              "cloud-discovery-traffic"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-supply-chain-poisoning",
+            "reason": "Covered in the supply chain poisoning hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "execution-loader-bootstrap",
+            "reason": "Covered in the execution hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "persistence-daemon-and-deadman-monitor",
+            "reason": "Covered in the persistence hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "c2-encrypted-communications",
+            "reason": "Covered in the exfiltration hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "exfiltration-github-dead-drops",
+            "reason": "Covered in the exfiltration hunt of this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "impact-destructive-wipe",
+            "reason": "Covered in the exfiltration hunt of this series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has deployed the Shai-Hulud framework to extract credentials from filesystem paths and process memory, subsequently using them to automate the discovery of cloud and Kubernetes infrastructure secrets.",
+        "blind_spots": [
+          {
+            "id": "no-endpoint-visibility",
+            "risk": "An intruder can harvest secrets from an unmanaged machine and use them to pivot into the cloud environment invisibly to this hunt.",
+            "stage": "credential-access-memory-and-file-harvesting",
+            "question": "Whether secret files were accessed on unmanaged workstations or BYOD devices.",
+            "requires": "hb_file_activity with endpoint agent coverage"
+          },
+          {
+            "id": "encrypted-discovery-traffic",
+            "risk": "Without TLS inspection, discovery activity appears as generic HTTPS traffic to AWS, masking the volume and nature of the enumeration.",
+            "stage": "discovery-cloud-infrastructure-enumeration",
+            "question": "Whether specific Secrets Manager or SSM Parameter Store API calls were made.",
+            "requires": "hb_http_activity with TLS inspection for AWS API endpoints"
+          }
+        ],
+        "scoping_notes": "Prioritize GitHub Actions runners (self-hosted and managed) and developer workstations. Focus on hosts running Linux or macOS where /proc or configuration directories are accessible.",
+        "beyond_detection": "A standard rule might detect an individual file read; this hunt correlates secret harvesting from memory with a surge in discovery traffic across multiple surfaces, identifying a coordinated campaign rather than a lone anomalous event."
+      }
+    },
+    {
+      "id": "lead-sensitive-file-access",
+      "type": "query",
+      "label": "Lead: Sensitive file access",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, file_path, file_name, process_name, time FROM hb_file_activity WHERE activity_id = 2 AND LOWER(file_name) IN ('credentials', 'accesstokens.json', 'credentials.db', 'config', '.npmrc', '.pypirc', '.env') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify hosts where processes are reading sensitive cloud or developer credentials using a high-performance filter for known target filenames.",
+        "expected_signal": "Hosts and processes accessing high-value credential files. Silence means no such files were touched by monitored processes."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Lead: Sensitive file access",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "file_path",
+          "file_name",
+          "process_name",
+          "time",
+          "activity_id"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, file_path, file_name, process_name, time FROM hb_file_activity WHERE activity_id = 2 AND LOWER(file_name) IN ('credentials', 'accesstokens.json', 'credentials.db', 'config', '.npmrc', '.pypirc', '.env') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts and processes accessing high-value credential files. Silence means no such files were touched by monitored processes.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "baseline-memory-access",
+      "type": "query",
+      "label": "Baseline: Rare /proc/mem reads",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_file_activity WHERE activity_id = 2 AND LOWER(file_path) LIKE '/proc/%/mem' AND (LOWER(process_name) LIKE '%runner.worker%' OR LOWER(process_cmd_line) LIKE '%runner.worker%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_file_activity",
+        "description": "Find rare instances of processes reading their own or other processes memory, specifically targeting runner.worker as identified in framework static analysis.",
+        "expected_signal": "A list of processes performing rare memory reads across the fleet. Silence suggests no such scraping occurred on scoped hosts."
+      },
+      "parents": [
+        {
+          "id": "lead-sensitive-file-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Baseline: Rare /proc/mem reads",
+        "reads": [
+          "process_name",
+          "device_hostname",
+          "file_path",
+          "time",
+          "activity_id",
+          "process_cmd_line"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_file_activity WHERE activity_id = 2 AND LOWER(file_path) LIKE '/proc/%/mem' AND (LOWER(process_name) LIKE '%runner.worker%' OR LOWER(process_cmd_line) LIKE '%runner.worker%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of processes performing rare memory reads across the fleet. Silence suggests no such scraping occurred on scoped hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "cloud-discovery-traffic",
+      "type": "query",
+      "label": "Cloud and K8s discovery traffic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT url_path, url_hostname, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS req_count, MIN(time) AS first_seen FROM hb_http_activity WHERE (LOWER(url_hostname) LIKE '%secretsmanager%' OR LOWER(url_hostname) LIKE '%ssm%' OR LOWER(url_path) LIKE '%/api/v1/namespaces%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_path, url_hostname HAVING host_count <= 3 ORDER BY req_count DESC",
+        "surface": "hb_http_activity",
+        "description": "Detect high-volume or rare enumeration of cloud secrets or Kubernetes namespaces to distinguish standard developer activity from anomalous discovery.",
+        "expected_signal": "A surge in API requests or rare API paths used for secret storage services. Silence means no such enumeration was visible."
+      },
+      "parents": [
+        {
+          "id": "lead-sensitive-file-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Cloud and K8s discovery traffic",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "url_path",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT url_path, url_hostname, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS req_count, MIN(time) AS first_seen FROM hb_http_activity WHERE (LOWER(url_hostname) LIKE '%secretsmanager%' OR LOWER(url_hostname) LIKE '%ssm%' OR LOWER(url_path) LIKE '%/api/v1/namespaces%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_path, url_hostname HAVING host_count <= 3 ORDER BY req_count DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "A surge in API requests or rare API paths used for secret storage services. Silence means no such enumeration was visible.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage harvesting and discovery",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "lead-sensitive-file-access",
+          "baseline-memory-access",
+          "cloud-discovery-traffic"
+        ],
+        "objective": "Determine if a host has been used to harvest credentials from files or memory, and if those credentials were used to enumerate cloud secrets.",
+        "description": "Correlate harvesting indicators with discovery traffic to confirm framework activity.",
+        "max_iterations": 6,
+        "expected_signal": "A verdict characterizing the risk per host, citing the files read and the services enumerated.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign citing specific process names and discovery URLs."
+      },
+      "parents": [
+        {
+          "id": "baseline-memory-access",
+          "kind": "merge"
+        },
+        {
+          "id": "cloud-discovery-traffic",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "verdict-decision",
+      "type": "checkpoint",
+      "label": "Decision: Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host indicating confirmed harvesting followed by enumeration",
+        "condition": "the triage verdict is malicious for at least one host indicating confirmed harvesting followed by enumeration",
+        "blind_spot": "no-endpoint-visibility",
+        "confidence": "high",
+        "description": "Direct the response based on the triage findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "contain-host",
+      "type": "action",
+      "label": "Isolate beachhead host",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop further harvesting and prevent secret exfiltration.",
+        "instructions": "Isolate the host immediately. Notify the cloud security team to rotate any IAM credentials or K8s tokens that were present on the host.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-validation",
+      "type": "task",
+      "label": "Analyst: Validate harvesting scope",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the extent of the secret compromise and identify all impacted accounts.",
+        "instructions": "Review the process lineage for the memory reads. Cross-reference the HTTP discovery traffic with CloudTrail logs to confirm which specific Secrets Manager paths were accessed."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "default"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "contain-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize findings and record detection improvement notes.",
+        "instructions": "Document the malicious process names and paths. If the behavior was confirmed, promote the memory access logic to a permanent detection rule for Linux and macOS environments."
+      },
+      "parents": [
+        {
+          "id": "analyst-validation"
+        }
+      ]
+    }
+  ]
+}

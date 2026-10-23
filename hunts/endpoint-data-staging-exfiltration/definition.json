@@ -1,0 +1,560 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Data staging and exfiltration represent the completion of an adversary's mission. Detecting these behaviors across the endpoint and network surfaces is the final opportunity to prevent material impact."
+      },
+      "name": "Endpoint Data Staging and Exfiltration",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1074.001",
+        "attack.t1041",
+        "attack.t1071.001"
+      ],
+      "series": {
+        "slug": "inside-the-modern-soc-defending-the-cross-environment-pivot",
+        "index": 2,
+        "title": "Inside the Modern SOC: Defending the Cross-Environment Pivot",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "cloud-storage-exfiltration",
+          "reason": "This hunt focuses on direct network exfiltration; exfiltration via cloud synchronization requires cloud-native audit logs.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "identity-cloud-pivot-web-exploits",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule might flag any archive creation in Temp, but this hunt pivots between the file system, rare outbound network prevalence, and behavioral DNS to find the connected attack path.",
+      "coverage": [
+        {
+          "stage": "file-system-data-staging",
+          "steps": [
+            "identify-data-staging"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "network-exfiltration-c2",
+          "steps": [
+            "rare-outbound-connections",
+            "rare-dns-lookups"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-web-exploit",
+          "reason": "Handled by the first hunt in this series focusing on perimeter vulnerabilities.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "identity-account-manipulation",
+          "reason": "Identity-based pivots are handled in the Cross-Environment Pivot hunt.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "cloud-resource-reconfiguration",
+          "reason": "Cloud control plane changes belong to a cloud-focused hunt.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Web Application Exploitation",
+            "slug": "initial-access-web-exploit",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "exploitation of internet-facing web servers",
+              "malicious http requests to public-facing applications"
+            ]
+          },
+          {
+            "name": "SaaS and Identity Manipulation",
+            "slug": "identity-account-manipulation",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1098"
+            ],
+            "observables": [
+              "unfamiliar applications requesting elevated permissions",
+              "permissions changes within SaaS applications",
+              "OAuth or SAML authentication anomalies"
+            ]
+          },
+          {
+            "name": "Cloud Environment Provisioning",
+            "slug": "cloud-resource-reconfiguration",
+            "tactic": "persistence",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "provisioning of cloud resources outside of normal activity",
+              "reconfiguration of cloud assets by unusual administrator accounts"
+            ]
+          },
+          {
+            "name": "Data Staging for Exfiltration",
+            "slug": "file-system-data-staging",
+            "tactic": "collection",
+            "techniques": [
+              "T1074"
+            ],
+            "observables": [
+              "staging of sensitive data in temporary or unusual directories",
+              "unexpected file creation patterns on endpoints"
+            ]
+          },
+          {
+            "name": "Exfiltration over Command and Control",
+            "slug": "network-exfiltration-c2",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "new network connections between systems that rarely communicate",
+              "data transfer to unfamiliar external IP addresses",
+              "C2 communication over established protocols"
+            ]
+          }
+        ],
+        "summary": "Adversaries exploit internet-facing applications to gain a foothold before pivoting across cloud and SaaS environments using compromised credentials. The attack culminates in the staging of sensitive data on endpoints and exfiltration via command-and-control channels."
+      },
+      "severity": "medium",
+      "rationale": "Focus on workstations and servers with access to sensitive repositories first. Use a 14-day lookback to capture both staging and exfiltration, which often occur with a significant time gap.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has staged sensitive information in temporary directories and is exfiltrating that data via rare outbound network connections or DNS lookups.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "hunt-parameters",
+            "kind": "manual",
+            "observed": "2026-09-17"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Comma-separated hostnames to narrow the search; leave empty for fleet-wide."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-parameters",
+            "kind": "manual",
+            "observed": "2026-09-17"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "rare_threshold": {
+          "from": {
+            "ref": "hunt-parameters",
+            "kind": "manual",
+            "observed": "2026-09-17"
+          },
+          "type": "number",
+          "default": "3",
+          "description": "The maximum number of hosts a value can appear on to be considered rare."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://unit42.paloaltonetworks.com/soc-cross-environment-pivot/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://unit42.paloaltonetworks.com/soc-cross-environment-pivot/",
+          "name": "Inside the Modern SOC: Defending the Cross-Environment Pivot"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-process-to-network-mapping",
+          "risk": "If only flow logs are available, the analyst cannot definitively link the process creating archives to the process communicating externally.",
+          "stage": "network-exfiltration-c2",
+          "question": "Which process initiated the rare outbound connection?",
+          "requires": "endpoint agent with process-to-socket correlation"
+        },
+        {
+          "id": "encrypted-exfiltration",
+          "risk": "Adversaries using HTTPS or custom encryption hide the volume and nature of exfiltrated data.",
+          "stage": "network-exfiltration-c2",
+          "question": "What was the content of the outbound data transfer?",
+          "requires": "TLS decryption/inspection at the perimeter"
+        }
+      ]
+    },
+    "name": "Endpoint Data Staging and Exfiltration",
+    "description": "This hunt targets the final stages of an intrusion: collection and exfiltration. It identifies the creation of compressed archives in user-writable paths like Public or Temp on Windows and /tmp or /dev/shm on Linux, then correlates that activity with rare outbound network connections and behavioral DNS anomalies. An agent evaluates the combined evidence to distinguish administrative archiving from malicious data theft."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "inside-the-modern-soc-defending-the-cross-environment-pivot",
+          "index": 2,
+          "title": "Inside the Modern SOC: Defending the Cross-Environment Pivot",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "file-system-data-staging",
+            "steps": [
+              "identify-data-staging"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "network-exfiltration-c2",
+            "steps": [
+              "rare-outbound-connections",
+              "rare-dns-lookups"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-web-exploit",
+            "reason": "Handled by the first hunt in this series focusing on perimeter vulnerabilities.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "identity-account-manipulation",
+            "reason": "Identity-based pivots are handled in the Cross-Environment Pivot hunt.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "cloud-resource-reconfiguration",
+            "reason": "Cloud control plane changes belong to a cloud-focused hunt.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has staged sensitive information in temporary directories and is exfiltrating that data via rare outbound network connections or DNS lookups.",
+        "blind_spots": [
+          {
+            "id": "no-process-to-network-mapping",
+            "risk": "If only flow logs are available, the analyst cannot definitively link the process creating archives to the process communicating externally.",
+            "stage": "network-exfiltration-c2",
+            "question": "Which process initiated the rare outbound connection?",
+            "requires": "endpoint agent with process-to-socket correlation"
+          },
+          {
+            "id": "encrypted-exfiltration",
+            "risk": "Adversaries using HTTPS or custom encryption hide the volume and nature of exfiltrated data.",
+            "stage": "network-exfiltration-c2",
+            "question": "What was the content of the outbound data transfer?",
+            "requires": "TLS decryption/inspection at the perimeter"
+          }
+        ],
+        "scoping_notes": "Focus on workstations and servers with access to sensitive repositories first. Use a 14-day lookback to capture both staging and exfiltration, which often occur with a significant time gap.",
+        "beyond_detection": "A standard detection rule might flag any archive creation in Temp, but this hunt pivots between the file system, rare outbound network prevalence, and behavioral DNS to find the connected attack path."
+      }
+    },
+    {
+      "id": "identify-data-staging",
+      "type": "query",
+      "label": "Unusual archive creation in staging paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE activity_id = 1 AND (LOWER(file_path) LIKE '%.zip' OR LOWER(file_path) LIKE '%.7z' OR LOWER(file_path) LIKE '%.rar') AND (LOWER(file_path) LIKE '%\\\\users\\\\public\\\\%' OR LOWER(file_path) LIKE '%\\\\temp\\\\%' OR LOWER(file_path) LIKE '%\\\\appdata\\\\local\\\\temp\\\\%' OR LOWER(file_path) LIKE '/tmp/%' OR LOWER(file_path) LIKE '/var/tmp/%' OR LOWER(file_path) LIKE '/dev/shm/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Locate hosts with archives created in writable directories.",
+        "expected_signal": "Rows naming archives created in user-writable paths. Silence suggests no common staging activity occurred."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Unusual archive creation in staging paths",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "activity_id",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE activity_id = 1 AND (LOWER(file_path) LIKE '%.zip' OR LOWER(file_path) LIKE '%.7z' OR LOWER(file_path) LIKE '%.rar') AND (LOWER(file_path) LIKE '%\\\\users\\\\public\\\\%' OR LOWER(file_path) LIKE '%\\\\temp\\\\%' OR LOWER(file_path) LIKE '%\\\\appdata\\\\local\\\\temp\\\\%' OR LOWER(file_path) LIKE '/tmp/%' OR LOWER(file_path) LIKE '/var/tmp/%' OR LOWER(file_path) LIKE '/dev/shm/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows naming archives created in user-writable paths. Silence suggests no common staging activity occurred.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-outbound-connections",
+      "type": "query",
+      "label": "Rare outbound network connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT dst_endpoint_ip, process_name, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS connection_count, GROUP_CONCAT(DISTINCT device_hostname) AS affected_hosts FROM hb_network_connection WHERE direction = 'outbound' AND disposition = 'Allowed' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND dst_endpoint_ip NOT LIKE '172.16.%' AND dst_endpoint_ip NOT LIKE '172.17.%' AND dst_endpoint_ip NOT LIKE '172.18.%' AND dst_endpoint_ip NOT LIKE '172.19.%' AND dst_endpoint_ip NOT LIKE '172.2%.%' AND dst_endpoint_ip NOT LIKE '172.3%.%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip, process_name HAVING host_count <= {{rare_threshold}}",
+        "surface": "hb_network_connection",
+        "description": "Find connections to external IP addresses that appear on fewer than the threshold number of hosts.",
+        "expected_signal": "An IP address visited by only one or two hosts, potentially representing an exfiltration drop site."
+      },
+      "parents": [
+        {
+          "id": "identify-data-staging"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare outbound network connections",
+        "reads": [
+          "dst_endpoint_ip",
+          "device_hostname",
+          "direction",
+          "disposition",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT dst_endpoint_ip, process_name, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS connection_count, GROUP_CONCAT(DISTINCT device_hostname) AS affected_hosts FROM hb_network_connection WHERE direction = 'outbound' AND disposition = 'Allowed' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND dst_endpoint_ip NOT LIKE '172.16.%' AND dst_endpoint_ip NOT LIKE '172.17.%' AND dst_endpoint_ip NOT LIKE '172.18.%' AND dst_endpoint_ip NOT LIKE '172.19.%' AND dst_endpoint_ip NOT LIKE '172.2%.%' AND dst_endpoint_ip NOT LIKE '172.3%.%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip, process_name HAVING host_count <= {{rare_threshold}}",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "An IP address visited by only one or two hosts, potentially representing an exfiltration drop site.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip",
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-dns-lookups",
+      "type": "query",
+      "label": "Rare behavioral DNS queries",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, GROUP_CONCAT(DISTINCT device_hostname) AS hosts, GROUP_CONCAT(DISTINCT process_name) AS processes FROM hb_dns_activity WHERE query_hostname NOT LIKE '%.local' AND query_hostname NOT LIKE '%.internal' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count <= {{rare_threshold}}",
+        "surface": "hb_dns_activity",
+        "description": "Identify rare domain queries on suspect hosts that might indicate C2 or exfiltration endpoints.",
+        "expected_signal": "Domain queries unique to a small set of hosts. Silence suggests no unusual DNS patterns for the lookback period."
+      },
+      "parents": [
+        {
+          "id": "identify-data-staging"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare behavioral DNS queries",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, GROUP_CONCAT(DISTINCT device_hostname) AS hosts, GROUP_CONCAT(DISTINCT process_name) AS processes FROM hb_dns_activity WHERE query_hostname NOT LIKE '%.local' AND query_hostname NOT LIKE '%.internal' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count <= {{rare_threshold}}",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Domain queries unique to a small set of hosts. Silence suggests no unusual DNS patterns for the lookback period.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-exfiltration",
+      "type": "analytic",
+      "label": "Evaluate exfiltration path",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "identify-data-staging",
+          "rare-outbound-connections",
+          "rare-dns-lookups"
+        ],
+        "objective": "Review the staging file events, rare network connections, and DNS lookups. Identify if a single host performed all three or if the process creating the archives also initiated the rare network traffic. Provide a verdict of malicious, suspicious, or benign.",
+        "description": "Determine if the archive creation and network/DNS activity together indicate an active data exfiltration event.",
+        "max_iterations": 5,
+        "expected_signal": "A detailed verdict classifying the activity as malicious exfiltration or benign administrative archiving.",
+        "success_criteria": "A per-host verdict citing specific rows from all three inputs."
+      },
+      "parents": [
+        {
+          "id": "rare-outbound-connections",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-dns-lookups",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on triage results",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for at least one host based on the correlation of archive creation and outbound exfiltration signals.",
+        "condition": "The triage verdict is malicious for at least one host based on the correlation of archive creation and outbound exfiltration signals.",
+        "blind_spot": "no-process-to-network-mapping",
+        "confidence": "high",
+        "description": "Direct the hunt to immediate isolation if exfiltration is confirmed or to manual review for suspicious findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-exfiltration"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further data exfiltration by severing the host's network access.",
+        "instructions": "Isolate the host from the network immediately to halt exfiltration. Collect the archives identified in the staging step for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-investigation",
+      "type": "task",
+      "label": "Manual analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify suspicious findings that do not meet the high-confidence malicious threshold.",
+        "instructions": "Review the correlated events. Check the process parentage for the archive creation. Determine if the rare IP addresses belong to legitimate business services not yet in the baseline."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "hunt-completion",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update the baseline for future hunts.",
+        "instructions": "Log the results. If legitimate tools were identified as rare, add their destination IPs to the exclusion list. Update the staging directory patterns if new adversary tradecraft was observed."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "manual-investigation"
+        }
+      ]
+    }
+  ]
+}
