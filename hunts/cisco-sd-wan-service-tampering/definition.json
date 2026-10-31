@@ -1,0 +1,637 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Cisco SD-WAN controllers are the trust anchor of the enterprise network. A compromise here allows an adversary to intercept all control traffic and extract data-plane encryption keys, rendering the network's confidentiality void."
+      },
+      "name": "Cisco SD-WAN Controller Service Tampering",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1037",
+        "attack.t1543",
+        "attack.t1574.006",
+        "attack.t1036.004",
+        "collection",
+        "defense evasion",
+        "execution",
+        "exfiltration",
+        "initial access",
+        "persistence"
+      ],
+      "series": {
+        "slug": "inside-keydrift-analyzing-historical-uat-11473-activity-on-cisco-sd-wan",
+        "index": 1,
+        "title": "Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "keydrift-ptrace-injection",
+          "reason": "Once persistence is established via service tampering, the malware framework typically proceeds to inject into vdaemon using ptrace.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A static rule might fire on any write to /etc/sv, but this hunt provides the vital context of a specific filesystem remount (defense evasion) combined with fleet prevalence counting to distinguish targeted APT tampering from vendor firmware updates.",
+      "coverage": [
+        {
+          "stage": "initial-access-cisco-auth-bypass",
+          "reason": "The peering authentication bypass occurs within the proprietary SD-WAN control plane; it does not leave standard authentication logs on the listed surfaces.",
+          "status": "not_visible"
+        },
+        {
+          "stage": "persistence-runit-service-tampering",
+          "steps": [
+            "script-tampering",
+            "rare-scripts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "defense-evasion-remount-rootfs",
+          "steps": [
+            "lead-remount"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-injection-ptrace",
+          "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "collection-in-process-hooking",
+          "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "exfiltration-in-band-c2",
+          "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Cisco SD-WAN Authentication Bypass",
+            "slug": "initial-access-cisco-auth-bypass",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "CVE-2026-20127",
+              "Cisco SD-WAN Catalyst Controller"
+            ]
+          },
+          {
+            "name": "Runit Service Launcher Modification",
+            "slug": "persistence-runit-service-tampering",
+            "tactic": "persistence",
+            "techniques": [
+              "T1037",
+              "T1543"
+            ],
+            "observables": [
+              "/etc/sv/sshd/run",
+              "/etc/sv/aaamgr/run",
+              "deletion of writable-overlay PAM configurations",
+              "invocation of malicious run scripts before legitimate service start"
+            ]
+          },
+          {
+            "name": "Rootfs Executable Remounting",
+            "slug": "defense-evasion-remount-rootfs",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1574.006"
+            ],
+            "observables": [
+              "remount /rootfs.rw as executable",
+              "mount -o remount,exec /rootfs.rw"
+            ]
+          },
+          {
+            "name": "Process Injection and PID Enumeration",
+            "slug": "execution-injection-ptrace",
+            "tactic": "execution",
+            "techniques": [
+              "T1055.008",
+              "T1059.004",
+              "T1036.004"
+            ],
+            "observables": [
+              "conf_sshd script execution",
+              "rsshd injector execution",
+              "aaamgrd packed loader execution",
+              "ptrace system calls against vdaemon processes",
+              "/tmp/system-vdaemon",
+              "enumeration of vdaemon PIDs"
+            ]
+          },
+          {
+            "name": "Control-Plane Interception Hooking",
+            "slug": "collection-in-process-hooking",
+            "tactic": "collection",
+            "techniques": [
+              "T1574.006"
+            ],
+            "observables": [
+              "libdssl.so (PolyFlame)",
+              "libcommon.so (LittleFilch)",
+              "hooking of SSL_read inside vdaemon",
+              "hooking of recvfrom, sendto, and dlopen in vdaemon",
+              "interposition of runtime-linker behavior"
+            ]
+          },
+          {
+            "name": "Telemetry Staging and C2 Exfiltration",
+            "slug": "exfiltration-in-band-c2",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "/var/tmp/vdaemon.bin (RSA-encrypted telemetry)",
+              "/var/tmp/vdaemon.conf (Endpoint configuration)",
+              "UDP exfiltration in DTLS 1.2 style records",
+              "TinyShell command codes 0x100, 0x200, 0x300"
+            ]
+          }
+        ],
+        "summary": "UAT-11473 exploited an authentication bypass vulnerability (CVE-2026-20127) in Cisco SD-WAN Catalyst Controllers to gain unauthorized administrative access. The threat actor established persistence by modifying runit service scripts to launch the KeyDrift framework, which uses ptrace injection and runtime hooking to intercept sensitive control-plane keying material and exfiltrate it over UDP."
+      },
+      "severity": "high",
+      "rationale": "Focus on Cisco Catalyst SD-WAN Controller instances (vSmart, vManage, vBond). These typically run a specific Linux-based firmware. Remounting /rootfs.rw as executable is a rare administrative action.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has exploited a Cisco SD-WAN authentication bypass to establish persistence by modifying runit service scripts and remounting the root filesystem as executable to facilitate malware deployment.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hostnames to focus on, typically those identified in the scoping lead."
+        },
+        "target_paths": {
+          "from": {
+            "ref": "uat-11473-keydrift",
+            "kind": "article",
+            "observed": "2026-10-28"
+          },
+          "type": "list[path]",
+          "default": [
+            "/etc/sv/sshd/run",
+            "/etc/sv/aaamgr/run",
+            "/etc/pam.d/sshd",
+            "/etc/pam.d/login"
+          ],
+          "description": "Runit service scripts and PAM configurations targeted for tampering."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for process and file activity."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.talosintelligence.com/uat-11473-keydrift/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.talosintelligence.com/uat-11473-keydrift/",
+          "name": "Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "auditd-unconfigured",
+          "risk": "If auditd is not configured to log the mount syscall, the lead query will return zero rows, and the gate will close even if the controller is compromised.",
+          "owner": "Cloud Infrastructure Team",
+          "stage": "defense-evasion-remount-rootfs",
+          "question": "whether the remount command was executed",
+          "requires": "hb_linux_audit with SYSCALL:mount monitoring",
+          "remediation": "Enable syscall auditing for 'mount' across the SD-WAN controller fleet."
+        },
+        {
+          "id": "overlay-fs-complexity",
+          "risk": "File activity logs might show the write, but the relationship between the remount and the write is temporal, not causal in the logs; an analyst must manually link them.",
+          "stage": "persistence-runit-service-tampering",
+          "question": "what precise changes were made to the overlay when the remount occurred",
+          "requires": "Deep inspection of overlay filesystem changes"
+        }
+      ]
+    },
+    "name": "Cisco SD-WAN Controller Service Tampering",
+    "description": "The adversary exploits a Cisco SD-WAN authentication bypass to modify runit service scripts and remount the root filesystem as executable. This hunt identifies the initial remounting of the /rootfs.rw filesystem, a mandatory step for the attacker to write to the underlying OS. If suspicious remounting is identified, the hunt fans out to examine modifications to runit service launchers and stack-counts these changes across the fleet to highlight rare, malicious patterns that deviate from standard Cisco firmware behavior. An agent weighs the combined evidence to identify compromised controllers before an analyst initiates containment."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "inside-keydrift-analyzing-historical-uat-11473-activity-on-cisco-sd-wan",
+          "index": 1,
+          "title": "Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "initial-access-cisco-auth-bypass",
+            "reason": "The peering authentication bypass occurs within the proprietary SD-WAN control plane; it does not leave standard authentication logs on the listed surfaces.",
+            "status": "not_visible"
+          },
+          {
+            "stage": "persistence-runit-service-tampering",
+            "steps": [
+              "script-tampering",
+              "rare-scripts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "defense-evasion-remount-rootfs",
+            "steps": [
+              "lead-remount"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-injection-ptrace",
+            "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "collection-in-process-hooking",
+            "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "exfiltration-in-band-c2",
+            "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has exploited a Cisco SD-WAN authentication bypass to establish persistence by modifying runit service scripts and remounting the root filesystem as executable to facilitate malware deployment.",
+        "blind_spots": [
+          {
+            "id": "auditd-unconfigured",
+            "risk": "If auditd is not configured to log the mount syscall, the lead query will return zero rows, and the gate will close even if the controller is compromised.",
+            "owner": "Cloud Infrastructure Team",
+            "stage": "defense-evasion-remount-rootfs",
+            "question": "whether the remount command was executed",
+            "requires": "hb_linux_audit with SYSCALL:mount monitoring",
+            "remediation": "Enable syscall auditing for 'mount' across the SD-WAN controller fleet."
+          },
+          {
+            "id": "overlay-fs-complexity",
+            "risk": "File activity logs might show the write, but the relationship between the remount and the write is temporal, not causal in the logs; an analyst must manually link them.",
+            "stage": "persistence-runit-service-tampering",
+            "question": "what precise changes were made to the overlay when the remount occurred",
+            "requires": "Deep inspection of overlay filesystem changes"
+          }
+        ],
+        "scoping_notes": "Focus on Cisco Catalyst SD-WAN Controller instances (vSmart, vManage, vBond). These typically run a specific Linux-based firmware. Remounting /rootfs.rw as executable is a rare administrative action.",
+        "beyond_detection": "A static rule might fire on any write to /etc/sv, but this hunt provides the vital context of a specific filesystem remount (defense evasion) combined with fleet prevalence counting to distinguish targeted APT tampering from vendor firmware updates."
+      }
+    },
+    {
+      "id": "lead-remount",
+      "type": "query",
+      "label": "Remount rootfs as executable",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_path, path_name, raw_record, time FROM hb_linux_audit WHERE record_type = 'SYSCALL' AND syscall = 'mount' AND (LOWER(raw_record) LIKE '%remount%' AND LOWER(raw_record) LIKE '%exec%' AND LOWER(raw_record) LIKE '%/rootfs.rw%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_linux_audit",
+        "description": "Identify the critical defense evasion step where /rootfs.rw is remounted as executable to allow malicious scripts to run.",
+        "expected_signal": "A mount syscall targeting /rootfs.rw with the 'exec' option. Silence indicates no such remounting was captured during the window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Remount rootfs as executable",
+        "reads": [
+          "device_hostname",
+          "process_path",
+          "path_name",
+          "raw_record",
+          "time",
+          "record_type",
+          "syscall"
+        ],
+        "source": "hb_linux_audit",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_path, path_name, raw_record, time FROM hb_linux_audit WHERE record_type = 'SYSCALL' AND syscall = 'mount' AND (LOWER(raw_record) LIKE '%remount%' AND LOWER(raw_record) LIKE '%exec%' AND LOWER(raw_record) LIKE '%/rootfs.rw%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A mount syscall targeting /rootfs.rw with the 'exec' option. Silence indicates no such remounting was captured during the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "gate-agent",
+      "type": "analytic",
+      "label": "Read remount lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "lead-remount"
+        ],
+        "objective": "Evaluate the context of the mount syscall; determine if /rootfs.rw was remounted specifically with executable flags outside of a standard update window.",
+        "description": "Determine if the remount activity is consistent with the KeyDrift framework staging.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict on whether the remount command is suspicious per host.",
+        "success_criteria": "A verdict of suspicious or benign for every host found in the lead."
+      },
+      "parents": [
+        {
+          "id": "lead-remount"
+        }
+      ]
+    },
+    {
+      "id": "gate-decision",
+      "type": "checkpoint",
+      "label": "Gate on remount verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the gate-agent verdict is suspicious or malicious for at least one host",
+        "condition": "the gate-agent verdict is suspicious or malicious for at least one host",
+        "blind_spot": "auditd-unconfigured",
+        "confidence": "high",
+        "description": "Avoid expensive file activity queries across the whole fleet unless a suspicious remount is found.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "gate-agent"
+        }
+      ]
+    },
+    {
+      "id": "script-tampering",
+      "type": "query",
+      "label": "Runit script tampering",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND instr(',' || '{{target_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0 AND activity_id IN (1, 3, 4, 5) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect modifications to the specific runit service scripts and PAM configurations described in the KeyDrift staging.",
+        "expected_signal": "File writes or modifications to runit run scripts or PAM configuration files. Silence suggests no tampering occurred on those paths."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Runit script tampering",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "activity_name",
+          "time",
+          "activity_id"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND instr(',' || '{{target_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0 AND activity_id IN (1, 3, 4, 5) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "File writes or modifications to runit run scripts or PAM configuration files. Silence suggests no tampering occurred on those paths.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "rare-scripts",
+      "type": "query",
+      "label": "Rare runit script modifications",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(file_path) AS script_path, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS write_events, MIN(time) AS first_seen FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND LOWER(file_path) LIKE '/etc/sv/%/run' AND activity_id IN (1, 3) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_file_activity",
+        "description": "Stack-count all runit script modifications to highlight those unique to a small number of hosts.",
+        "expected_signal": "Runit script paths modified on only one or two hosts. Fleet-wide changes are likely legitimate firmware updates."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare runit script modifications",
+        "reads": [
+          "file_path",
+          "device_hostname",
+          "activity_id",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(file_path) AS script_path, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS write_events, MIN(time) AS first_seen FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND LOWER(file_path) LIKE '/etc/sv/%/run' AND activity_id IN (1, 3) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Runit script paths modified on only one or two hosts. Fleet-wide changes are likely legitimate firmware updates.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "script_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage compromised controller",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "gate-agent",
+          "script-tampering",
+          "rare-scripts"
+        ],
+        "objective": "Determine if the sequence of remounting /rootfs.rw followed by modifications to service scripts indicates a KeyDrift infection. Use prevalence data to rule out legitimate maintenance.",
+        "description": "Synthesize the defense evasion and persistence evidence to confirm an APT intrusion.",
+        "max_iterations": 5,
+        "expected_signal": "A malicious | suspicious | benign verdict per host citing the specific remount and file events.",
+        "success_criteria": "A final verdict citing the alignment between the observed behavior and the UAT-11473 staging pattern."
+      },
+      "parents": [
+        {
+          "id": "script-tampering",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-scripts",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-decision",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-agent verdict is malicious for at least one host",
+        "condition": "the triage-agent verdict is malicious for at least one host",
+        "confidence": "high",
+        "description": "Direct the hunt to containment for confirmed malicious results.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-action",
+      "type": "action",
+      "label": "Isolate SD-WAN controller",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt further collection and exfiltration from the compromised controller.",
+        "instructions": "Isolate the controller and initiate incident response. Revoke any control-plane certificates associated with this instance and prepare for a re-image.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-task",
+      "type": "task",
+      "label": "Forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Collect the modified service scripts for analysis and check for the CVE-2026-20127 vulnerability status.",
+        "instructions": "Retrieve the content of the modified scripts found in /etc/sv/. Verify if the host is vulnerable to CVE-2026-20127 by checking patch levels or hb_vulnerability_finding for the CVE ID."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "default"
+        },
+        {
+          "id": "gate-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-decision",
+          "branch": "default"
+        },
+        {
+          "id": "route-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-action"
+        }
+      ]
+    },
+    {
+      "id": "close-out-task",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and record findings.",
+        "instructions": "Record the hosts examined and whether any evidence of service tampering was identified. Ensure tuning notes are added if legitimate maintenance caused noise."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "forensic-task"
+        }
+      ]
+    }
+  ]
+}
