@@ -1,0 +1,654 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Threat actors are increasingly using legitimately signed management tools to bypass traditional application control. A negative result confirms that the fleet is not currently enrolled in unauthorized Faronics deployments."
+      },
+      "name": "Abused Faronics Deploy and RMM Installation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001",
+        "attack.t1090.003",
+        "attack.t1218.005",
+        "attack.t1566"
+      ],
+      "related": [
+        {
+          "hunt": "screenconnect-unauthorized-access",
+          "reason": "If ScreenConnect was installed via a different initial access vector, a dedicated ScreenConnect hunt would capture it better.",
+          "relation": "alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single detection rule might alert on a new ScreenConnect installation. This hunt contextually links that installation back to a phishing lure and the misuse of a signed management tool, distinguishing it from authorized internal software deployments through the synthesis of multiple telemetry surfaces.",
+      "coverage": [
+        {
+          "stage": "initial-access-lure-fingerprinting",
+          "steps": [
+            "phishing-domain-lookup"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-faronics-agent-install",
+          "steps": [
+            "masquerading-faronics-installer"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-agent-enrollment-ck-identifier",
+          "steps": [
+            "faronics-c2-ck-parameter"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-remote-powershell-deployment",
+          "reason": "Capturing the specific GitHub URLs from ScriptRunner.log requires file content access which is not standard in hb_file_activity.",
+          "status": "not_visible",
+          "blind_spot": "no-content-ingestion"
+        },
+        {
+          "stage": "persistence-rmm-installation",
+          "steps": [
+            "screenconnect-installation"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Adobe-themed Lure and Browser Fingerprinting",
+            "slug": "initial-access-lure-fingerprinting",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "fileportals.gytgtecg.xyz/index.php?verified=1",
+              "denied.html",
+              "index.php"
+            ]
+          },
+          {
+            "name": "Trojanized Installer Execution",
+            "slug": "execution-faronics-agent-install",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "Adobe.exe",
+              "AdobeReader.exe",
+              "Faronics Deploy signed executable"
+            ]
+          },
+          {
+            "name": "Faronics Agent C2 and Enrollment",
+            "slug": "c2-agent-enrollment-ck-identifier",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "deploy.faronics.com/api/GetConfigSettings",
+              "ck=6D70CDEF-CFF4-48A7-8092-24E5B9C3FA1D",
+              "ck= customer/deployment identifier"
+            ]
+          },
+          {
+            "name": "Remote Script Execution via Faronics",
+            "slug": "execution-remote-powershell-deployment",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1218.005"
+            ],
+            "observables": [
+              "C:\\ProgramData\\Faronics\\Logs\\ScriptRunner.log",
+              "raw.githubusercontent.com/askaboutme121/Xusyahfd/refs/heads/main/Jhinstaller.ps1",
+              "mshta",
+              "curl",
+              "powershell.exe"
+            ]
+          },
+          {
+            "name": "ScreenConnect RMM Installation",
+            "slug": "persistence-rmm-installation",
+            "tactic": "persistence",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "ScreenConnect",
+              "msiexec.exe"
+            ]
+          }
+        ],
+        "summary": "Adversaries abuse the legitimate Faronics Deploy platform by tricking victims into installing signed installers via Adobe-themed phishing lures. Once enrolled, the attackers use the management software's built-in remote execution capabilities to deploy PowerShell scripts and persistent RMM tools like ScreenConnect."
+      },
+      "severity": "high",
+      "rationale": "Focus on workstations that have Faronics Deploy installed but are not typically managed by that specific RMM solution. Widen the search to any host showing Adobe-named processes that are not published by Adobe.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has used a phishing lure to install a legitimately signed Faronics Deploy agent, then abused its remote script execution capabilities to deploy ScreenConnect and establish persistent access.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-entry",
+            "kind": "manual",
+            "observed": "2026-08-31"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Target specific hosts found in the scoping step; leave empty for fleet-wide."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-08-31"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "phishing_domains": {
+          "from": {
+            "ref": "huntress-faronics-abuse",
+            "kind": "article",
+            "observed": "2026-08-31"
+          },
+          "type": "list[domain]",
+          "default": [
+            "fileportals.gytgtecg.xyz"
+          ],
+          "description": "Domains used in the fingerprinting and lure phase."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/faronics-deploy-abuse",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/faronics-deploy-abuse",
+          "name": "Huntress \u2014 Daisy-Chaining Trust: Investigating Faronics Deploy Abuse"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-content-ingestion",
+          "risk": "The hunt can see that the log was written to, but cannot see the remote URL without manual analyst intervention.",
+          "stage": "execution-remote-powershell-deployment",
+          "question": "Which specific GitHub URLs were used to retrieve payloads?",
+          "requires": "File content ingestion for ScriptRunner.log"
+        },
+        {
+          "id": "browser-side-execution",
+          "risk": "The hunt sees the traffic but misses the specific attributes the attacker used to filter analysis environments.",
+          "stage": "initial-access-lure-fingerprinting",
+          "question": "What fingerprinting data was exactly sent in the POST body?",
+          "requires": "Browser instrumentation or EDR visibility into browser process memory"
+        }
+      ]
+    },
+    "name": "Abused Faronics Deploy and RMM Installation",
+    "description": "This hunt investigates the abuse of Faronics Deploy, an endpoint management platform. Attackers deliver signed Faronics installers masquerading as Adobe documents. Once installed, they use the platform legitimate deployment functions to execute PowerShell scripts hosted on GitHub, which ultimately install ScreenConnect. The hunt traces this chain from initial access traffic through installer execution to the final RMM deployment, using unique identifiers like the ck parameter to cluster related activity."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-lure-fingerprinting",
+            "steps": [
+              "phishing-domain-lookup"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-faronics-agent-install",
+            "steps": [
+              "masquerading-faronics-installer"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-agent-enrollment-ck-identifier",
+            "steps": [
+              "faronics-c2-ck-parameter"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-remote-powershell-deployment",
+            "reason": "Capturing the specific GitHub URLs from ScriptRunner.log requires file content access which is not standard in hb_file_activity.",
+            "status": "not_visible",
+            "blind_spot": "no-content-ingestion"
+          },
+          {
+            "stage": "persistence-rmm-installation",
+            "steps": [
+              "screenconnect-installation"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has used a phishing lure to install a legitimately signed Faronics Deploy agent, then abused its remote script execution capabilities to deploy ScreenConnect and establish persistent access.",
+        "blind_spots": [
+          {
+            "id": "no-content-ingestion",
+            "risk": "The hunt can see that the log was written to, but cannot see the remote URL without manual analyst intervention.",
+            "stage": "execution-remote-powershell-deployment",
+            "question": "Which specific GitHub URLs were used to retrieve payloads?",
+            "requires": "File content ingestion for ScriptRunner.log"
+          },
+          {
+            "id": "browser-side-execution",
+            "risk": "The hunt sees the traffic but misses the specific attributes the attacker used to filter analysis environments.",
+            "stage": "initial-access-lure-fingerprinting",
+            "question": "What fingerprinting data was exactly sent in the POST body?",
+            "requires": "Browser instrumentation or EDR visibility into browser process memory"
+          }
+        ],
+        "scoping_notes": "Focus on workstations that have Faronics Deploy installed but are not typically managed by that specific RMM solution. Widen the search to any host showing Adobe-named processes that are not published by Adobe.",
+        "beyond_detection": "A single detection rule might alert on a new ScreenConnect installation. This hunt contextually links that installation back to a phishing lure and the misuse of a signed management tool, distinguishing it from authorized internal software deployments through the synthesis of multiple telemetry surfaces."
+      }
+    },
+    {
+      "id": "scope-faronics-inventory",
+      "type": "query",
+      "label": "Identify Faronics Deploy installations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%faronics%deploy%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts that have Faronics Deploy installed to narrow the search for subsequent abuse.",
+        "expected_signal": "A list of hosts where the Faronics agent is active. These are the primary targets for the behavioral queries."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Faronics Deploy installations",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%faronics%deploy%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts where the Faronics agent is active. These are the primary targets for the behavioral queries.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "phishing-domain-lookup",
+      "type": "query",
+      "label": "Phishing domain DNS lookups",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) as resolution_count, MIN(time) as first_seen FROM hb_dns_activity WHERE instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Find hosts that resolved the attacker controlled domains used for fingerprinting.",
+        "expected_signal": "A host resolving fileportals.gytgtecg.xyz prior to or around the time of a Faronics installation."
+      },
+      "parents": [
+        {
+          "id": "scope-faronics-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Phishing domain DNS lookups",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) as resolution_count, MIN(time) as first_seen FROM hb_dns_activity WHERE instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A host resolving fileportals.gytgtecg.xyz prior to or around the time of a Faronics installation.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "masquerading-faronics-installer",
+      "type": "query",
+      "label": "Adobe-named Faronics processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, process_file_company, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%adobe%.exe' OR LOWER(process_name) LIKE '%reader%.exe') AND LOWER(process_file_company) LIKE '%faronics%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect Faronics installers that are using Adobe file names to deceive users.",
+        "expected_signal": "Processes named like Adobe executables but metadata reveals the publisher is Faronics."
+      },
+      "parents": [
+        {
+          "id": "scope-faronics-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Adobe-named Faronics processes",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "process_cmd_line",
+          "process_file_company",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_path, process_cmd_line, process_file_company, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%adobe%.exe' OR LOWER(process_name) LIKE '%reader%.exe') AND LOWER(process_file_company) LIKE '%faronics%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes named like Adobe executables but metadata reveals the publisher is Faronics.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-early-triage",
+      "type": "analytic",
+      "label": "Triage initial infection evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "phishing-domain-lookup",
+          "masquerading-faronics-installer"
+        ],
+        "objective": "Determine if any host shows both the phishing DNS resolution and the masqueraded Faronics installer launch.",
+        "description": "Weigh the connection between the phishing domain traffic and the Adobe-named Faronics installer.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict on whether a host was likely infected through the described lure.",
+        "success_criteria": "A per-host verdict of suspicious or malicious if both events correlate in time."
+      },
+      "parents": [
+        {
+          "id": "phishing-domain-lookup",
+          "kind": "merge"
+        },
+        {
+          "id": "masquerading-faronics-installer",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "faronics-c2-ck-parameter",
+      "type": "query",
+      "label": "Faronics C2 enrollment with ck parameter",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, url_query, time FROM hb_http_activity WHERE LOWER(url_hostname) = 'deploy.faronics.com' AND url_query LIKE '%ck=%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Capture the enrollment request containing the unique customer/deployment identifier used by the attacker.",
+        "expected_signal": "HTTP requests to deploy.faronics.com that include a ck value. This confirms the host was enrolled in a specific Faronics environment."
+      },
+      "parents": [
+        {
+          "id": "agent-early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Faronics C2 enrollment with ck parameter",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "url_path",
+          "url_query",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, url_query, time FROM hb_http_activity WHERE LOWER(url_hostname) = 'deploy.faronics.com' AND url_query LIKE '%ck=%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests to deploy.faronics.com that include a ck value. This confirms the host was enrolled in a specific Faronics environment.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "screenconnect-installation",
+      "type": "query",
+      "label": "Secondary RMM installation via msiexec",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%screenconnect%' OR LOWER(process_cmd_line) LIKE '%screenconnect%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the final stage of the attack where ScreenConnect is deployed on the endpoint.",
+        "expected_signal": "A ScreenConnect process or installer command line. If the parent process is related to Faronics, it confirms the daisy-chain abuse."
+      },
+      "parents": [
+        {
+          "id": "agent-early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Secondary RMM installation via msiexec",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%screenconnect%' OR LOWER(process_cmd_line) LIKE '%screenconnect%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A ScreenConnect process or installer command line. If the parent process is related to Faronics, it confirms the daisy-chain abuse.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-final-synthesis",
+      "type": "analytic",
+      "label": "Synthesize the attack chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "agent-early-triage",
+          "faronics-c2-ck-parameter",
+          "screenconnect-installation"
+        ],
+        "objective": "Determine if the Faronics installation was unauthorized by looking for a chain that starts with phishing and ends with ScreenConnect deployment.",
+        "description": "Combine early infection markers with C2 enrollment and persistence evidence to provide a high-confidence verdict.",
+        "max_iterations": 5,
+        "expected_signal": "A comprehensive report per host documenting the transition from phish to RMM deployment.",
+        "success_criteria": "A final verdict citing rows from the DNS, HTTP, and process surfaces for each confirmed host."
+      },
+      "parents": [
+        {
+          "id": "faronics-c2-ck-parameter",
+          "kind": "merge"
+        },
+        {
+          "id": "screenconnect-installation",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-infection",
+      "type": "checkpoint",
+      "label": "Route on confirmed infection",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The agent synthesis verdict for any host is malicious and identifies both the unauthorized Faronics agent and secondary RMM activity.",
+        "condition": "The agent synthesis verdict for any host is malicious and identifies both the unauthorized Faronics agent and secondary RMM activity.",
+        "blind_spot": "no-content-ingestion",
+        "confidence": "high",
+        "description": "Direct the hunt to immediate isolation if the synthesized verdict indicates an active intruder.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-final-synthesis"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate the compromised endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt adversary access and command execution.",
+        "instructions": "Isolate the host immediately. Do not remove logs until they have been collected for forensics.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-infection",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "remediate-unauthorized-rmm",
+      "type": "task",
+      "label": "Remediate and collect logs",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform manual cleanup and forensics tasks after isolation.",
+        "instructions": "Collect C:\\ProgramData\\Faronics\\Logs\\ScriptRunner.log to identify the specific GitHub payload URLs. Uninstall the Faronics Deploy instance and the secondary ScreenConnect RMM. Report the ck identifier found in the HTTP logs to Faronics support."
+      },
+      "parents": [
+        {
+          "id": "route-infection",
+          "branch": "default"
+        },
+        {
+          "id": "route-infection",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "close-out-report",
+      "type": "task",
+      "label": "Close out hunt report",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and any required credential rotations.",
+        "instructions": "Record the timeline of events from initial phish to RMM installation. Ensure any users who interacted with the phishing site rotate their credentials."
+      },
+      "parents": [
+        {
+          "id": "route-infection",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "remediate-unauthorized-rmm"
+        }
+      ]
+    }
+  ]
+}

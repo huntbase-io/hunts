@@ -1,0 +1,540 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "AI agent configurations control code-completion policies and system-wide execution hooks; unauthorized modification allows for silent persistence and data exfiltration through AI tools."
+      },
+      "name": "Administrative AI Configuration File Tampering",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1546",
+        "discovery",
+        "execution",
+        "persistence"
+      ],
+      "series": {
+        "slug": "no-mdm-for-linux-a-68-line-elastic-workflow-keeps-every-endpoint-s-config-current",
+        "index": 2,
+        "title": "No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "remote-script-execution-elastic-agent",
+          "reason": "The execution logic of the response action script is handled by another hunt focusing on hb_process_activity and agent logs.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "automated-edr-response-action-reconciliation",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule fires on any change to /etc. This hunt pivots to identify the rare actor and process context, distinguishing the automated reconciliation workflow from manual tampering.",
+      "coverage": [
+        {
+          "stage": "configuration-file-deployment",
+          "steps": [
+            "identify-file-touches",
+            "rare-actor-stacking",
+            "process-context-check"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "workflow-scheduling",
+          "reason": "Belongs to the workflow control-plane hunt.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "endpoint-inventory-query",
+          "reason": "Belongs to another part of the \"No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current\" series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "pending-action-deduplication",
+          "reason": "Belongs to another part of the \"No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current\" series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "remote-script-execution",
+          "reason": "Belongs to another part of the \"No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current\" series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Scheduled Workflow Trigger",
+            "slug": "workflow-scheduling",
+            "tactic": "execution",
+            "techniques": [
+              "T1053.003"
+            ],
+            "observables": [
+              "every: 6h",
+              "reconcile-managed-config-linux"
+            ]
+          },
+          {
+            "name": "Linux Endpoint Discovery",
+            "slug": "endpoint-inventory-query",
+            "tactic": "discovery",
+            "techniques": [
+              "T1018"
+            ],
+            "observables": [
+              "GET /api/endpoint/metadata",
+              "kuery: 'united.agent.local_metadata.os.family : (\"debian\" or \"redhat\" or \"arch\" or \"suse\" or \"fedora\")'"
+            ]
+          },
+          {
+            "name": "Pending Action State Check",
+            "slug": "pending-action-deduplication",
+            "tactic": "discovery",
+            "techniques": [
+              "T1083"
+            ],
+            "observables": [
+              "GET /api/endpoint/action",
+              "commands: runscript",
+              "statuses: pending"
+            ]
+          },
+          {
+            "name": "EDR Response Action Execution",
+            "slug": "remote-script-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.004"
+            ],
+            "observables": [
+              "POST /api/endpoint/action/run_script",
+              "comment: 'Managed configuration reconciliation'",
+              "scriptId: <script-library-entry-id>"
+            ]
+          },
+          {
+            "name": "System Configuration Persistence",
+            "slug": "configuration-file-deployment",
+            "tactic": "persistence",
+            "techniques": [
+              "T1546"
+            ],
+            "observables": [
+              "/etc/codex/managed_config.toml",
+              "/etc/codex/requirements.toml",
+              "/etc/cursor/hooks.json",
+              "/usr/local/share/ai-hooks"
+            ]
+          }
+        ],
+        "summary": "Elastic uses a scheduled Kibana workflow to perform reconciliation-based configuration management for Linux endpoints. The workflow queries the Elastic Defend API to identify Linux hosts and trigger response actions that deploy specific Codex and Cursor configuration files, ensuring hosts remain configured without manual intervention or redundant task queuing."
+      },
+      "severity": "medium",
+      "rationale": "Focus on Linux developer workstations identified via hb_devices (platform = 'Linux').",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has modified system-wide AI configuration files or hooks on a Linux endpoint to bypass security constraints or establish persistence outside the managed reconciliation workflow.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts identified in the lead query to focus analysis; leave empty to scan all."
+        },
+        "config_paths": {
+          "from": {
+            "ref": "elastic-security-labs-linux-mdm",
+            "kind": "article",
+            "observed": "2026-09-29"
+          },
+          "type": "list[path]",
+          "default": [
+            "/etc/codex/managed_config.toml",
+            "/etc/codex/requirements.toml",
+            "/etc/cursor/hooks.json",
+            "/usr/local/share/ai-hooks"
+          ],
+          "description": "Sensitive AI agent configuration paths."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/linux-endpoint-management-elastic-workflows",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/linux-endpoint-management-elastic-workflows",
+          "name": "No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-process-telemetry",
+          "risk": "If the agent uses a generic bash wrapper, we may not distinguish an agent-led change from a local root user change using the same wrapper.",
+          "stage": "configuration-file-deployment",
+          "question": "Which script or parent initiated the file write?",
+          "requires": "hb_process_activity parent lineage"
+        },
+        {
+          "id": "file-content-visibility",
+          "risk": "We see the file touch but not the delta, requiring manual retrieval to confirm malicious intent.",
+          "stage": "configuration-file-deployment",
+          "question": "What specific requirements were disabled in requirements.toml?",
+          "requires": "file content snapshots"
+        }
+      ]
+    },
+    "name": "Administrative AI Configuration File Tampering",
+    "description": "While these files are managed by a scheduled Elastic workflow, manual tampering or the insertion of malicious system hooks can enable unauthorized data access or persistence. The adversary modifies system-wide AI configuration files to bypass constraints or establish persistence. This hunt identifies endpoints where non-agent processes touch managed paths. We stack-count these processes to find rare modifications and inspect their integrity. Finally, an analyst reviews the specific content changes to confirm unauthorized tampering."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "no-mdm-for-linux-a-68-line-elastic-workflow-keeps-every-endpoint-s-config-current",
+          "index": 2,
+          "title": "No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "configuration-file-deployment",
+            "steps": [
+              "identify-file-touches",
+              "rare-actor-stacking",
+              "process-context-check"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "workflow-scheduling",
+            "reason": "Belongs to the workflow control-plane hunt.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "endpoint-inventory-query",
+            "reason": "Belongs to another part of the \"No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current\" series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "pending-action-deduplication",
+            "reason": "Belongs to another part of the \"No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current\" series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "remote-script-execution",
+            "reason": "Belongs to another part of the \"No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current\" series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has modified system-wide AI configuration files or hooks on a Linux endpoint to bypass security constraints or establish persistence outside the managed reconciliation workflow.",
+        "blind_spots": [
+          {
+            "id": "missing-process-telemetry",
+            "risk": "If the agent uses a generic bash wrapper, we may not distinguish an agent-led change from a local root user change using the same wrapper.",
+            "stage": "configuration-file-deployment",
+            "question": "Which script or parent initiated the file write?",
+            "requires": "hb_process_activity parent lineage"
+          },
+          {
+            "id": "file-content-visibility",
+            "risk": "We see the file touch but not the delta, requiring manual retrieval to confirm malicious intent.",
+            "stage": "configuration-file-deployment",
+            "question": "What specific requirements were disabled in requirements.toml?",
+            "requires": "file content snapshots"
+          }
+        ],
+        "scoping_notes": "Focus on Linux developer workstations identified via hb_devices (platform = 'Linux').",
+        "beyond_detection": "A simple detection rule fires on any change to /etc. This hunt pivots to identify the rare actor and process context, distinguishing the automated reconciliation workflow from manual tampering."
+      }
+    },
+    {
+      "id": "identify-file-touches",
+      "type": "query",
+      "label": "Identify administrative file modifications",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, actor_user_name, activity_name, time FROM hb_file_activity WHERE (instr(',' || '{{config_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find all hosts and processes modifying the managed AI configuration files to establish a baseline of activity.",
+        "expected_signal": "A list of hosts and processes. The Elastic Agent is the expected actor; any other process like vi, nano, or unknown binaries are leads."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify administrative file modifications",
+        "reads": [
+          "activity_name",
+          "actor_user_name",
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, actor_user_name, activity_name, time FROM hb_file_activity WHERE (instr(',' || '{{config_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts and processes. The Elastic Agent is the expected actor; any other process like vi, nano, or unknown binaries are leads.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "rare-actor-stacking",
+      "type": "query",
+      "label": "Stack-count processes touching config",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, actor_user_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_file_activity WHERE (instr(',' || '{{config_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, actor_user_name HAVING host_count < 3",
+        "surface": "hb_file_activity",
+        "description": "Find rare or unauthorized processes modifying these paths across the scoped fleet.",
+        "expected_signal": "One-off processes touching these files. Authorized management tools should appear on almost all hosts; manual edits appear on one or two."
+      },
+      "parents": [
+        {
+          "id": "identify-file-touches"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Stack-count processes touching config",
+        "reads": [
+          "actor_user_name",
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, actor_user_name, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_file_activity WHERE (instr(',' || '{{config_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name, actor_user_name HAVING host_count < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "One-off processes touching these files. Authorized management tools should appear on almost all hosts; manual edits appear on one or two.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "actor_user_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "process-context-check",
+      "type": "query",
+      "label": "Inspect process integrity and command lines",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, on_disk, time FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%/etc/codex/%' OR LOWER(process_cmd_line) LIKE '%/etc/cursor/%' OR LOWER(process_cmd_line) LIKE '%ai-hooks%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify processes with suspicious characteristics (like being deleted from disk) that interacted with the AI configuration.",
+        "expected_signal": "Any process with on_disk = 0 or suspicious shell-parentage modifying the files. Silence means no suspicious integrity signals were captured for these commands."
+      },
+      "parents": [
+        {
+          "id": "identify-file-touches"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Inspect process integrity and command lines",
+        "reads": [
+          "device_hostname",
+          "on_disk",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, on_disk, time FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%/etc/codex/%' OR LOWER(process_cmd_line) LIKE '%/etc/cursor/%' OR LOWER(process_cmd_line) LIKE '%ai-hooks%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Any process with on_disk = 0 or suspicious shell-parentage modifying the files. Silence means no suspicious integrity signals were captured for these commands.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "triage-integrity",
+      "type": "analytic",
+      "label": "Weigh modification evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "identify-file-touches",
+          "rare-actor-stacking",
+          "process-context-check"
+        ],
+        "objective": "Review the file modifications and process characteristics. Identify any modifications made by users or processes that are not part of the standard Elastic Agent configuration workflow. Pay special attention to changes in requirements.toml or hooks.json.",
+        "description": "Determine if the file touches are authorized management or unauthorized tampering.",
+        "max_iterations": 5,
+        "expected_signal": "N/A",
+        "success_criteria": "A per-host verdict citing specific rows that indicate unauthorized tampering."
+      },
+      "parents": [
+        {
+          "id": "rare-actor-stacking",
+          "kind": "merge"
+        },
+        {
+          "id": "process-context-check",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host involving hooks.json or requirements.toml",
+        "condition": "the triage verdict is malicious for at least one host involving hooks.json or requirements.toml",
+        "blind_spot": "missing-process-telemetry",
+        "confidence": "medium",
+        "description": "Determine whether to contain a host based on the severity of the tampering.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-integrity"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the potentially compromised endpoint to prevent further data access or exfiltration via AI agents.",
+        "instructions": "Isolate the host and preserve the contents of the modified configuration files for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Manual configuration audit",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually inspect the modified files and verify if the changes were part of an undocumented maintenance task.",
+        "instructions": "The analyst compares file hashes and content against the gold standard in the Elastic script library. Search for unauthorized shell commands in hooks.json."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record results and update authorized process baselines if necessary.",
+        "instructions": "Record findings. If the analyst finds legitimate but unauthorized activity, remind the user of the reconciliation policy."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

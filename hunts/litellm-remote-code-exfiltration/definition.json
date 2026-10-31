@@ -1,0 +1,568 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Supply chain compromises like LiteLLM facilitate direct credential theft and provide a remote execution path; identifying where the payload successfully exfiltrated data is critical for immediate credential revocation."
+      },
+      "name": "LiteLLM Remote Code Loading and Exfiltration",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1041",
+        "attack.t1059.006",
+        "attack.t1195.002",
+        "credential access",
+        "execution",
+        "exfiltration",
+        "initial access",
+        "persistence"
+      ],
+      "series": {
+        "slug": "inside-the-litellm-1-107-0-supply-chain-compromise-credential-theft-through-python-startup-hooks",
+        "index": 2,
+        "title": "Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "litellm-installation-and-startup-persistence",
+          "reason": "A sibling hunt that focuses on identifying the distribution and the initial persistence hooks.",
+          "relation": "precedes"
+        },
+        {
+          "hunt": "litellm-supply-chain-credential-theft",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt correlates a supply-chain installation with its behavioral consequences: processes that are usually local-only (like Python) initiating lookups to configuration sources and staging files. A single rule on the C2 domain may fail as infrastructure rotates, while this hunt focuses on the persistent behavioral indicators of the payload's lifecycle.",
+      "coverage": [
+        {
+          "stage": "remote-code-loader-execution",
+          "steps": [
+            "dns-to-c2-infrastructure",
+            "staging-and-loader-artifacts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "data-exfiltration",
+          "steps": [
+            "dns-to-c2-infrastructure",
+            "staging-and-loader-artifacts"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "malicious-package-distribution",
+          "reason": "Handled by the distribution-focused hunt in this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "python-startup-hook-persistence",
+          "reason": "Handled by the persistence-focused hunt in this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "credential-harvesting",
+          "reason": "Belongs to another part of the 'Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Compromised Package Distribution",
+            "slug": "malicious-package-distribution",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195"
+            ],
+            "observables": [
+              "litellm==1.107.0",
+              "Berri-AI/litellm (lookalike repository)"
+            ]
+          },
+          {
+            "name": "Python Startup Hook Persistence",
+            "slug": "python-startup-hook-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1574"
+            ],
+            "observables": [
+              "cook.pth",
+              "cook.py",
+              "sitecustomize.py",
+              "litellm-1.107.0.data/purelib/"
+            ]
+          },
+          {
+            "name": "Credential and Sensitive Data Collection",
+            "slug": "credential-harvesting",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555",
+              "T1083"
+            ],
+            "observables": [
+              "PRIVCOLLECT_ACTIVE environment variable",
+              "/tmp/.pc_once_72129118c59f5636c0bb",
+              ".aws/credentials",
+              ".azure/accessTokens.json",
+              ".kube/config",
+              ".ssh/id_rsa",
+              "Prisma database queries against LiteLLM proxy"
+            ]
+          },
+          {
+            "name": "Remote Code Loader Execution",
+            "slug": "remote-code-loader-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.006"
+            ],
+            "observables": [
+              "/tmp/remote_code_loader.lock",
+              "GitHub domain.txt lookup",
+              "HTTP GET /codepy"
+            ]
+          },
+          {
+            "name": "Encrypted Data Exfiltration",
+            "slug": "data-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              ".pc_e_ temporary directories",
+              "data.bin",
+              "key.bin",
+              "hdr.json",
+              "www.litellm.dev/healthcheck",
+              "X-SHA256 HTTP header",
+              "application/octet-stream"
+            ]
+          }
+        ],
+        "summary": "The LiteLLM 1.107.0 supply chain compromise involved a malicious package release that deployed Python startup hooks (.pth files and sitecustomize.py) to achieve automatic execution. Once activated, the payload harvested a wide range of credentials from cloud providers, developer tools, and browsers, while maintaining a remote code loader to execute additional instructions from attacker-controlled infrastructure."
+      },
+      "severity": "high",
+      "rationale": "Focus on developer workstations, CI/CD runners, and production gateway hosts identified by the software inventory scan.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using malicious Python startup hooks in a compromised package to execute a remote code loader and exfiltrate credentials from developer and production environments.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "msrc-blog-litellm",
+            "kind": "article",
+            "observed": "2026-10-23"
+          },
+          "type": "list[domain]",
+          "default": [
+            "www.litellm.dev",
+            "litellm.dev",
+            "raw.githubusercontent.com"
+          ],
+          "description": "Known domains used for exfiltration and loader configuration."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts to scope; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "exfil_artifacts": {
+          "from": {
+            "ref": "msrc-blog-litellm",
+            "kind": "article",
+            "observed": "2026-10-23"
+          },
+          "type": "list[string]",
+          "default": [
+            "data.bin",
+            "key.bin",
+            "hdr.json",
+            "remote_code_loader.lock"
+          ],
+          "description": "Specific filenames used by the exfiltration and loader components."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/10/23/inside-the-litellm-1-107-0-supply-chain-compromise-credential-theft-through-python-startup-hooks/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/10/23/inside-the-litellm-1-107-0-supply-chain-compromise-credential-theft-through-python-startup-hooks/",
+          "name": "MSRC Blog: Inside the LiteLLM 1.107.0 supply chain compromise"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "transient-artifact-deletion",
+          "risk": "The payload attempts to remove its temporary staging files and directories (.pc_e_*) after upload, which may leave no persistent on-disk evidence.",
+          "stage": "remote-code-loader-execution",
+          "question": "whether malicious staging files were created and then deleted",
+          "requires": "hb_file_activity with deletion records"
+        },
+        {
+          "id": "short-lived-processes",
+          "risk": "A Python process that starts, initiates a thread, and exits quickly may not be captured by snapshot-based telemetry or may exit before the collector finishes its upload.",
+          "stage": "data-exfiltration",
+          "question": "whether exfiltration attempts occurred in short-lived processes",
+          "requires": "hb_dns_activity with high-frequency capture"
+        }
+      ]
+    },
+    "name": "LiteLLM Remote Code Loading and Exfiltration",
+    "description": "This hunt identifies the second-stage behavior of the LiteLLM 1.107.0 supply chain compromise. It focuses on the activation of the remote code loader and the exfiltration of encrypted credential archives. The hunt correlates the presence of the compromised software version with network telemetry from DNS lookups and the creation of transient staging artifacts or lock files on the file system."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "inside-the-litellm-1-107-0-supply-chain-compromise-credential-theft-through-python-startup-hooks",
+          "index": 2,
+          "title": "Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "remote-code-loader-execution",
+            "steps": [
+              "dns-to-c2-infrastructure",
+              "staging-and-loader-artifacts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "data-exfiltration",
+            "steps": [
+              "dns-to-c2-infrastructure",
+              "staging-and-loader-artifacts"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "malicious-package-distribution",
+            "reason": "Handled by the distribution-focused hunt in this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "python-startup-hook-persistence",
+            "reason": "Handled by the persistence-focused hunt in this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "credential-harvesting",
+            "reason": "Belongs to another part of the 'Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using malicious Python startup hooks in a compromised package to execute a remote code loader and exfiltrate credentials from developer and production environments.",
+        "blind_spots": [
+          {
+            "id": "transient-artifact-deletion",
+            "risk": "The payload attempts to remove its temporary staging files and directories (.pc_e_*) after upload, which may leave no persistent on-disk evidence.",
+            "stage": "remote-code-loader-execution",
+            "question": "whether malicious staging files were created and then deleted",
+            "requires": "hb_file_activity with deletion records"
+          },
+          {
+            "id": "short-lived-processes",
+            "risk": "A Python process that starts, initiates a thread, and exits quickly may not be captured by snapshot-based telemetry or may exit before the collector finishes its upload.",
+            "stage": "data-exfiltration",
+            "question": "whether exfiltration attempts occurred in short-lived processes",
+            "requires": "hb_dns_activity with high-frequency capture"
+          }
+        ],
+        "scoping_notes": "Focus on developer workstations, CI/CD runners, and production gateway hosts identified by the software inventory scan.",
+        "beyond_detection": "This hunt correlates a supply-chain installation with its behavioral consequences: processes that are usually local-only (like Python) initiating lookups to configuration sources and staging files. A single rule on the C2 domain may fail as infrastructure rotates, while this hunt focuses on the persistent behavioral indicators of the payload's lifecycle."
+      }
+    },
+    {
+      "id": "identify-vulnerable-installations",
+      "type": "query",
+      "label": "Identify LiteLLM 1.107.0 installations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path, collected_at FROM hb_software_inventory WHERE LOWER(package_name) = 'litellm' AND package_version = '1.107.0'",
+        "surface": "hb_software_inventory",
+        "description": "Locate hosts with the compromised version of LiteLLM to focus the hunt on the most likely points of compromise.",
+        "expected_signal": "A list of hosts running the compromised package. Silence means the specific version was not found in the current inventory snapshot."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify LiteLLM 1.107.0 installations",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path",
+          "collected_at"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path, collected_at FROM hb_software_inventory WHERE LOWER(package_name) = 'litellm' AND package_version = '1.107.0'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts running the compromised package. Silence means the specific version was not found in the current inventory snapshot.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-24"
+      }
+    },
+    {
+      "id": "dns-to-c2-infrastructure",
+      "type": "query",
+      "label": "Python DNS lookups to C2 infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, COUNT(*) AS count, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND (LOWER(process_name) LIKE '%python%' OR LOWER(process_name) LIKE '%pip%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Identify Python processes resolving the exfiltration domain or the loader configuration source.",
+        "expected_signal": "Python or pip processes communicating with the domains named in the report. Silence means no such resolutions were logged within the window."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-installations"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Python DNS lookups to C2 infrastructure",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, COUNT(*) AS count, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND (LOWER(process_name) LIKE '%python%' OR LOWER(process_name) LIKE '%pip%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Python or pip processes communicating with the domains named in the report. Silence means no such resolutions were logged within the window.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-24"
+      }
+    },
+    {
+      "id": "staging-and-loader-artifacts",
+      "type": "query",
+      "label": "Malicious staging and loader artifacts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, file_name, activity_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/.pc_e_%' OR instr(',' || '{{exfil_artifacts}}' || ',', ',' || LOWER(file_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find transient files used to stage exfiltrated data or the lock file used by the remote loader.",
+        "expected_signal": "The presence of staging files (data.bin, key.bin, hdr.json) or the loader lock file on disk. Silence is expected if the payload successfully cleaned up or never activated."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-installations"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Malicious staging and loader artifacts",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "file_name",
+          "activity_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, file_name, activity_name, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/.pc_e_%' OR instr(',' || '{{exfil_artifacts}}' || ',', ',' || LOWER(file_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "The presence of staging files (data.bin, key.bin, hdr.json) or the loader lock file on disk. Silence is expected if the payload successfully cleaned up or never activated.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-24"
+      }
+    },
+    {
+      "id": "triage-signals",
+      "type": "analytic",
+      "label": "Triage compromise signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "identify-vulnerable-installations",
+          "dns-to-c2-infrastructure",
+          "staging-and-loader-artifacts"
+        ],
+        "objective": "Determine if any host in scope reached the exfiltration or remote code loading stages. Correlate the presence of LiteLLM 1.107.0 with the timing of Python DNS requests to C2 domains and the creation of staging file artifacts.",
+        "description": "Analyze the relationship between the vulnerable software installation and the observed behavioral artifacts.",
+        "max_iterations": 5,
+        "expected_signal": "A verdict indicating the likelihood of successful compromise per host.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign, citing specific DNS and file rows that align with the presence of the compromised package."
+      },
+      "parents": [
+        {
+          "id": "dns-to-c2-infrastructure",
+          "kind": "merge"
+        },
+        {
+          "id": "staging-and-loader-artifacts",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on activity verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-signals verdict is malicious for at least one host",
+        "condition": "the triage-signals verdict is malicious for at least one host",
+        "blind_spot": "transient-artifact-deletion",
+        "confidence": "high",
+        "description": "Determine the appropriate response path based on the agent verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-signals"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further exfiltration and second-stage loading by isolating the host.",
+        "instructions": "Isolate the host immediately. Do not use local Python tools for investigation; perform all forensic collection from a known-clean environment.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Conduct a detailed review of host signals to confirm the compromise and evaluate risk.",
+        "instructions": "Review the cited DNS resolutions and file activity. Check for HTTP POST activity to litellm.dev in proxy logs if available. Verify the content of site-packages for unauthorized .pth or .py files."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Complete the investigation and document findings.",
+        "instructions": "Record every host where successful exfiltration or loader activity was suspected. Coordinate the rotation of all secrets accessible to the affected systems and ensure affected Python environments are purged."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
