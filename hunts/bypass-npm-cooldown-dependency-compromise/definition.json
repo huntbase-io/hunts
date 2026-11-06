@@ -1,0 +1,457 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Dependency compromise via npm is a high-impact initial access vector. Bypassing security cooldowns is a clear signal of deliberate policy evasion to facilitate rapid installation of unvetted code."
+      },
+      "name": "Bypass of npm Cooldown and Dependency Compromise",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1195.001",
+        "attack.t1562.001"
+      ],
+      "related": [
+        {
+          "hunt": "npm-post-install-execution",
+          "reason": "Installation of a compromised package often leads to immediate script execution; this hunt focuses on the bypass itself.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule detects the file modification but lacks the context of fleet-wide package rarity and the timing correlation with specific npm command lines that an analyst must weigh.",
+      "coverage": [
+        {
+          "stage": "npm-cooldown-config-removal",
+          "steps": [
+            "npmrc-modifications"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "compromised-package-installation",
+          "steps": [
+            "rare-npm-install-activity",
+            "verify-package-age"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Removal of npm Cooldown Configuration",
+            "slug": "npm-cooldown-config-removal",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1562.001"
+            ],
+            "observables": [
+              "Removal of 'min-release-age' string from config files",
+              "Modification of ~/.npmrc",
+              "Modification of /opt/homebrew/etc/npmrc",
+              "Modification of /usr/local/etc/npmrc",
+              "Modification of /etc/npmrc",
+              "Modification of /usr/lib/node_modules/npm/.npmrc",
+              "Command: npm config delete min-release-age"
+            ]
+          },
+          {
+            "name": "Installation of Compromised Dependency",
+            "slug": "compromised-package-installation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195.001"
+            ],
+            "observables": [
+              "Process: npm install",
+              "Domain: registry.npmjs.org",
+              "Network connection to npm registry on port 443",
+              "Recently published npm package versions"
+            ]
+          }
+        ],
+        "summary": "An adversary or user removes the 'min-release-age' configuration from npm configuration files to bypass security cooldown periods. This enables the installation of freshly compromised software dependencies before they are detected and removed by registry maintainers."
+      },
+      "severity": "high",
+      "rationale": "Start with engineering and DevOps hosts where npm usage is frequent. Use hb_software_inventory to narrow down the estate to confirmed npm users.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder or developer removes the npm cooldown setting to bypass a mandatory waiting period for new packages, enabling the installation of a compromised dependency.",
+      "parameters": {
+        "npmrc_paths": {
+          "from": {
+            "ref": "elastic-security-labs-npm-cooldown",
+            "kind": "article",
+            "observed": "2026-08-07"
+          },
+          "type": "list[path]",
+          "default": [
+            "/opt/homebrew/etc/npmrc",
+            "/usr/local/etc/npmrc",
+            "/etc/npmrc",
+            "/usr/lib/node_modules/npm/.npmrc"
+          ],
+          "description": "Well-known machine-global npmrc locations."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts with npm installations identified in the first step."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/npm-cooldown-removal-detection-elastic-agent",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/npm-cooldown-removal-detection-elastic-agent",
+          "name": "Elastic Security Labs \u2014 The security signal log tailing can't see: tracking npm cooldown removals"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "standard-file-logs-content-blindness",
+          "risk": "Standard file logs show that a modification occurred but not the specific line removed, leading to potential false positives from legitimate registry credential updates.",
+          "stage": "npm-cooldown-config-removal",
+          "question": "Was the specific min-release-age line removed or was the file changed for another reason?",
+          "requires": "CEL-based snapshot integration",
+          "remediation": "Deploy the CEL snapshot integration described in the article to capture file content state changes."
+        },
+        {
+          "id": "nvm-version-complexity",
+          "risk": "If a host carries multiple npm versions via nvm, an older version may ignore the config setting even if the setting exists, leading to a successful install of a fresh package despite policy.",
+          "stage": "compromised-package-installation",
+          "question": "Which exact npm binary version executed the install command?",
+          "requires": "hb_process_activity environmental variables"
+        }
+      ]
+    },
+    "name": "Bypass of npm Cooldown and Dependency Compromise",
+    "description": "This hunt looks for signs that npm security controls have been deliberately weakened. It identifies workstations where the min-release-age setting has been removed from configuration files and correlates this with subsequent npm install activity. This pattern suggests an attempt to bypass organizational security policy to install recently published packages that may not have been fully vetted."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "npm-cooldown-config-removal",
+            "steps": [
+              "npmrc-modifications"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "compromised-package-installation",
+            "steps": [
+              "rare-npm-install-activity",
+              "verify-package-age"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder or developer removes the npm cooldown setting to bypass a mandatory waiting period for new packages, enabling the installation of a compromised dependency.",
+        "blind_spots": [
+          {
+            "id": "standard-file-logs-content-blindness",
+            "risk": "Standard file logs show that a modification occurred but not the specific line removed, leading to potential false positives from legitimate registry credential updates.",
+            "stage": "npm-cooldown-config-removal",
+            "question": "Was the specific min-release-age line removed or was the file changed for another reason?",
+            "requires": "CEL-based snapshot integration",
+            "remediation": "Deploy the CEL snapshot integration described in the article to capture file content state changes."
+          },
+          {
+            "id": "nvm-version-complexity",
+            "risk": "If a host carries multiple npm versions via nvm, an older version may ignore the config setting even if the setting exists, leading to a successful install of a fresh package despite policy.",
+            "stage": "compromised-package-installation",
+            "question": "Which exact npm binary version executed the install command?",
+            "requires": "hb_process_activity environmental variables"
+          }
+        ],
+        "scoping_notes": "Start with engineering and DevOps hosts where npm usage is frequent. Use hb_software_inventory to narrow down the estate to confirmed npm users.",
+        "beyond_detection": "A standard rule detects the file modification but lacks the context of fleet-wide package rarity and the timing correlation with specific npm command lines that an analyst must weigh."
+      }
+    },
+    {
+      "id": "identify-npm-hosts",
+      "type": "query",
+      "label": "Identify hosts with npm",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) = 'npm'",
+        "surface": "hb_software_inventory",
+        "description": "Find the development workstations that carry npm and could be impacted by configuration changes.",
+        "expected_signal": "A list of hosts and versions. Silence suggests npm is not inventoried or not present."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify hosts with npm",
+        "reads": [
+          "device_hostname",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) = 'npm'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts and versions. Silence suggests npm is not inventoried or not present.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "npmrc-modifications",
+      "type": "query",
+      "label": "Modifications to npmrc files",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(file_path) LIKE '%/.npmrc' OR instr(',' || '{{npmrc_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0) AND activity_id IN (3, 4) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect when a user or process modifies or deletes npm configuration files.",
+        "expected_signal": "Rows indicating that an npmrc file was updated or deleted. Silence means no modifications occurred on the tracked paths."
+      },
+      "parents": [
+        {
+          "id": "identify-npm-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Modifications to npmrc files",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(file_path) LIKE '%/.npmrc' OR instr(',' || '{{npmrc_paths}}' || ',', ',' || LOWER(file_path) || ',') > 0) AND activity_id IN (3, 4) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows indicating that an npmrc file was updated or deleted. Silence means no modifications occurred on the tracked paths.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-npm-install-activity",
+      "type": "query",
+      "label": "Rare npm install activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS total_runs, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%npm install%' OR LOWER(process_cmd_line) LIKE '%npm i %') AND activity_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count npm install commands to find unique or rare packages being introduced to the estate.",
+        "expected_signal": "A list of rare installation commands. Silence implies only common, fleet-wide packages were installed."
+      },
+      "parents": [
+        {
+          "id": "identify-npm-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare npm install activity",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS total_runs, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%npm install%' OR LOWER(process_cmd_line) LIKE '%npm i %') AND activity_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of rare installation commands. Silence implies only common, fleet-wide packages were installed.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 4
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-behavior",
+      "type": "analytic",
+      "label": "Triage bypass behavior",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "identify-npm-hosts",
+          "npmrc-modifications",
+          "rare-npm-install-activity"
+        ],
+        "objective": "Identify hosts where an npmrc modification preceded an npm install within a 2-hour window. Evaluate if the install command contains specific version or package strings that appear unique to that host.",
+        "description": "Determine if configuration changes correlate in time with rare installation events on the same hosts.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict identifying high-risk combinations of policy evasion and new dependency installs.",
+        "success_criteria": "A verdict of malicious or suspicious for any host exhibiting both behaviors within the temporal window."
+      },
+      "parents": [
+        {
+          "id": "npmrc-modifications",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-npm-install-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-risk",
+      "type": "checkpoint",
+      "label": "Route on risk",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host involving a rare install within 2 hours of a config change",
+        "condition": "the triage verdict is malicious for at least one host involving a rare install within 2 hours of a config change",
+        "blind_spot": "standard-file-logs-content-blindness",
+        "confidence": "high",
+        "description": "Determine whether to escalate to host isolation or analyst review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-behavior"
+        }
+      ]
+    },
+    {
+      "id": "isolate-workstation",
+      "type": "action",
+      "label": "Isolate workstation",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt further installation or potential C2 activity on the suspect workstation.",
+        "instructions": "Isolate the host from the network and preserve the npmrc files and node_modules directory for analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-risk",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "verify-package-age",
+      "type": "task",
+      "label": "Verify package publication date",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm if the installed package version is new enough to have been blocked by the cooldown setting.",
+        "instructions": "Look up the package versions identified in the install commands on npmjs.org. If the publication date was less than 7 days prior to the install on a host that modified its npmrc, escalate to Incident Response."
+      },
+      "parents": [
+        {
+          "id": "route-on-risk",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-risk",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-risk",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-workstation"
+        }
+      ]
+    },
+    {
+      "id": "policy-remediation",
+      "type": "task",
+      "label": "Remediate policy configuration",
+      "config": {
+        "assignee": "analyst",
+        "description": "Restore the secure configuration and ensure management tools re-enforce it.",
+        "instructions": "Re-apply the min-release-age configuration. Ensure the npm version on the host is 11.10 or higher. Investigate why the daily management script failed to re-apply the setting or was bypassed."
+      },
+      "parents": [
+        {
+          "id": "verify-package-age"
+        }
+      ]
+    }
+  ]
+}

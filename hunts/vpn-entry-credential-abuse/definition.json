@@ -1,0 +1,569 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Third-party risk via misconfigured external gateways is a high-impact exposure. Identifying successful entries and subsequent brute-force noise is a fundamental requirement for securing the network perimeter."
+      },
+      "name": "VPN Entry and Internal Brute Force",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1133",
+        "attack.t1078",
+        "attack.t1110",
+        "collection",
+        "credential access",
+        "discovery",
+        "execution",
+        "initial access"
+      ],
+      "series": {
+        "slug": "the-noise-inside-the-network-how-an-unsophisticated-attack-exposed-a-third-party-risk",
+        "index": 1,
+        "title": "The Noise Inside the Network: How an Unsophisticated Attack Exposed a Third-Party Risk",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "internal-recon-and-lateral-movement",
+          "reason": "After testing credentials, an attacker typically conducts internal discovery to find high-value targets.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "This hunt correlates three distinct identity-plane signals: the initial VPN entry, the volume of failures, and rare account modifications. A single rule usually only fires on the failures, lacking the context of the entry point and the baseline of account changes.",
+      "coverage": [
+        {
+          "stage": "unauthorized-vpn-access",
+          "steps": [
+            "vpn-entry-no-mfa"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "internal-credential-testing",
+          "steps": [
+            "internal-brute-force",
+            "unusual-account-changes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "internal-network-discovery",
+          "reason": "Handled by a separate hunt focusing on network scanning.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "data-share-and-doc-collection",
+          "reason": "Handled by a separate hunt focusing on SMB and HTTP data scraping.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "wsus-exploitation-attempt",
+          "reason": "Handled by a separate hunt focusing on WSUS and configuration management exploitation.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Unauthorized VPN Access",
+            "slug": "unauthorized-vpn-access",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1133",
+              "T1078"
+            ],
+            "observables": [
+              "VPN-based access attempts",
+              "Third-party-managed external gateway appliance",
+              "Compromised credentials",
+              "Authentication without MFA"
+            ]
+          },
+          {
+            "name": "Broad Internal Discovery",
+            "slug": "internal-network-discovery",
+            "tactic": "discovery",
+            "observables": [
+              "Host and network scans",
+              "Interactions with thousands of systems",
+              "Multiple protocol usage for reconnaissance"
+            ]
+          },
+          {
+            "name": "Internal Credential Brute Force",
+            "slug": "internal-credential-testing",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1110"
+            ],
+            "observables": [
+              "Password-guessing campaigns",
+              "Brute-force authentication attempts",
+              "Targeting of administrator accounts"
+            ]
+          },
+          {
+            "name": "Internal Data Collection",
+            "slug": "data-share-and-doc-collection",
+            "tactic": "collection",
+            "observables": [
+              "Automated web requests to internal systems",
+              "Scraping documentation pages and attachments",
+              "Enumeration of network shares"
+            ]
+          },
+          {
+            "name": "WSUS Remote Code Execution Attempt",
+            "slug": "wsus-exploitation-attempt",
+            "tactic": "execution",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "WSUS remote code execution vulnerability",
+              "Central configuration management server",
+              "Unauthorized code execution attempt"
+            ]
+          }
+        ],
+        "summary": "An opportunistic attacker exploited a misconfigured third-party VPN gateway using compromised credentials to gain access to a bank's internal network. The intruder performed broad network scanning, brute-force attempts against administrator accounts, and scraped internal documentation before attempting to execute code via a WSUS vulnerability, which was blocked by endpoint security."
+      },
+      "severity": "medium",
+      "rationale": "Start with external-facing VPN gateways. Focus on accounts that log in from geographically unusual locations or at anomalous times, especially those that do not trigger an MFA challenge.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker has gained initial access through a misconfigured VPN gateway lacking multi-factor authentication and is brute-forcing administrator accounts across internal systems to escalate privileges.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Target hosts identified in the scoping step; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "admin_account_patterns": {
+          "from": {
+            "ref": "unit42-third-party-risk",
+            "kind": "article",
+            "observed": "2026-10-13"
+          },
+          "type": "list[string]",
+          "default": [
+            "admin",
+            "root",
+            "administrator",
+            "svc_",
+            "sql",
+            "backup"
+          ],
+          "description": "Administrative username substrings or specific accounts to prioritize in brute-force detection."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://unit42.paloaltonetworks.com/noise-inside-network-third-party-risk/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://unit42.paloaltonetworks.com/noise-inside-network-third-party-risk/",
+          "name": "The Noise Inside the Network: How an Unsophisticated Attack Exposed a Third-Party Risk"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-vpn-logs",
+          "risk": "The hunt misses entry points through unmonitored infrastructure.",
+          "owner": "Security Engineering",
+          "stage": "unauthorized-vpn-access",
+          "question": "whether logins occurred through gateways not enrolled in the lake",
+          "requires": "VPN gateway logs in hb_auth_signin",
+          "remediation": "Enrol all third-party VPN gateways in central logging."
+        },
+        {
+          "id": "mfa-reporting-gap",
+          "risk": "If MFA status is always NULL, the scoping step will produce excessive false positives.",
+          "owner": "Detection Engineering",
+          "stage": "unauthorized-vpn-access",
+          "question": "whether the 'mfa' column is accurately populated by the provider",
+          "requires": "Reliable MFA status in hb_auth_signin",
+          "remediation": "Verify MFA logging capabilities of the gateway and update the ingestion parser if needed."
+        }
+      ]
+    },
+    "name": "VPN Entry and Internal Brute Force",
+    "description": "This hunt examines the identity plane for signs of third-party risk and credential abuse. It starts by scoping for successful VPN sign-ins where multi-factor authentication (MFA) was not enforced. It then fans out to identify internal brute-force patterns targeting administrative accounts and correlates these with rare account lifecycle changes, such as password resets or account creations. An agent weighs the combined evidence to distinguish between automated noisy scanners and a successful intrusion originating from a compromised VPN session."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "the-noise-inside-the-network-how-an-unsophisticated-attack-exposed-a-third-party-risk",
+          "index": 1,
+          "title": "The Noise Inside the Network: How an Unsophisticated Attack Exposed a Third-Party Risk",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "unauthorized-vpn-access",
+            "steps": [
+              "vpn-entry-no-mfa"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "internal-credential-testing",
+            "steps": [
+              "internal-brute-force",
+              "unusual-account-changes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "internal-network-discovery",
+            "reason": "Handled by a separate hunt focusing on network scanning.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "data-share-and-doc-collection",
+            "reason": "Handled by a separate hunt focusing on SMB and HTTP data scraping.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "wsus-exploitation-attempt",
+            "reason": "Handled by a separate hunt focusing on WSUS and configuration management exploitation.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An attacker has gained initial access through a misconfigured VPN gateway lacking multi-factor authentication and is brute-forcing administrator accounts across internal systems to escalate privileges.",
+        "blind_spots": [
+          {
+            "id": "missing-vpn-logs",
+            "risk": "The hunt misses entry points through unmonitored infrastructure.",
+            "owner": "Security Engineering",
+            "stage": "unauthorized-vpn-access",
+            "question": "whether logins occurred through gateways not enrolled in the lake",
+            "requires": "VPN gateway logs in hb_auth_signin",
+            "remediation": "Enrol all third-party VPN gateways in central logging."
+          },
+          {
+            "id": "mfa-reporting-gap",
+            "risk": "If MFA status is always NULL, the scoping step will produce excessive false positives.",
+            "owner": "Detection Engineering",
+            "stage": "unauthorized-vpn-access",
+            "question": "whether the 'mfa' column is accurately populated by the provider",
+            "requires": "Reliable MFA status in hb_auth_signin",
+            "remediation": "Verify MFA logging capabilities of the gateway and update the ingestion parser if needed."
+          }
+        ],
+        "scoping_notes": "Start with external-facing VPN gateways. Focus on accounts that log in from geographically unusual locations or at anomalous times, especially those that do not trigger an MFA challenge.",
+        "beyond_detection": "This hunt correlates three distinct identity-plane signals: the initial VPN entry, the volume of failures, and rare account modifications. A single rule usually only fires on the failures, lacking the context of the entry point and the baseline of account changes."
+      }
+    },
+    {
+      "id": "vpn-entry-no-mfa",
+      "type": "query",
+      "label": "VPN Sign-ins Without MFA",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT DISTINCT device_hostname, actor_user_name, src_endpoint_ip, service_name, time FROM hb_auth_signin WHERE status_id = 1 AND (mfa = 'false' OR mfa IS NULL) AND (LOWER(service_name) LIKE '%vpn%' OR LOWER(dst_endpoint_name) LIKE '%vpn%' OR LOWER(metadata_product) LIKE '%vpn%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify successful logins to VPN services that did not use or report multi-factor authentication.",
+        "expected_signal": "Rows naming the VPN gateway and the users who successfully logged in without MFA. Silence proves no MFA-less logins were recorded for gateways reporting to the lake."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "VPN Sign-ins Without MFA",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "src_endpoint_ip",
+          "service_name",
+          "dst_endpoint_name",
+          "mfa",
+          "status_id",
+          "time",
+          "metadata_product"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT DISTINCT device_hostname, actor_user_name, src_endpoint_ip, service_name, time FROM hb_auth_signin WHERE status_id = 1 AND (mfa = 'false' OR mfa IS NULL) AND (LOWER(service_name) LIKE '%vpn%' OR LOWER(dst_endpoint_name) LIKE '%vpn%' OR LOWER(metadata_product) LIKE '%vpn%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows naming the VPN gateway and the users who successfully logged in without MFA. Silence proves no MFA-less logins were recorded for gateways reporting to the lake.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-14"
+      }
+    },
+    {
+      "id": "internal-brute-force",
+      "type": "query",
+      "label": "Internal Brute Force Against Admins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "identity",
+        "content": "SELECT src_endpoint_ip, device_hostname, COUNT(DISTINCT actor_user_name) AS unique_accounts, COUNT(*) AS attempt_count FROM hb_auth_signin WHERE status_id = 2 AND (LOWER(actor_user_name) LIKE '%admin%' OR LOWER(actor_user_name) LIKE '%root%' OR instr(',' || '{{admin_account_patterns}}' || ',', ',' || LOWER(actor_user_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, device_hostname HAVING attempt_count > 20",
+        "surface": "hb_auth_signin",
+        "description": "Find source IPs attempting to guess passwords for multiple administrative accounts.",
+        "expected_signal": "A single internal IP address generating dozens of authentication failures across different admin names. Silence suggests no automated guessing was visible on these hosts."
+      },
+      "parents": [
+        {
+          "id": "vpn-entry-no-mfa"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Internal Brute Force Against Admins",
+        "reads": [
+          "src_endpoint_ip",
+          "device_hostname",
+          "actor_user_name",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_endpoint_ip, device_hostname, COUNT(DISTINCT actor_user_name) AS unique_accounts, COUNT(*) AS attempt_count FROM hb_auth_signin WHERE status_id = 2 AND (LOWER(actor_user_name) LIKE '%admin%' OR LOWER(actor_user_name) LIKE '%root%' OR instr(',' || '{{admin_account_patterns}}' || ',', ',' || LOWER(actor_user_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, device_hostname HAVING attempt_count > 20",
+        "silence": "not_evidence_of_absence",
+        "expected": "A single internal IP address generating dozens of authentication failures across different admin names. Silence suggests no automated guessing was visible on these hosts.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-14"
+      }
+    },
+    {
+      "id": "unusual-account-changes",
+      "type": "query",
+      "label": "Rare Account Lifecycle Changes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT user_name, activity_name, device_hostname, COUNT(DISTINCT actor_user_name) AS distinct_actors, MIN(time) AS first_change FROM hb_account_change WHERE activity_id IN (1, 4) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_name, activity_name, device_hostname",
+        "surface": "hb_account_change",
+        "description": "Baseline account changes to identify rare password resets or creations that could indicate persistence.",
+        "expected_signal": "A password reset or account creation performed by an unusual actor. Baseline noise will show routine resets; anomalous entries will have low actor counts."
+      },
+      "parents": [
+        {
+          "id": "vpn-entry-no-mfa"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Account Lifecycle Changes",
+        "reads": [
+          "user_name",
+          "activity_name",
+          "device_hostname",
+          "activity_id",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_account_change",
+        "target": "endpoint",
+        "content": "SELECT user_name, activity_name, device_hostname, COUNT(DISTINCT actor_user_name) AS distinct_actors, MIN(time) AS first_change FROM hb_account_change WHERE activity_id IN (1, 4) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY user_name, activity_name, device_hostname",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A password reset or account creation performed by an unusual actor. Baseline noise will show routine resets; anomalous entries will have low actor counts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "user_name",
+            "activity_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-14"
+      }
+    },
+    {
+      "id": "triage-identity-signals",
+      "type": "analytic",
+      "label": "Triage Identity Risks",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "vpn-entry-no-mfa",
+          "internal-brute-force",
+          "unusual-account-changes"
+        ],
+        "objective": "Identify hosts where a user successfully logged in via VPN without MFA and then initiated brute-force attempts or sensitive account modifications internally.",
+        "description": "Evaluate whether the VPN logins, brute-force attempts, and account changes suggest an active intrusion.",
+        "max_iterations": 4,
+        "expected_signal": "A determination of malicious or benign activity per host and user.",
+        "success_criteria": "A per-host verdict of malicious, suspicious, or benign citing specific rows."
+      },
+      "parents": [
+        {
+          "id": "internal-brute-force",
+          "kind": "merge"
+        },
+        {
+          "id": "unusual-account-changes",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host or user",
+        "condition": "the triage verdict is malicious for at least one host or user",
+        "blind_spot": "missing-vpn-logs",
+        "confidence": "high",
+        "description": "Route the hunt based on the agent's findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-identity-signals"
+        }
+      ]
+    },
+    {
+      "id": "revoke-compromised-access",
+      "type": "action",
+      "label": "Revoke Compromised Access",
+      "config": {
+        "target": "identity",
+        "description": "Contain the threat by terminating sessions and resetting credentials.",
+        "instructions": "Revoke all active sessions for the compromised accounts and force a password reset after confirming the scope with the IR lead.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-validation",
+      "type": "task",
+      "label": "Analyst Deep Dive",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's findings and look for lateral movement not captured by the queries.",
+        "instructions": "Review the source IPs and actor_user_name from the VPN logins. Note that the internal source IP for the brute force may be an internal jump box or the beachhead host itself. Pivot to hb_network_connection to verify if the beachhead host contacted the systems targeted in the brute-force query."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "revoke-compromised-access"
+        }
+      ]
+    },
+    {
+      "id": "hunt-summary",
+      "type": "task",
+      "label": "Hunt Close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and record any gaps in telemetry.",
+        "instructions": "Document whether the brute-force attempts were successful. If the failure threshold resulted in too many false positives, recommend tuning the detection-candidate query for the environment."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-validation"
+        }
+      ]
+    }
+  ]
+}

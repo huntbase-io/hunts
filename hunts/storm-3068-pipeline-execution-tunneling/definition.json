@@ -1,0 +1,613 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Build pipelines connect development code to production cloud infrastructure; ensuring their integrity is a critical obligation for protecting the organization's cloud environment and secrets."
+      },
+      "name": "Storm-3068 Build Pipeline Execution and Tunneling",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059",
+        "attack.t1190",
+        "attack.t1219",
+        "attack.t1572",
+        "command and control",
+        "credential access",
+        "discovery",
+        "execution",
+        "initial access"
+      ],
+      "series": {
+        "slug": "beyond-source-code-a-path-to-the-keys-to-the-kingdom",
+        "index": 2,
+        "title": "Beyond source code: A path to the keys to the kingdom",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "storm-3068-identity-compromise-sspr",
+          "reason": "This hunt assumes the identity is already compromised and focuses on the subsequent execution within the pipeline.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "cloud-identity-takeover-devops-enumeration",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple rule might alert on a Chisel binary, but this hunt provides the critical context of an unauthorized pipeline modification leading to that execution, distinguishing it from legitimate developer activity.",
+      "coverage": [
+        {
+          "stage": "malicious-pipeline-execution",
+          "steps": [
+            "pipeline-api-changes",
+            "identify-rmm-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remote-access-tooling",
+          "steps": [
+            "identify-rmm-execution",
+            "rare-outbound-tunnels"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "identity-compromise-sspr",
+          "reason": "Belongs to another part of the 'Beyond source code: A path to the keys to the kingdom' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "azure-devops-enumeration",
+          "reason": "Belongs to another part of the 'Beyond source code: A path to the keys to the kingdom' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "credential-harvesting-exfiltration",
+          "reason": "Belongs to another part of the 'Beyond source code: A path to the keys to the kingdom' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Identity Takeover via SSPR",
+            "slug": "identity-compromise-sspr",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566",
+              "T1078"
+            ],
+            "observables": [
+              "self-service password reset activity",
+              "registration of new authentication methods",
+              "MFA registration bypass"
+            ]
+          },
+          {
+            "name": "Azure DevOps Environment Discovery",
+            "slug": "azure-devops-enumeration",
+            "tactic": "discovery",
+            "techniques": [
+              "T1087",
+              "T1018"
+            ],
+            "observables": [
+              "enumeration of repositories, projects, pipelines, and deployment environments",
+              "automated scripts mapping cloud resources"
+            ]
+          },
+          {
+            "name": "Malicious Pipeline Deployment",
+            "slug": "malicious-pipeline-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059",
+              "T1190"
+            ],
+            "observables": [
+              "creation of malicious pipeline",
+              "deployment of kube agent",
+              "modification of pipeline scripts",
+              "execution of pipeline jobs to collect kubeconfig files"
+            ]
+          },
+          {
+            "name": "RMM and Tunneling Tooling",
+            "slug": "remote-access-tooling",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1219",
+              "T1572"
+            ],
+            "observables": [
+              "Atera remote management agent installation",
+              "Chisel tunneling utility download",
+              "chisel commands establishing reverse tunnel to external IP"
+            ]
+          },
+          {
+            "name": "Kubernetes Credential Harvesting",
+            "slug": "credential-harvesting-exfiltration",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1552.001"
+            ],
+            "observables": [
+              "harvesting of kubeconfig files",
+              "addition of stolen kubeconfig files to a Git repository",
+              "Git version history modification"
+            ]
+          }
+        ],
+        "summary": "Storm-3068 compromised a user identity through a self-service password reset and registered their own MFA to gain persistent access. The actor pivoted to Azure DevOps to enumerate repositories and pipelines, then created a malicious pipeline to harvest Kubernetes credentials (kubeconfig) and establish remote access via Atera and Chisel protocol tunneling."
+      },
+      "severity": "high",
+      "rationale": "Focus the search on hosts indexed in the software inventory as build agents (vsts-agent) or cluster nodes (kube-proxy). Use the Azure DevOps workload filter in cloud logs to reduce noise from other Office 365 services.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has modified build pipelines to execute malicious code on agents, deploying RMM tools and establishing tunnels to exfiltrate Kubernetes credentials.",
+      "parameters": {
+        "rmm_tools": {
+          "from": {
+            "ref": "msrc-blog-storm-3068",
+            "kind": "article",
+            "observed": "2026-09-29"
+          },
+          "type": "list[string]",
+          "default": [
+            "chisel",
+            "atera"
+          ],
+          "description": "Base names for tunneling and remote management tools to monitor."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to narrow the search; populate from the scoping step results."
+        },
+        "pipeline_ops": {
+          "type": "list[string]",
+          "default": [
+            "CreatePipeline",
+            "UpdatePipeline",
+            "RunPipeline"
+          ],
+          "description": "Operations in Azure DevOps that indicate pipeline modifications."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/09/29/beyond-source-code-a-path-to-the-keys-to-the-kingdom/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/09/29/beyond-source-code-a-path-to-the-keys-to-the-kingdom/",
+          "name": "Beyond source code: A path to the keys to the kingdom"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "ephemeral-build-telemetry",
+          "risk": "Attackers can run malicious jobs in short-lived runners that evade periodic inventory or process snapshots.",
+          "owner": "Cloud Platforms Team",
+          "stage": "malicious-pipeline-execution",
+          "question": "Did the malicious script execute in an ephemeral container that was deleted before telemetry was collected?",
+          "requires": "off-host log streaming from build agents",
+          "remediation": "Enable continuous log streaming for all build environments to a centralized lake."
+        },
+        {
+          "id": "missing-git-diffs",
+          "risk": "Standard audit logs often confirm a file was modified but do not show the actual malicious script content, requiring manual forensic effort to recover the intent.",
+          "owner": "DevSecOps Team",
+          "stage": "malicious-pipeline-execution",
+          "question": "What specific code was added to the pipeline to harvest credentials?",
+          "requires": "Azure DevOps Git audit logs with diff content",
+          "remediation": "Configure automated security analysis for all pipeline YAML changes."
+        }
+      ]
+    },
+    "name": "Storm-3068 Build Pipeline Execution and Tunneling",
+    "description": "This hunt focuses on the lateral movement and persistence phase of the Storm-3068 intrusion. It targets the execution of malicious code on build agents and Kubernetes workloads, where adversaries modify pipelines to harvest credentials. The hunt fanned out to identify the execution of Remote Monitoring and Management (RMM) tools like Atera and tunneling utilities like Chisel, while correlating these host-level signals with Azure DevOps pipeline configuration changes. By analyzing process, network, and cloud API telemetry together, the hunt identifies the path from a compromised pipeline to stolen Kubernetes secrets."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "beyond-source-code-a-path-to-the-keys-to-the-kingdom",
+          "index": 2,
+          "title": "Beyond source code: A path to the keys to the kingdom",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "malicious-pipeline-execution",
+            "steps": [
+              "pipeline-api-changes",
+              "identify-rmm-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remote-access-tooling",
+            "steps": [
+              "identify-rmm-execution",
+              "rare-outbound-tunnels"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "identity-compromise-sspr",
+            "reason": "Belongs to another part of the 'Beyond source code: A path to the keys to the kingdom' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "azure-devops-enumeration",
+            "reason": "Belongs to another part of the 'Beyond source code: A path to the keys to the kingdom' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "credential-harvesting-exfiltration",
+            "reason": "Belongs to another part of the 'Beyond source code: A path to the keys to the kingdom' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has modified build pipelines to execute malicious code on agents, deploying RMM tools and establishing tunnels to exfiltrate Kubernetes credentials.",
+        "blind_spots": [
+          {
+            "id": "ephemeral-build-telemetry",
+            "risk": "Attackers can run malicious jobs in short-lived runners that evade periodic inventory or process snapshots.",
+            "owner": "Cloud Platforms Team",
+            "stage": "malicious-pipeline-execution",
+            "question": "Did the malicious script execute in an ephemeral container that was deleted before telemetry was collected?",
+            "requires": "off-host log streaming from build agents",
+            "remediation": "Enable continuous log streaming for all build environments to a centralized lake."
+          },
+          {
+            "id": "missing-git-diffs",
+            "risk": "Standard audit logs often confirm a file was modified but do not show the actual malicious script content, requiring manual forensic effort to recover the intent.",
+            "owner": "DevSecOps Team",
+            "stage": "malicious-pipeline-execution",
+            "question": "What specific code was added to the pipeline to harvest credentials?",
+            "requires": "Azure DevOps Git audit logs with diff content",
+            "remediation": "Configure automated security analysis for all pipeline YAML changes."
+          }
+        ],
+        "scoping_notes": "Focus the search on hosts indexed in the software inventory as build agents (vsts-agent) or cluster nodes (kube-proxy). Use the Azure DevOps workload filter in cloud logs to reduce noise from other Office 365 services.",
+        "beyond_detection": "A simple rule might alert on a Chisel binary, but this hunt provides the critical context of an unauthorized pipeline modification leading to that execution, distinguishing it from legitimate developer activity."
+      }
+    },
+    {
+      "id": "find-build-infrastructure",
+      "type": "query",
+      "label": "Identify build infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%kube%' OR LOWER(package_name) LIKE '%vsts%' OR LOWER(package_name) LIKE '%devops%' OR LOWER(package_name) LIKE '%docker%')",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts running Kubernetes or DevOps agent software to focus host-level queries on relevant assets.",
+        "expected_signal": "A list of hostnames serving as build agents or cluster nodes. Silence suggests no such software is indexed in the inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify build infrastructure",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%kube%' OR LOWER(package_name) LIKE '%vsts%' OR LOWER(package_name) LIKE '%devops%' OR LOWER(package_name) LIKE '%docker%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames serving as build agents or cluster nodes. Silence suggests no such software is indexed in the inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "identify-rmm-execution",
+      "type": "query",
+      "label": "Tunneling and RMM tool execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{rmm_tools}}' != '') AND (LOWER(process_name) LIKE '%chisel%' OR LOWER(process_name) LIKE '%atera%' OR LOWER(process_original_file_name) LIKE '%chisel%' OR LOWER(process_original_file_name) LIKE '%atera%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the launch of Chisel or Atera binaries, checking both file paths and original filenames to catch renamed evasive binaries.",
+        "expected_signal": "Execution of Atera or Chisel binaries on build infrastructure. Matching on original_file_name catches binaries renamed to evade path-based detection."
+      },
+      "parents": [
+        {
+          "id": "find-build-infrastructure"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Tunneling and RMM tool execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_original_file_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{rmm_tools}}' != '') AND (LOWER(process_name) LIKE '%chisel%' OR LOWER(process_name) LIKE '%atera%' OR LOWER(process_original_file_name) LIKE '%chisel%' OR LOWER(process_original_file_name) LIKE '%atera%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Execution of Atera or Chisel binaries on build infrastructure. Matching on original_file_name catches binaries renamed to evade path-based detection.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "rare-outbound-tunnels",
+      "type": "query",
+      "label": "Rare outbound network tunnels",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_network_connection WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND direction = 'outbound' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip HAVING hosts <= 3",
+        "surface": "hb_network_connection",
+        "description": "Identify reverse tunnels to rare external IPs that do not correspond to known service endpoints.",
+        "expected_signal": "Connections to external IPs seen on three or fewer hosts. This isolates bespoke C2 or tunnel endpoints from fleet-wide update traffic."
+      },
+      "parents": [
+        {
+          "id": "find-build-infrastructure"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare outbound network tunnels",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_network_connection WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND direction = 'outbound' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip HAVING hosts <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Connections to external IPs seen on three or fewer hosts. This isolates bespoke C2 or tunnel endpoints from fleet-wide update traffic.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "pipeline-api-changes",
+      "type": "query",
+      "label": "Azure DevOps pipeline anomalies",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, resource_name, src_endpoint_ip, time FROM hb_cloud_api_activity WHERE api_service_name = 'AzureDevOps' AND (instr(',' || '{{pipeline_ops}}' || ',', ',' || api_operation || ',') > 0 OR LOWER(resource_name) LIKE '%pipeline%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Audit cloud activity for unauthorized pipeline changes, narrowing the scope to the Azure DevOps workload to reduce noise.",
+        "expected_signal": "Cloud logs showing an identity creating or updating pipelines, potentially indicating the insertion of the malicious agent code."
+      },
+      "parents": [
+        {
+          "id": "find-build-infrastructure"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Azure DevOps pipeline anomalies",
+        "reads": [
+          "actor_user_name",
+          "api_operation",
+          "resource_name",
+          "src_endpoint_ip",
+          "time",
+          "api_service_name"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, resource_name, src_endpoint_ip, time FROM hb_cloud_api_activity WHERE api_service_name = 'AzureDevOps' AND (instr(',' || '{{pipeline_ops}}' || ',', ',' || api_operation || ',') > 0 OR LOWER(resource_name) LIKE '%pipeline%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Cloud logs showing an identity creating or updating pipelines, potentially indicating the insertion of the malicious agent code.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "triage-evidence",
+      "type": "analytic",
+      "label": "Triage evidence of compromise",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "identify-rmm-execution",
+          "rare-outbound-tunnels",
+          "pipeline-api-changes"
+        ],
+        "objective": "Determine if the observed RMM tool execution and network tunneling are the result of unauthorized pipeline modifications in Azure DevOps.",
+        "description": "Analyze host execution, network tunnels, and cloud pipeline modifications collectively to confirm a Storm-3068 intrusion.",
+        "max_iterations": 6,
+        "expected_signal": "A verdict confirming the relationship between pipeline changes and subsequent tool execution.",
+        "success_criteria": "A verdict of malicious, suspicious, or benign per host, citing temporal alignment between pipeline edits and process execution."
+      },
+      "parents": [
+        {
+          "id": "identify-rmm-execution",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-outbound-tunnels",
+          "kind": "merge"
+        },
+        {
+          "id": "pipeline-api-changes",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-intrusion",
+      "type": "checkpoint",
+      "label": "Route based on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host, indicating a compromised pipeline deploying RMM tools.",
+        "condition": "the triage verdict is malicious for at least one host, indicating a compromised pipeline deploying RMM tools.",
+        "blind_spot": "ephemeral-build-telemetry",
+        "confidence": "high",
+        "description": "Direct the workflow to immediate containment if the activity is judged malicious.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-evidence"
+        }
+      ]
+    },
+    {
+      "id": "contain-and-rotate",
+      "type": "action",
+      "label": "Isolate host and rotate credentials",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the adversary's remote access and prevent further harvesting of cluster secrets.",
+        "instructions": "Isolate the affected host. Immediately revoke all Azure DevOps service principal tokens and Kubernetes secrets associated with the affected pipelines to stop exfiltration.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-intrusion",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-review",
+      "type": "task",
+      "label": "Forensic review of pipeline code",
+      "config": {
+        "assignee": "analyst",
+        "description": "Analyze the specific script modifications to identify which Kubernetes clusters were targeted and what credentials were stolen.",
+        "instructions": "Manually review the Azure DevOps pipeline script history for the affected projects. Search for the addition of kube agent deployment steps or shell scripts targeting kubeconfig files. Cross-reference with Git commit logs for unauthorized author identities."
+      },
+      "parents": [
+        {
+          "id": "route-intrusion",
+          "branch": "default"
+        },
+        {
+          "id": "route-intrusion",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-and-rotate"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out and hardening",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and propose posture improvements to prevent a recurrence of pipeline-based attacks.",
+        "instructions": "Summarize the hunt findings and record any identified blind spots. Recommend enforcing branch protection and mandatory code reviews for all build pipeline modifications in the affected Azure DevOps project."
+      },
+      "parents": [
+        {
+          "id": "route-intrusion",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "forensic-review"
+        }
+      ]
+    }
+  ]
+}

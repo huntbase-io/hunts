@@ -1,0 +1,455 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Side-loading bypasses traditional binary reputation checks and path-based execution policies by piggybacking on a trusted, signed service binary."
+      },
+      "name": "Chrysalis DLL Side-Loading and Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1574.002"
+      ],
+      "related": [
+        {
+          "hunt": "unusual-dll-loads-by-system-services",
+          "reason": "This hunt is specific to the Chrysalis campaign; a broader hunt would cover all services loading from non-system directories.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A static rule for log.dll is easily bypassed. This hunt uses structural directory comparison and fleet-wide rarity to identify the core behavior of side-loading regardless of the DLL filename.",
+      "coverage": [
+        {
+          "stage": "dll-side-loading-bluetooth",
+          "steps": [
+            "scoping-hosts",
+            "rare-module-load"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "malicious-loader-execution",
+          "steps": [
+            "malicious-hash-check",
+            "triage-agent"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "DLL Side-loading via Bluetooth Service",
+            "slug": "dll-side-loading-bluetooth",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1574.002"
+            ],
+            "observables": [
+              "BluetoothService.exe",
+              "log.dll",
+              "srv-win-defend-01"
+            ]
+          },
+          {
+            "name": "Malicious Loader Execution",
+            "slug": "malicious-loader-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1574.002"
+            ],
+            "observables": [
+              "log.dll",
+              "EICAR test file hash"
+            ]
+          }
+        ],
+        "summary": "The Chrysalis campaign involves a DLL side-loading attack on a Windows host where a legitimate Bluetooth service loads a malicious DLL. The malicious loader carries an EICAR test hash, enabling the evaluation of agentic SOC tools for alert triage, threat hunting, and automated incident response."
+      },
+      "severity": "high",
+      "rationale": "Focus on the Windows hosts named srv-win-defend-01 or similar. Ensure the environment has Sysmon EID 7 enabled for module load visibility.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker has achieved code execution by placing a malicious DLL in the same directory as a legitimate Bluetooth service, exploiting the search order to side-load code and bypass standard system directory protections.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to narrow the scope."
+        },
+        "service_name": {
+          "type": "string",
+          "default": "bluetoothservice.exe",
+          "description": "The legitimate executable targeted for side-loading."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "malicious_hashes": {
+          "from": {
+            "ref": "Elastic Security Labs",
+            "kind": "article",
+            "observed": "2026-08-04"
+          },
+          "type": "list[hash]",
+          "default": [
+            "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+          ],
+          "description": "Known-malicious hashes from the research, including the EICAR test hash."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/llm-benchmarking-agentic-soc",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/llm-benchmarking-agentic-soc",
+          "name": "Elastic Security Labs \u2014 Benchmarking the Agentic SOC"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-module-visibility",
+          "risk": "Without module load events, a side-load appears as a normal service execution, leaving the intrusion completely invisible.",
+          "stage": "dll-side-loading-bluetooth",
+          "question": "whether a module was loaded into the service process from its local folder",
+          "requires": "hb_module_activity with Sysmon EID 7"
+        },
+        {
+          "id": "system32-noise",
+          "risk": "Excluding System32 is necessary but may still produce false positives if the application regularly uses its own path for shared libraries.",
+          "stage": "dll-side-loading-bluetooth",
+          "question": "if the service intentionally loads legitimate modules from non-standard paths",
+          "requires": "precise directory filtering"
+        }
+      ]
+    },
+    "name": "Chrysalis DLL Side-Loading and Execution",
+    "description": "This hunt identifies the Chrysalis side-loading pattern by searching for instances where BluetoothService.exe loads a module from its own application directory rather than a standard system path. It uses a funnel approach to scope the investigation to hosts running the target service, then fans out to compare module directory proximity and known malicious hash activity. An agent then evaluates the structural evidence of the side-load\u2014prioritizing directory proximity over the filename\u2014to determine the final verdict."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "dll-side-loading-bluetooth",
+            "steps": [
+              "scoping-hosts",
+              "rare-module-load"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "malicious-loader-execution",
+            "steps": [
+              "malicious-hash-check",
+              "triage-agent"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker has achieved code execution by placing a malicious DLL in the same directory as a legitimate Bluetooth service, exploiting the search order to side-load code and bypass standard system directory protections.",
+        "blind_spots": [
+          {
+            "id": "missing-module-visibility",
+            "risk": "Without module load events, a side-load appears as a normal service execution, leaving the intrusion completely invisible.",
+            "stage": "dll-side-loading-bluetooth",
+            "question": "whether a module was loaded into the service process from its local folder",
+            "requires": "hb_module_activity with Sysmon EID 7"
+          },
+          {
+            "id": "system32-noise",
+            "risk": "Excluding System32 is necessary but may still produce false positives if the application regularly uses its own path for shared libraries.",
+            "stage": "dll-side-loading-bluetooth",
+            "question": "if the service intentionally loads legitimate modules from non-standard paths",
+            "requires": "precise directory filtering"
+          }
+        ],
+        "scoping_notes": "Focus on the Windows hosts named srv-win-defend-01 or similar. Ensure the environment has Sysmon EID 7 enabled for module load visibility.",
+        "beyond_detection": "A static rule for log.dll is easily bypassed. This hunt uses structural directory comparison and fleet-wide rarity to identify the core behavior of side-loading regardless of the DLL filename."
+      }
+    },
+    {
+      "id": "scoping-hosts",
+      "type": "query",
+      "label": "Scope hosts running the service",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, process_path, user_name, time FROM hb_process_activity WHERE LOWER(process_name) LIKE '%{{service_name}}' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify hosts where the targeted Bluetooth service is active to focus the hunt.",
+        "expected_signal": "A list of hosts where the Bluetooth service is running. If empty, the service is not active in the scope."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope hosts running the service",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, process_path, user_name, time FROM hb_process_activity WHERE LOWER(process_name) LIKE '%{{service_name}}' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts where the Bluetooth service is running. If empty, the service is not active in the scope.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-module-load",
+      "type": "query",
+      "label": "Analyze directory-proximity module loads",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, module_path, module_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_module_activity WHERE LOWER(process_name) LIKE '%{{service_name}}' AND REPLACE(LOWER(module_path), LOWER(module_name), '') = REPLACE(LOWER(process_name), LOWER('{{service_name}}'), '') AND LOWER(module_path) NOT LIKE 'c:\\windows\\system32\\%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2, 3, 4 HAVING hosts <= 3",
+        "surface": "hb_module_activity",
+        "description": "Find modules loaded from the same directory as the service, excluding standard Windows system paths.",
+        "expected_signal": "A module loaded from the same application folder as BluetoothService.exe. Rarity across the fleet increases suspicion."
+      },
+      "parents": [
+        {
+          "id": "scoping-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Analyze directory-proximity module loads",
+        "reads": [
+          "device_hostname",
+          "module_name",
+          "module_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_module_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, module_path, module_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_module_activity WHERE LOWER(process_name) LIKE '%{{service_name}}' AND REPLACE(LOWER(module_path), LOWER(module_name), '') = REPLACE(LOWER(process_name), LOWER('{{service_name}}'), '') AND LOWER(module_path) NOT LIKE 'c:\\windows\\system32\\%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2, 3, 4 HAVING hosts <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A module loaded from the same application folder as BluetoothService.exe. Rarity across the fleet increases suspicion.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "module_name",
+            "module_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "malicious-hash-check",
+      "type": "query",
+      "label": "Enrich with known malicious hashes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, file_hash_sha256, time FROM hb_file_activity WHERE instr(',' || '{{malicious_hashes}}' || ',', ',' || LOWER(file_hash_sha256) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Check if any files touched on the scoped hosts match reported malicious indicators like the EICAR test hash.",
+        "expected_signal": "File activity matching known malicious hashes. This confirms the presence of the expected loader."
+      },
+      "parents": [
+        {
+          "id": "scoping-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Enrich with known malicious hashes",
+        "reads": [
+          "device_hostname",
+          "file_hash_sha256",
+          "file_name",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, file_hash_sha256, time FROM hb_file_activity WHERE instr(',' || '{{malicious_hashes}}' || ',', ',' || LOWER(file_hash_sha256) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "File activity matching known malicious hashes. This confirms the presence of the expected loader.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Analyze side-loading evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "scoping-hosts",
+          "rare-module-load",
+          "malicious-hash-check"
+        ],
+        "objective": "Determine if BluetoothService.exe has been subverted via side-loading. Prioritize the 'directory proximity' of the DLL to the executable as the primary evidence; treat the specific filename (e.g. log.dll) as secondary. Corroborate with any matching malicious hashes found in the environment.",
+        "description": "Evaluate whether the combination of directory proximity and module rarity indicates a successful Chrysalis side-load.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict that prioritizes structural folder proximity over filename.",
+        "success_criteria": "A verdict for every host that identifies the specific file and justifies the side-loading conclusion."
+      },
+      "parents": [
+        {
+          "id": "rare-module-load",
+          "kind": "merge"
+        },
+        {
+          "id": "malicious-hash-check",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host based on directory-proximity loading",
+        "condition": "the triage verdict is malicious for at least one host based on directory-proximity loading",
+        "blind_spot": "missing-module-visibility",
+        "confidence": "high",
+        "description": "Determine next steps based on whether the agent confirmed a side-loading intrusion.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the backdoor by isolating the affected endpoint from the network.",
+        "instructions": "Isolate the host and preserve the directory containing the suspected side-loaded DLL for forensic collection.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-task",
+      "type": "task",
+      "label": "Forensic verification",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the agent's findings and extract the malicious DLL for further analysis.",
+        "instructions": "Manually verify the directory content for BluetoothService.exe. Confirm whether an unauthorized DLL exists in the same folder and extract its hash for cross-referencing."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "documentation-task",
+      "type": "task",
+      "label": "Documentation and close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the results and tuning notes to prevent recurrence.",
+        "instructions": "Log the examined hosts and findings. If a side-load was confirmed, recommend a detection rule for directory-proximity module loads from non-system paths."
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "forensic-task"
+        }
+      ]
+    }
+  ]
+}

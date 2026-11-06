@@ -1,0 +1,560 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Initial access via stolen VPN credentials is the primary mechanism for this campaign. Detecting these logins at the identity plane prevents the adversary from establishing an internal foothold or performing lateral movement."
+      },
+      "name": "Unauthorized VPN Access via Stolen WatchGuard Credentials",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1133",
+        "credential access",
+        "execution",
+        "initial access"
+      ],
+      "series": {
+        "slug": "fake-watchguard-vpn-site-steals-credentials",
+        "index": 2,
+        "title": "Fake WatchGuard VPN Site Steals Credentials",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "watchguard-lure-site-access",
+          "reason": "This hunt focuses on the aftermath (unauthorized access); monitoring for user access to the spoofed download site is a separate behavioral hunt.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "watchguard-vpn-lookalike-phishing",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule for logins from rare countries often produces high false positives. This hunt uses a lead query to define the VPN scope and then fans out to correlate location rarity with subsequent administrative API behavior, allowing an agent to confirm if a session was used for malicious intent rather than just firing on a location change.",
+      "coverage": [
+        {
+          "stage": "external-service-login",
+          "steps": [
+            "lead-vpn-gateways",
+            "rare-vpn-source-locations",
+            "post-auth-cloud-actions",
+            "triage-sessions"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "seo-poisoning-redirection",
+          "reason": "Handled by the lure-access hunt in this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "lure-site-access",
+          "reason": "Handled by the lure-access hunt in this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "credential-harvesting",
+          "reason": "Handled by the lure-access hunt in this series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "legitimate-payload-delivery",
+          "reason": "Handled by the lure-access hunt in this series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "SEO Poisoning Redirection",
+            "slug": "seo-poisoning-redirection",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "bing.com/ck/a",
+              "u=aHR0cHM6Ly93d3cud2F0Y2hndWFyZC12cG4ubmV0Lw",
+              "search query: watchguard vpn sll download"
+            ]
+          },
+          {
+            "name": "Phishing Lure Site Access",
+            "slug": "lure-site-access",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "watchguard-vpn.net",
+              "watchguard-vpn.com",
+              "80.249.132.140",
+              "74.208.236.39",
+              "www.watchguard-vpn.net/index.php"
+            ]
+          },
+          {
+            "name": "Credential Harvesting",
+            "slug": "credential-harvesting",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "popup.js",
+              "JSON POST to watchguard-ssl.online",
+              "158.94.209.19",
+              "fields: server, login, password, attempt",
+              "Incorrect data, please enter again to start installation"
+            ]
+          },
+          {
+            "name": "Legitimate Payload Delivery",
+            "slug": "legitimate-payload-delivery",
+            "tactic": "execution",
+            "techniques": [
+              "T1195.002"
+            ],
+            "observables": [
+              "cdn.watchguard.com",
+              "WG-MVPN-SSL_12_11_5.exe",
+              "SHA256: fb3c39ba...0032ac1f",
+              "WatchGuard Technologies, Inc. (Inno Setup)"
+            ]
+          },
+          {
+            "name": "External Remote Service Access",
+            "slug": "external-service-login",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "VPN login from hosting provider IPs",
+              "VPN login from unfamiliar ASNs",
+              "SSL VPN login for WatchGuard client"
+            ]
+          }
+        ],
+        "summary": "The Storm-2561 campaign uses SEO poisoning on search engines like Bing to direct users to lookalike VPN download sites. These sites harvest credentials through a multi-stage JavaScript prompt before delivering a legitimate, signed WatchGuard installer to avoid suspicion. Stolen credentials are then utilized for unauthorized access to external remote services."
+      },
+      "severity": "high",
+      "rationale": "The hunt should start by identifying the hostnames of VPN gateways. If the organization uses cloud-native VPN services (e.g., AWS Client VPN), the device_hostname may be the service provider name. Focus on servers and high-privilege user accounts first.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "Adversaries are using credentials stolen from lookalike WatchGuard VPN download sites to authenticate to corporate VPNs from anomalous geographic regions or hosting provider IP space.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "Estate inventory",
+            "kind": "manual",
+            "observed": "2026-10-13"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of VPN gateway hostnames to narrow the search."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "Standard hunt window",
+            "kind": "manual",
+            "observed": "2026-10-13"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for VPN logins and subsequent activity."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/fake-watchguard-vpn-credential-phishing",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/fake-watchguard-vpn-credential-phishing",
+          "name": "Huntress \u2014 Fake WatchGuard VPN Site Steals Credentials"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-vpn-logs",
+          "risk": "A VPN gateway that does not export its logs remains a blind spot where credentials can be abused without detection.",
+          "owner": "Infrastructure Team",
+          "stage": "external-service-login",
+          "question": "whether unauthorized logins occurred on unmonitored VPN appliances",
+          "requires": "Ingestion of all VPN gateway authentication logs into hb_auth_signin",
+          "remediation": "Audit VPN gateway log exporters and ensure they are reporting to the central lake."
+        },
+        {
+          "id": "residential-proxy-evasion",
+          "risk": "If an attacker uses a residential proxy in the same country as the user, 'src_location_country' rarity will not trigger, potentially hiding the intrusion.",
+          "owner": "Security Engineering",
+          "stage": "external-service-login",
+          "question": "whether the attacker is using a residential IP that mimics a real user's home network",
+          "requires": "Advanced IP reputation including residential ISP flagging",
+          "remediation": "Integrate advanced IP reputation feeds that distinguish residential ISPs from commercial hosting providers."
+        }
+      ]
+    },
+    "name": "Unauthorized VPN Access via Stolen WatchGuard Credentials",
+    "description": "This hunt examines the identity plane for unauthorized VPN sessions that match the Storm-2561 phishing profile. It looks for successful authentications from rare countries or proxies, then fans out to correlate those sessions with potentially sensitive administrative actions in the cloud. By weighing the source rarity against the user's subsequent behavior, an agent can identify session hijacking or credential abuse that bypasses standard login rules. This hunt focuses on the initial access stage where stolen credentials are used to bypass the perimeter."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "fake-watchguard-vpn-site-steals-credentials",
+          "index": 2,
+          "title": "Fake WatchGuard VPN Site Steals Credentials",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "external-service-login",
+            "steps": [
+              "lead-vpn-gateways",
+              "rare-vpn-source-locations",
+              "post-auth-cloud-actions",
+              "triage-sessions"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "seo-poisoning-redirection",
+            "reason": "Handled by the lure-access hunt in this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "lure-site-access",
+            "reason": "Handled by the lure-access hunt in this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "credential-harvesting",
+            "reason": "Handled by the lure-access hunt in this series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "legitimate-payload-delivery",
+            "reason": "Handled by the lure-access hunt in this series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "Adversaries are using credentials stolen from lookalike WatchGuard VPN download sites to authenticate to corporate VPNs from anomalous geographic regions or hosting provider IP space.",
+        "blind_spots": [
+          {
+            "id": "no-vpn-logs",
+            "risk": "A VPN gateway that does not export its logs remains a blind spot where credentials can be abused without detection.",
+            "owner": "Infrastructure Team",
+            "stage": "external-service-login",
+            "question": "whether unauthorized logins occurred on unmonitored VPN appliances",
+            "requires": "Ingestion of all VPN gateway authentication logs into hb_auth_signin",
+            "remediation": "Audit VPN gateway log exporters and ensure they are reporting to the central lake."
+          },
+          {
+            "id": "residential-proxy-evasion",
+            "risk": "If an attacker uses a residential proxy in the same country as the user, 'src_location_country' rarity will not trigger, potentially hiding the intrusion.",
+            "owner": "Security Engineering",
+            "stage": "external-service-login",
+            "question": "whether the attacker is using a residential IP that mimics a real user's home network",
+            "requires": "Advanced IP reputation including residential ISP flagging",
+            "remediation": "Integrate advanced IP reputation feeds that distinguish residential ISPs from commercial hosting providers."
+          }
+        ],
+        "scoping_notes": "The hunt should start by identifying the hostnames of VPN gateways. If the organization uses cloud-native VPN services (e.g., AWS Client VPN), the device_hostname may be the service provider name. Focus on servers and high-privilege user accounts first.",
+        "beyond_detection": "A standard detection rule for logins from rare countries often produces high false positives. This hunt uses a lead query to define the VPN scope and then fans out to correlate location rarity with subsequent administrative API behavior, allowing an agent to confirm if a session was used for malicious intent rather than just firing on a location change."
+      }
+    },
+    {
+      "id": "lead-vpn-gateways",
+      "type": "query",
+      "label": "Identify Active VPN Gateways",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT DISTINCT device_hostname, service_name, dst_endpoint_name FROM hb_auth_signin WHERE (LOWER(service_name) LIKE '%vpn%' OR LOWER(dst_endpoint_name) LIKE '%vpn%' OR LOWER(logon_process_name) LIKE '%vpn%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify the hostnames and service names acting as VPN gateways to scope the subsequent behavioral analysis.",
+        "expected_signal": "A list of hostnames reporting VPN-related authentication. Silence indicates no VPN logs matched the keywords."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Active VPN Gateways",
+        "reads": [
+          "device_hostname",
+          "service_name",
+          "dst_endpoint_name",
+          "logon_process_name",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT DISTINCT device_hostname, service_name, dst_endpoint_name FROM hb_auth_signin WHERE (LOWER(service_name) LIKE '%vpn%' OR LOWER(dst_endpoint_name) LIKE '%vpn%' OR LOWER(logon_process_name) LIKE '%vpn%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames reporting VPN-related authentication. Silence indicates no VPN logs matched the keywords.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "rare-vpn-source-locations",
+      "type": "query",
+      "label": "Rare VPN Source Locations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT src_location_country, src_location_city, is_proxy, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_count FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND (LOWER(service_name) LIKE '%vpn%' OR LOWER(dst_endpoint_name) LIKE '%vpn%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_location_country, src_location_city, is_proxy HAVING user_count <= 3",
+        "surface": "hb_auth_signin",
+        "description": "Stack-count VPN logins by country and city to identify successful authentications from locations that are statistically rare for the organization.",
+        "expected_signal": "VPN logins from countries or cities with very few associated users. Large user counts indicate known regional offices or remote work hubs."
+      },
+      "parents": [
+        {
+          "id": "lead-vpn-gateways"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare VPN Source Locations",
+        "reads": [
+          "src_location_country",
+          "src_location_city",
+          "is_proxy",
+          "actor_user_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_location_country, src_location_city, is_proxy, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_count FROM hb_auth_signin WHERE activity_id = 1 AND status_id = 1 AND (LOWER(service_name) LIKE '%vpn%' OR LOWER(dst_endpoint_name) LIKE '%vpn%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_location_country, src_location_city, is_proxy HAVING user_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "VPN logins from countries or cities with very few associated users. Large user counts indicate known regional offices or remote work hubs.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_location_country",
+            "src_location_city"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "post-auth-cloud-actions",
+      "type": "query",
+      "label": "Post-Authentication Cloud Actions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT actor_user_name, src_endpoint_ip, api_operation, api_service_name, resource_name, status, time FROM hb_cloud_api_activity WHERE activity_id IN (1, 3, 4) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Identify administrative or impactful cloud API operations that occurred after a user logged in, which may indicate an attacker using the session.",
+        "expected_signal": "Create, Update, or Delete API calls. These are enriched for the analyst to correlate with rare VPN logins."
+      },
+      "parents": [
+        {
+          "id": "lead-vpn-gateways"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Post-Authentication Cloud Actions",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "api_operation",
+          "api_service_name",
+          "resource_name",
+          "status",
+          "time"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT actor_user_name, src_endpoint_ip, api_operation, api_service_name, resource_name, status, time FROM hb_cloud_api_activity WHERE activity_id IN (1, 3, 4) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Create, Update, or Delete API calls. These are enriched for the analyst to correlate with rare VPN logins.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-15"
+      }
+    },
+    {
+      "id": "triage-sessions",
+      "type": "analytic",
+      "label": "Triage Suspected Sessions",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "lead-vpn-gateways",
+          "rare-vpn-source-locations",
+          "post-auth-cloud-actions"
+        ],
+        "objective": "Determine if any users exhibit anomalous VPN logins from rare countries or proxies that are immediately followed by significant cloud API changes (Create/Update/Delete).",
+        "description": "Evaluate whether the VPN logins are unauthorized by correlating location rarity and subsequent cloud actions per user.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host or per-user verdict indicating the likelihood of session compromise.",
+        "success_criteria": "A verdict of malicious | suspicious | benign for each user identified in the logins, citing specific IP and action rows."
+      },
+      "parents": [
+        {
+          "id": "rare-vpn-source-locations",
+          "kind": "merge"
+        },
+        {
+          "id": "post-auth-cloud-actions",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Access Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one user account",
+        "condition": "the triage verdict is malicious for at least one user account",
+        "blind_spot": "no-vpn-logs",
+        "confidence": "high",
+        "description": "Direct high-confidence compromises to containment and uncertain cases to manual analyst review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-sessions"
+        }
+      ]
+    },
+    {
+      "id": "revoke-compromised-session",
+      "type": "action",
+      "label": "Revoke Compromised Session",
+      "config": {
+        "target": "identity",
+        "description": "Immediately terminate the suspected unauthorized access to prevent further damage.",
+        "instructions": "Revoke all active sessions for the malicious user account and disable the account in the identity provider. Enforce a password reset and MFA re-enrollment.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-verification",
+      "type": "task",
+      "label": "Analyst Verification",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform a deeper investigation into the user's activity to ensure no other internal resources were accessed.",
+        "instructions": "Examine the internal traffic logs (e.g., hb_smb_activity) for the source IP associated with the suspicious VPN login. Confirm with the user if they were traveling or using a proxy."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "revoke-compromised-session"
+        }
+      ]
+    },
+    {
+      "id": "hunt-closure",
+      "type": "task",
+      "label": "Hunt Closure",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update any baselines or watchlists for future monitoring.",
+        "instructions": "Record the number of false positives and update the organization's travel baseline if rare locations were found to be legitimate."
+      },
+      "parents": [
+        {
+          "id": "analyst-verification"
+        }
+      ]
+    }
+  ]
+}

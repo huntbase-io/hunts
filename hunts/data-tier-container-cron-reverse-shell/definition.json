@@ -1,0 +1,642 @@
+{
+  "hunt": {
+    "name": "Data-Tier Container Cron Persistence and Reverse Shells",
+    "meta": {
+      "labels": [
+        "hunt",
+        "attack.t1053.003",
+        "attack.t1059.004",
+        "attack.t1610",
+        "attack.t1552.007",
+        "attack.t1095"
+      ],
+      "severity": "high",
+      "tlp": "clear",
+      "hypothesis": "An attacker has planted a cron entry in a data-tier container, such as a Redis pod, that runs a script from a writable data or temp directory every few minutes and opens a reverse shell to an external address.",
+      "rationale": "Start with hosts and containers running Redis or a compatible store, especially any reachable from the internet, then widen to every Linux host because the technique is not specific to Redis.",
+      "analysis": "Nobody writes a detection for a crontab inside a Redis pod, because nobody logs it. Redis keeps no command log either, so a cron file written through CONFIG SET leaves only the file itself. Most Redis images ship without a cron daemon, so in a container the entry may never fire, and that is a signal too, an attacker trying something that does not work. On a VM or node it does fire. This hunt asks the hosts directly what is scheduled, what the datastore process has written, and what is calling out, instead of waiting for a log line that was never going to be collected.",
+      "references": [
+        {
+          "name": "@TheM3gatr0n \u2014 Operation CAIRN: An Autonomous AI Attack Platform Found Running in the Wild",
+          "url": "https://x.com/TheM3gatr0n/status/2110405943964090564"
+        },
+        {
+          "name": "Datadog Security Labs \u2014 RedisRaider: Weaponizing misconfigured Redis to mine cryptocurrency at scale",
+          "url": "https://securitylabs.datadoghq.com/articles/redisraider-weaponizing-misconfigured-redis/"
+        },
+        {
+          "name": "Unit 42 \u2014 P2PInfect: The Rusty Peer-to-Peer Self-Replicating Worm",
+          "url": "https://unit42.paloaltonetworks.com/peer-to-peer-worm-p2pinfect/"
+        },
+        {
+          "name": "MITRE ATT&CK \u2014 Scheduled Task/Job: Cron (T1053.003)",
+          "url": "https://attack.mitre.org/techniques/T1053/003/"
+        }
+      ],
+      "parameters": {
+        "datastore_processes": {
+          "default": [
+            "redis-server",
+            "valkey-server",
+            "keydb-server"
+          ],
+          "description": "Datastore processes that should never write cron files or shell scripts. Matched on the executable's file name.",
+          "from": {
+            "kind": "article",
+            "observed": "2026-10-13",
+            "ref": "https://x.com/TheM3gatr0n/status/2110405943964090564"
+          },
+          "type": "list[string]"
+        },
+        "lookback_days": {
+          "default": "14",
+          "description": "Days of history to examine.",
+          "from": {
+            "kind": "manual",
+            "observed": "2026-10-14",
+            "ref": "Standard hunt window"
+          },
+          "type": "number"
+        },
+        "scope_hosts": {
+          "default": [],
+          "description": "Hosts identified in the scoping step; leave empty to run fleet-wide.",
+          "from": {
+            "kind": "manual",
+            "observed": "2026-10-14",
+            "ref": "Analyst-populated from scoping result."
+          },
+          "type": "list[host]"
+        },
+        "shell_tools": {
+          "default": [
+            "nc",
+            "ncat",
+            "netcat",
+            "socat",
+            "sh",
+            "bash",
+            "dash",
+            "curl",
+            "wget"
+          ],
+          "description": "Shells and tools used for reverse shells. Matched on the executable's file name.",
+          "from": {
+            "kind": "article",
+            "observed": "2026-10-13",
+            "ref": "The planted script was a netcat reverse shell."
+          },
+          "type": "list[string]"
+        }
+      },
+      "targets": {
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "category": "endpoint",
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "hunter": {
+          "agent": true,
+          "name": "Hunt agent"
+        },
+        "network": {
+          "category": "network",
+          "name": "Network telemetry",
+          "telemetry": [
+            "network"
+          ]
+        }
+      },
+      "type": "investigation",
+      "hunt": {
+        "applicability": "universal",
+        "handoff": "promote-to-detection",
+        "justification": "The researcher behind Operation CAIRN reports a netcat reverse shell in a Redis pod's crontab on a multi-tenant SaaS platform. Writing cron through Redis is an established technique (RedisRaider, and worms before it), and cron in a container or on a datastore host is a gap in most logging pipelines.",
+        "methodology": "structured-hypothesis-driven",
+        "trigger": "intel-report"
+      },
+      "scenario": {
+        "stages": [
+          {
+            "name": "Exposed Datastore",
+            "observables": [
+              "Redis pod on a multi-tenant SaaS platform on GCP"
+            ],
+            "slug": "datastore-exposure",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ]
+          },
+          {
+            "name": "Initial Access to the Cluster",
+            "observables": [
+              "Compromise of the SaaS platform by the Cairn operator"
+            ],
+            "slug": "initial-access",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ]
+          },
+          {
+            "name": "Cron Planted in the Pod",
+            "observables": [
+              "*/5 * * * * /bin/sh /data/pwn.sh in the pod crontab",
+              "Script stored in the Redis data directory"
+            ],
+            "slug": "cron-planting",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.003"
+            ]
+          },
+          {
+            "name": "Reverse Shell Callback",
+            "observables": [
+              "Netcat reverse shell to the operator's C2 every five minutes",
+              "Reported still running at the time of discovery"
+            ],
+            "slug": "callback",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1059.004",
+              "T1095"
+            ]
+          },
+          {
+            "name": "Environment Harvest",
+            "observables": [
+              "Pod environment variables exposing internal service names for about 20 tenants"
+            ],
+            "slug": "environment-harvest",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1552.007"
+            ]
+          }
+        ],
+        "summary": "The researcher who found the Cairn server reports that its operator compromised a multi-tenant SaaS platform on GCP and left a crontab entry in a Redis pod to run /data/pwn.sh every five minutes, a netcat reverse shell to their C2. The pod's environment named internal services for about 20 customer tenants."
+      },
+      "coverage": [
+        {
+          "stage": "datastore-exposure",
+          "status": "covered",
+          "steps": [
+            "datastore-scoping",
+            "exposed-datastores"
+          ]
+        },
+        {
+          "stage": "cron-planting",
+          "status": "covered",
+          "steps": [
+            "datastore-file-writes",
+            "cron-from-writable-paths",
+            "rare-cron-commands"
+          ]
+        },
+        {
+          "stage": "callback",
+          "status": "covered",
+          "steps": [
+            "cron-executions-in-syslog",
+            "reverse-shell-processes",
+            "recurring-shell-egress"
+          ]
+        },
+        {
+          "reason": "Reading a pod's environment leaves no trace in host telemetry; see the pod-environment-not-inventoried blind spot.",
+          "stage": "environment-harvest",
+          "status": "not_visible"
+        },
+        {
+          "reason": "Initial access to the cluster belongs to the companion hunt on the exploitation loop.",
+          "stage": "initial-access",
+          "status": "out_of_scope"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "redis-commands-not-logged",
+          "question": "Which client issued CONFIG SET dir, CONFIG SET dbfilename or SAVE to write the cron file?",
+          "requires": "Redis command auditing (MONITOR capture, ACL LOG, or a proxy that logs commands), shipped to a store",
+          "risk": "Redis keeps no command audit trail by default. The write shows up only as a file created by the redis-server process, with no client address.",
+          "stage": "cron-planting"
+        },
+        {
+          "id": "ephemeral-pods-without-agent",
+          "question": "Did the same cron entry exist in pods that were rescheduled before the hunt ran?",
+          "requires": "An endpoint agent or sidecar in data-tier pods, or node-level collection that sees container filesystems",
+          "risk": "A pod without an agent reports nothing. A pod that was replaced takes its crontab with it, and only egress from the node remains.",
+          "stage": "callback"
+        },
+        {
+          "id": "pod-environment-not-inventoried",
+          "question": "Which secrets and internal service names were in the compromised pod's environment?",
+          "requires": "Kubernetes pod spec and secret inventory for the cluster",
+          "risk": "The operator read environment variables naming about 20 customer tenants. Without the pod spec, the blast radius of what was read cannot be stated.",
+          "stage": "environment-harvest"
+        }
+      ],
+      "provenance": {
+        "authors": [
+          {
+            "name": "Huntbase",
+            "org": "huntbase.io"
+          }
+        ]
+      },
+      "related": [
+        {
+          "hunt": "autonomous-exploitation-loop-commerce-mail",
+          "reason": "The exploitation loop from the same operation, before persistence.",
+          "relation": "follows"
+        }
+      ],
+      "guardrails": {
+        "telemetry": "untrusted",
+        "evidence": "citation_required",
+        "missing_data": "not_benign",
+        "claims": "no_unsupported"
+      },
+      "x_hunt_frontmatter": {
+        "name": "Data-Tier Container Cron Persistence and Reverse Shells"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": "datastore-scoping",
+      "type": "query",
+      "label": "datastore scoping",
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version, asset_scope FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%redis%' OR LOWER(package_name) LIKE '%valkey%' OR LOWER(package_name) LIKE '%keydb%'",
+        "label": "datastore scoping",
+        "target": "endpoint",
+        "source": "hb_software_inventory",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "asset_scope"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-10-14",
+        "expected": "Hostnames running an in-memory datastore, with versions. These are the first places to look.",
+        "silence": "not_evidence_of_absence",
+        "role": "scoping",
+        "x_hunt_attrs": {
+          "role": "scoping"
+        }
+      }
+    },
+    {
+      "id": "exposed-datastores",
+      "type": "query",
+      "label": "exposed datastores",
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT domain_or_ip, port, product, version, discovered_at FROM hb_exposed_assets WHERE (port IN (6379, 6380, 16379) OR LOWER(product) LIKE '%redis%' OR LOWER(product) LIKE '%valkey%') AND discovered_at >= datetime('now', '-{{lookback_days}} days')",
+        "label": "exposed datastores",
+        "target": "network",
+        "source": "hb_exposed_assets",
+        "reads": [
+          "domain_or_ip",
+          "port",
+          "product",
+          "version",
+          "discovered_at"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-10-14",
+        "expected": "Public addresses answering on 6379 or identified as Redis. Any row is a finding on its own.",
+        "silence": "not_evidence_of_absence",
+        "role": "enrichment",
+        "x_hunt_attrs": {
+          "role": "enrichment"
+        }
+      },
+      "parents": [
+        {
+          "id": "datastore-scoping"
+        }
+      ]
+    },
+    {
+      "id": "datastore-file-writes",
+      "type": "query",
+      "label": "datastore file writes",
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, process_name, file_path, file_name, activity_name, time FROM hb_file_activity WHERE instr(',' || '{{datastore_processes}}' || ',', ',' || LOWER(replace(process_name, rtrim(process_name, replace(process_name, '/', '')), '')) || ',') > 0 AND (LOWER(file_path) LIKE '%cron%' OR LOWER(file_name) LIKE '%.sh' OR LOWER(file_name) = 'authorized_keys') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') ORDER BY time DESC",
+        "label": "datastore file writes",
+        "target": "endpoint",
+        "source": "hb_file_activity",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "file_name",
+          "activity_name",
+          "time"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-10-14",
+        "expected": "File writes by redis-server or a compatible process to cron paths, authorized_keys or shell scripts. A legitimate datastore writes only its own dump and append files.",
+        "silence": "not_evidence_of_absence",
+        "role": "detection-candidate",
+        "x_hunt_attrs": {
+          "role": "detection-candidate"
+        }
+      }
+    },
+    {
+      "id": "cron-from-writable-paths",
+      "type": "query",
+      "label": "cron from writable paths",
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, job_schedule, job_cmd_line, job_user_name, job_definition_path, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_scheduled_job WHERE job_kind = 'cron' AND (LOWER(job_cmd_line) LIKE '%/data/%' OR LOWER(job_cmd_line) LIKE '%/tmp/%' OR LOWER(job_cmd_line) LIKE '%/dev/shm/%' OR LOWER(job_cmd_line) LIKE '%| sh%' OR LOWER(job_cmd_line) LIKE '%|sh%' OR LOWER(job_cmd_line) LIKE '%| bash%' OR LOWER(job_cmd_line) LIKE '%/dev/tcp/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, job_schedule, job_cmd_line, job_user_name, job_definition_path ORDER BY first_seen DESC",
+        "label": "cron from writable paths",
+        "target": "endpoint",
+        "source": "hb_scheduled_job",
+        "reads": [
+          "device_hostname",
+          "job_kind",
+          "job_schedule",
+          "job_cmd_line",
+          "job_user_name",
+          "job_definition_path",
+          "time"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-10-14",
+        "expected": "Cron entries whose command lives under /data, /tmp, /var/tmp or /dev/shm, or that fetch and run code. Short intervals such as */5 make a callback more likely.",
+        "silence": "not_evidence_of_absence",
+        "role": "detection-candidate",
+        "x_hunt_attrs": {
+          "role": "detection-candidate"
+        }
+      }
+    },
+    {
+      "id": "rare-cron-commands",
+      "type": "query",
+      "label": "rare cron commands",
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT job_cmd_line, job_schedule, COUNT(DISTINCT device_hostname) AS hosts, GROUP_CONCAT(DISTINCT device_hostname) AS host_list, MIN(time) AS first_seen FROM hb_scheduled_job WHERE job_kind = 'cron' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY job_cmd_line, job_schedule HAVING hosts < 3 ORDER BY hosts ASC, first_seen DESC LIMIT 300",
+        "label": "rare cron commands",
+        "target": "endpoint",
+        "source": "hb_scheduled_job",
+        "reads": [
+          "device_hostname",
+          "job_kind",
+          "job_cmd_line",
+          "job_schedule",
+          "time"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-10-14",
+        "expected": "Cron commands present on very few hosts. Read the command and schedule of each; most will be legitimate one-offs.",
+        "silence": "not_evidence_of_absence",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "job_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "baseline": {
+          "compare": "first_seen",
+          "window": "{{lookback_days}}d"
+        },
+        "role": "baseline",
+        "x_hunt_attrs": {
+          "role": "baseline"
+        }
+      }
+    },
+    {
+      "id": "cron-executions-in-syslog",
+      "type": "query",
+      "label": "cron executions in syslog",
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, message, COUNT(*) AS runs, COUNT(DISTINCT strftime('%Y-%m-%d %H', time)) AS active_hours, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_syslog WHERE UPPER(syslog_tag) LIKE 'CRON%' AND message LIKE '%CMD (%' AND (message LIKE '%/data/%' OR message LIKE '%/tmp/%' OR message LIKE '%/dev/shm/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, message ORDER BY runs DESC",
+        "label": "cron executions in syslog",
+        "target": "endpoint",
+        "source": "hb_syslog",
+        "reads": [
+          "device_hostname",
+          "syslog_tag",
+          "message",
+          "time"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-10-14",
+        "expected": "CRON CMD lines for scripts under /data, /tmp or /dev/shm, with run counts and the number of distinct hours they ran in.",
+        "silence": "not_evidence_of_absence",
+        "role": "enrichment",
+        "x_hunt_attrs": {
+          "role": "enrichment"
+        }
+      }
+    },
+    {
+      "id": "reverse-shell-processes",
+      "type": "query",
+      "label": "reverse shell processes",
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, parent_process_name, process_name, process_cmd_line, user_name, COUNT(*) AS executions, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_process_activity WHERE instr(',' || '{{shell_tools}}' || ',', ',' || LOWER(replace(process_name, rtrim(process_name, replace(process_name, '/', '')), '')) || ',') > 0 AND (LOWER(parent_process_name) LIKE '%cron%' OR process_cmd_line LIKE '% -e %' OR process_cmd_line LIKE '%/dev/tcp/%' OR process_cmd_line LIKE '%-i >&%' OR process_cmd_line LIKE '%/data/%.sh%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, parent_process_name, process_name, process_cmd_line, user_name ORDER BY executions DESC",
+        "label": "reverse shell processes",
+        "target": "endpoint",
+        "source": "hb_process_activity",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-10-14",
+        "expected": "Shell tools whose parent is cron, or whose command line includes -e, /dev/tcp or an interactive shell. Any match on a datastore host should be treated as malicious until shown otherwise.",
+        "silence": "not_evidence_of_absence",
+        "role": "detection-candidate",
+        "x_hunt_attrs": {
+          "role": "detection-candidate"
+        }
+      }
+    },
+    {
+      "id": "recurring-shell-egress",
+      "type": "query",
+      "label": "recurring shell egress",
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, COUNT(*) AS connections, COUNT(DISTINCT strftime('%Y-%m-%d %H', time)) AS active_hours, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_network_connection WHERE instr(',' || '{{shell_tools}}' || ',', ',' || LOWER(replace(process_name, rtrim(process_name, replace(process_name, '/', '')), '')) || ',') > 0 AND LOWER(direction) = 'outbound' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND dst_endpoint_ip NOT LIKE '127.%' AND dst_endpoint_ip NOT LIKE '172.1_.%' AND dst_endpoint_ip NOT LIKE '172.2_.%' AND dst_endpoint_ip NOT LIKE '172.30.%' AND dst_endpoint_ip NOT LIKE '172.31.%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port HAVING active_hours >= 6 ORDER BY active_hours DESC",
+        "label": "recurring shell egress",
+        "target": "network",
+        "source": "hb_network_connection",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-10-14",
+        "expected": "Process and destination pairs active across many hours. Destinations shared with reverse-shell-processes or the exploitation loop hunt are the operator's C2.",
+        "silence": "not_evidence_of_absence",
+        "role": "detection-candidate",
+        "x_hunt_attrs": {
+          "role": "detection-candidate"
+        }
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "triage agent",
+      "config": {
+        "objective": "For each host, decide whether a planted cron job or reverse shell is present. A cron entry from a writable path plus a recurring outbound connection from a shell tool is malicious; either alone is suspicious.",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "datastore-scoping",
+          "exposed-datastores",
+          "datastore-file-writes",
+          "cron-from-writable-paths",
+          "rare-cron-commands",
+          "cron-executions-in-syslog",
+          "reverse-shell-processes",
+          "recurring-shell-egress"
+        ],
+        "success_criteria": "A per-host verdict of malicious, suspicious or benign citing rows, with the cron entry and destination address for each malicious host.",
+        "max_iterations": 10,
+        "cite": "required",
+        "x_hunt_attrs": {
+          "cite": "required"
+        }
+      },
+      "parents": [
+        {
+          "id": "datastore-file-writes",
+          "kind": "merge"
+        },
+        {
+          "id": "cron-from-writable-paths",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-cron-commands",
+          "kind": "merge"
+        },
+        {
+          "id": "cron-executions-in-syslog",
+          "kind": "merge"
+        },
+        {
+          "id": "reverse-shell-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "recurring-shell-egress",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "route on verdict",
+      "config": {
+        "checkpoint_type": "mandatory",
+        "condition": "the triage-agent verdict is malicious for any host",
+        "fuzzy": true,
+        "confidence": "high",
+        "judge": "hunter",
+        "x_hunt_attrs": {
+          "blind_spot": "ephemeral-pods-without-agent"
+        }
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "contain-and-rotate",
+      "type": "action",
+      "label": "contain and rotate",
+      "config": {
+        "instructions": "Isolate the affected hosts, collect the crontab and the script it runs, then remove the cron entry. Block the callback addresses at egress.",
+        "action_approval": "required",
+        "track": null,
+        "target": "endpoint"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "analyst review",
+      "config": {
+        "instructions": "For each malicious or suspicious host, pull the pod spec and list every secret and service address in its environment. Rotate those credentials, require authentication and protected mode on the datastore, and check whether the same image or Helm release runs elsewhere.",
+        "assignee": "analyst"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "contain-and-rotate"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "close out",
+      "config": {
+        "instructions": "Record the hosts, cron entries and callback addresses. Promote cron-from-writable-paths and datastore-file-writes to watchers, and note which data-tier pods had no agent so the gap can be closed.",
+        "assignee": "analyst"
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

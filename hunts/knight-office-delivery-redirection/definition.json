@@ -1,0 +1,546 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Knight Office specifically targets session tokens via AiTM; detecting the initial redirect chain on M365-equipped hosts is the earliest possible behavioral detection point."
+      },
+      "name": "Knight Office Phishing Delivery and Redirects",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1090.003"
+      ],
+      "series": {
+        "slug": "inside-knight-office-a-new-m365-aitm-phishing-kit",
+        "index": 1,
+        "title": "Inside Knight Office, a New M365 AiTM Phishing Kit",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "knight-office-token-theft-and-persistence",
+          "reason": "This follow-on hunt addresses the identity-provider side (Entra ID) and the theft of tokens, which requires hb_auth_signin.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule alerts on known IPs; this hunt links the existence of M365 software, rare .vu DNS resolutions, and Monday.com redirect signals into a single decision funnel to confirm the kit's multi-stage delivery behavior.",
+      "coverage": [
+        {
+          "stage": "phishing-lure-delivery",
+          "steps": [
+            "connections-to-phishing-ips",
+            "manual-analyst-review"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "redirect-chain-obfuscation",
+          "steps": [
+            "dns-lookups-for-landing-pages"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "aitm-device-code-theft",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "rogue-device-persistence",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "whfb-key-binding",
+          "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "DocuSign-themed Phishing Delivery",
+            "slug": "phishing-lure-delivery",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "IP: 154.127.53.78",
+              "Subject: Reminder: Signature Required - Approval Pending Your Review!!!",
+              "Character substitution: lmportant, Slgnature, VERlVIED (l instead of i)"
+            ]
+          },
+          {
+            "name": "Multi-stage URL Redirection",
+            "slug": "redirect-chain-obfuscation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Domain: monday.com",
+              "Compromised Joomla websites",
+              "TLD: .vu domains"
+            ]
+          },
+          {
+            "name": "AiTM Token Theft via Device Code Flow",
+            "slug": "aitm-device-code-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1566",
+              "T1090.003"
+            ],
+            "observables": [
+              "URL: microsoft.com/devicelogin",
+              "Nine-letter deviceauth codes",
+              "IP: 73.125.13.x (Callback proxy)",
+              "User-Agent: Microsoft Authentication Broker / OfficeHome"
+            ]
+          },
+          {
+            "name": "Entra ID Rogue Device Registration",
+            "slug": "rogue-device-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1098"
+            ],
+            "observables": [
+              "IP: 104.37.188.94",
+              "User-Agent: python-requests/2.34.2",
+              "Unauthorized host enrollment into Microsoft Entra ID"
+            ]
+          },
+          {
+            "name": "Windows Hello for Business Key Binding",
+            "slug": "whfb-key-binding",
+            "tactic": "persistence",
+            "techniques": [
+              "T1098"
+            ],
+            "observables": [
+              "User-Agent: Dsreg/10.0 (Windows 10.0.19044.1826)",
+              "NGC key binding",
+              "WHfB passwordless authentication success"
+            ]
+          }
+        ],
+        "summary": "Threat actors use the Knight Office phishing kit to perform Adversary-in-the-Middle (AiTM) attacks against Microsoft 365 accounts via the Device Code flow. After harvesting session tokens using residential callback proxies and redirect infrastructure, the attackers establish persistence by enrolling rogue devices in Microsoft Entra ID and binding Windows Hello for Business (WHfB) keys to the compromised accounts."
+      },
+      "severity": "high",
+      "rationale": "The hunt scopes to hosts with Microsoft 365 or Office as these are the intended targets for Entra ID token theft. If the scoping step is too broad, focus on executive workstations or hosts with high integrity levels first.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using Monday.com redirects and .vu landing pages to deliver Knight Office phishing lures to M365 users.",
+      "parameters": {
+        "knight_ips": {
+          "from": {
+            "ref": "huntress-knight-office",
+            "kind": "article",
+            "observed": "2026-09-02"
+          },
+          "type": "list[ip]",
+          "default": [
+            "104.37.188.94",
+            "154.127.53.78"
+          ],
+          "description": "Known Knight Office phishing sender and console IPs."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts identified with M365 or Office software; leave empty to hunt all hosts."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "monday_domains": {
+          "from": {
+            "ref": "huntress-knight-office",
+            "kind": "article",
+            "observed": "2026-09-02"
+          },
+          "type": "list[domain]",
+          "default": [
+            "monday.com"
+          ],
+          "description": "Monday.com domains used for initial redirect tracking."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/inside-knight-office-m365-aitm-attack",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/inside-knight-office-m365-aitm-attack",
+          "name": "Inside Knight Office, a New M365 AiTM Phishing Kit"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-network-visibility",
+          "risk": "A host not in the inventory provides no telemetry, leading to a gap in the funnel.",
+          "stage": "redirect-chain-obfuscation",
+          "question": "whether a host without an endpoint agent performed the DNS resolution",
+          "requires": "hb_network_connection or hb_dns_activity on the host"
+        },
+        {
+          "id": "no-email-telemetry",
+          "risk": "We can only see the aftermath of the delivery (the network connection), not the email receipt itself.",
+          "stage": "phishing-lure-delivery",
+          "question": "the specific content of the email before a click occurs",
+          "requires": "hb_email_activity or Email Gateway Logs"
+        }
+      ]
+    },
+    "name": "Knight Office Phishing Delivery and Redirects",
+    "description": "This hunt identifies the early delivery and redirection stages of a Knight Office AiTM attack. It first scopes the environment to hosts with Microsoft 365 or Office software, then searches for direct connections to known phishing sender IPs and DNS lookups for the .vu top-level domains used by the kit. By correlating these network signals with legitimate Monday.com redirect infrastructure, we identify hosts that have likely interacted with the phishing lure before session theft occurs."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "inside-knight-office-a-new-m365-aitm-phishing-kit",
+          "index": 1,
+          "title": "Inside Knight Office, a New M365 AiTM Phishing Kit",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "phishing-lure-delivery",
+            "steps": [
+              "connections-to-phishing-ips",
+              "manual-analyst-review"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "redirect-chain-obfuscation",
+            "steps": [
+              "dns-lookups-for-landing-pages"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "aitm-device-code-theft",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "rogue-device-persistence",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "whfb-key-binding",
+            "reason": "Belongs to another part of the 'Inside Knight Office, a New M365 AiTM Phishing Kit' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using Monday.com redirects and .vu landing pages to deliver Knight Office phishing lures to M365 users.",
+        "blind_spots": [
+          {
+            "id": "no-network-visibility",
+            "risk": "A host not in the inventory provides no telemetry, leading to a gap in the funnel.",
+            "stage": "redirect-chain-obfuscation",
+            "question": "whether a host without an endpoint agent performed the DNS resolution",
+            "requires": "hb_network_connection or hb_dns_activity on the host"
+          },
+          {
+            "id": "no-email-telemetry",
+            "risk": "We can only see the aftermath of the delivery (the network connection), not the email receipt itself.",
+            "stage": "phishing-lure-delivery",
+            "question": "the specific content of the email before a click occurs",
+            "requires": "hb_email_activity or Email Gateway Logs"
+          }
+        ],
+        "scoping_notes": "The hunt scopes to hosts with Microsoft 365 or Office as these are the intended targets for Entra ID token theft. If the scoping step is too broad, focus on executive workstations or hosts with high integrity levels first.",
+        "beyond_detection": "A standard detection rule alerts on known IPs; this hunt links the existence of M365 software, rare .vu DNS resolutions, and Monday.com redirect signals into a single decision funnel to confirm the kit's multi-stage delivery behavior."
+      }
+    },
+    {
+      "id": "scope-to-m365-users",
+      "type": "query",
+      "label": "Scope to M365 and Office users",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%microsoft 365%' OR LOWER(package_name) LIKE '%office%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts that have Microsoft 365 or Office software installed, as they are the primary targets for this campaign.",
+        "expected_signal": "A list of hostnames. None means no hosts are reported with M365/Office installed."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to M365 and Office users",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%microsoft 365%' OR LOWER(package_name) LIKE '%office%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames. None means no hosts are reported with M365/Office installed.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "connections-to-phishing-ips",
+      "type": "query",
+      "label": "Direct connections to Knight infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, process_name, time FROM hb_network_connection WHERE instr(',' || '{{knight_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify hosts communicating with known IPs used by the phishing sender or the operator console.",
+        "expected_signal": "A connection from a browser or script to the identified IPs. Silence means no recorded interaction with the specific IOCs."
+      },
+      "parents": [
+        {
+          "id": "scope-to-m365-users"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Direct connections to Knight infrastructure",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, process_name, time FROM hb_network_connection WHERE instr(',' || '{{knight_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A connection from a browser or script to the identified IPs. Silence means no recorded interaction with the specific IOCs.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "dns-lookups-for-landing-pages",
+      "type": "query",
+      "label": "Suspicious redirects and phishing domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(query_hostname) AS domain, device_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE ((LOWER(query_hostname) LIKE '%.vu' AND LOWER(query_hostname) NOT LIKE '%.vu.%') OR (instr(',' || '{{monday_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0)) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY domain, device_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Find DNS requests for the .vu TLD used for landing pages or the Monday.com domains used for redirect chains.",
+        "expected_signal": "A rare .vu domain resolution or a Monday.com resolution that precedes Knight infrastructure traffic."
+      },
+      "parents": [
+        {
+          "id": "scope-to-m365-users"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Suspicious redirects and phishing domains",
+        "reads": [
+          "query_hostname",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(query_hostname) AS domain, device_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE ((LOWER(query_hostname) LIKE '%.vu' AND LOWER(query_hostname) NOT LIKE '%.vu.%') OR (instr(',' || '{{monday_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0)) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY domain, device_hostname",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A rare .vu domain resolution or a Monday.com resolution that precedes Knight infrastructure traffic.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "domain"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-delivery-verdict",
+      "type": "analytic",
+      "label": "Triage delivery verdict",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "connections-to-phishing-ips",
+          "dns-lookups-for-landing-pages"
+        ],
+        "objective": "Determine if the observed network activity indicates a successful redirection from Monday.com to a Knight Office phishing site on a .vu domain or direct interaction with phishing sender IPs.",
+        "description": "Synthesize the network and DNS evidence to determine if a host successfully navigated the redirect chain to a Knight Office landing page.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict citing connection timestamps and domain rarity.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing relevant rows from network and DNS sources."
+      },
+      "parents": [
+        {
+          "id": "connections-to-phishing-ips",
+          "kind": "merge"
+        },
+        {
+          "id": "dns-lookups-for-landing-pages",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "evaluate-delivery-threat",
+      "type": "checkpoint",
+      "label": "Evaluate delivery threat",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict identifies at least one host as malicious or highly suspicious for phishing interaction.",
+        "condition": "The triage verdict identifies at least one host as malicious or highly suspicious for phishing interaction.",
+        "blind_spot": "no-network-visibility",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's findings. If data was unavailable for scoped hosts, refer to the analyst review for manual verification of missing telemetry.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-delivery-verdict"
+        }
+      ]
+    },
+    {
+      "id": "isolate-affected-host",
+      "type": "action",
+      "label": "Isolate affected host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent the potential completion of the AiTM theft by isolating the host that interacted with the phishing lure.",
+        "instructions": "Isolate the host from the network and initiate a password reset and M365 session revocation for the primary user.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "evaluate-delivery-threat",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-analyst-review",
+      "type": "task",
+      "label": "Manual analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the phishing interaction by searching email gateway logs for the Knight Office lure themes and resolving missing telemetry gaps.",
+        "instructions": "Review email gateway logs for subjects containing 'Signature Required' or 'Approval Pending'. Look for character substitutions like 'lmportant'. Correlate identified email recipients with the hosts seen in this hunt. If the host was identified in the scoping step but yielded no network evidence, investigate potential gaps in telemetry coverage (e.g. agent health) for that specific asset."
+      },
+      "parents": [
+        {
+          "id": "evaluate-delivery-threat",
+          "branch": "default"
+        },
+        {
+          "id": "evaluate-delivery-threat",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-affected-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update IOCs for future monitoring.",
+        "instructions": "Record any new .vu domains or redirector URLs found. If token theft is confirmed, transition to the identity-focused follow-on hunt."
+      },
+      "parents": [
+        {
+          "id": "evaluate-delivery-threat",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "manual-analyst-review"
+        }
+      ]
+    }
+  ]
+}

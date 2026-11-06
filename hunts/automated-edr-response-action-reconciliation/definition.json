@@ -1,0 +1,698 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Mass remote execution via EDR control planes is a highly sensitive capability. Continuous reconciliation ensures this automation is not subverted for fleet-wide payload delivery."
+      },
+      "name": "Automated EDR Response Action Reconciliation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1018",
+        "attack.t1083",
+        "attack.t1059.004",
+        "attack.t1053.003",
+        "discovery",
+        "execution",
+        "persistence"
+      ],
+      "series": {
+        "slug": "no-mdm-for-linux-a-68-line-elastic-workflow-keeps-every-endpoint-s-config-current",
+        "index": 1,
+        "title": "No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "configuration-file-deployment-anomalies",
+          "reason": "That hunt focuses on the content of the configuration files rather than the orchestration loop used to deploy them.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection for the run_script API would flood with legitimate alerts. This hunt provides the necessary context by baselining the 6-hour workflow cadence and correlating it with endpoint-side file modifications to find orchestration anomalies.",
+      "coverage": [
+        {
+          "stage": "workflow-scheduling",
+          "reason": "Internal Kibana workflow triggers are application-level events not captured by the provided network or endpoint surfaces.",
+          "status": "not_visible",
+          "blind_spot": "kibana-internal-workflow-triggers"
+        },
+        {
+          "stage": "endpoint-inventory-query",
+          "steps": [
+            "api-discovery-calls"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "pending-action-deduplication",
+          "steps": [
+            "api-discovery-calls"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remote-script-execution",
+          "steps": [
+            "api-execution-calls",
+            "endpoint-config-touches",
+            "edr-script-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "configuration-file-deployment",
+          "reason": "Belongs to another part of the \"No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current\" series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Scheduled Workflow Trigger",
+            "slug": "workflow-scheduling",
+            "tactic": "execution",
+            "techniques": [
+              "T1053.003"
+            ],
+            "observables": [
+              "every: 6h",
+              "reconcile-managed-config-linux"
+            ]
+          },
+          {
+            "name": "Linux Endpoint Discovery",
+            "slug": "endpoint-inventory-query",
+            "tactic": "discovery",
+            "techniques": [
+              "T1018"
+            ],
+            "observables": [
+              "GET /api/endpoint/metadata",
+              "kuery: 'united.agent.local_metadata.os.family : (\"debian\" or \"redhat\" or \"arch\" or \"suse\" or \"fedora\")'"
+            ]
+          },
+          {
+            "name": "Pending Action State Check",
+            "slug": "pending-action-deduplication",
+            "tactic": "discovery",
+            "techniques": [
+              "T1083"
+            ],
+            "observables": [
+              "GET /api/endpoint/action",
+              "commands: runscript",
+              "statuses: pending"
+            ]
+          },
+          {
+            "name": "EDR Response Action Execution",
+            "slug": "remote-script-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.004"
+            ],
+            "observables": [
+              "POST /api/endpoint/action/run_script",
+              "comment: 'Managed configuration reconciliation'",
+              "scriptId: <script-library-entry-id>"
+            ]
+          },
+          {
+            "name": "System Configuration Persistence",
+            "slug": "configuration-file-deployment",
+            "tactic": "persistence",
+            "techniques": [
+              "T1546"
+            ],
+            "observables": [
+              "/etc/codex/managed_config.toml",
+              "/etc/codex/requirements.toml",
+              "/etc/cursor/hooks.json",
+              "/usr/local/share/ai-hooks"
+            ]
+          }
+        ],
+        "summary": "Elastic uses a scheduled Kibana workflow to perform reconciliation-based configuration management for Linux endpoints. The workflow queries the Elastic Defend API to identify Linux hosts and trigger response actions that deploy specific Codex and Cursor configuration files, ensuring hosts remain configured without manual intervention or redundant task queuing."
+      },
+      "severity": "medium",
+      "rationale": "The hunt targets the Kibana management server for control plane activity and the enrolled Linux workstations for host-side artifacts. Focus first on distro families mentioned in the article.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has compromised a management principal or repurposed an Elastic workflow to perform mass remote execution across the Linux fleet, masquerading as a legitimate configuration reconciliation loop.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Filter results to specific hostnames."
+        },
+        "config_paths": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-09-29"
+          },
+          "type": "list[path]",
+          "default": [
+            "/etc/codex/managed_config.toml",
+            "/etc/codex/requirements.toml",
+            "/etc/cursor/hooks.json",
+            "/usr/local/share/ai-hooks"
+          ],
+          "description": "File paths modified by the reconciliation deployment script."
+        },
+        "linux_distros": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-09-29"
+          },
+          "type": "list[string]",
+          "default": [
+            "debian",
+            "redhat",
+            "arch",
+            "suse",
+            "fedora",
+            "linux"
+          ],
+          "description": "Target Linux distributions named in the reconciliation workflow."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2024-05-20"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "discovery_paths": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-09-29"
+          },
+          "type": "list[path]",
+          "default": [
+            "/api/endpoint/metadata",
+            "/api/endpoint/action"
+          ],
+          "description": "API paths used for endpoint discovery and pending action checks."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/linux-endpoint-management-elastic-workflows",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/linux-endpoint-management-elastic-workflows",
+          "name": "Elastic Security Labs \u2014 No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "kibana-internal-workflow-triggers",
+          "risk": "Manual API abuse by a compromised administrator may appear identical to the automated workflow at the HTTP layer.",
+          "stage": "workflow-scheduling",
+          "question": "Which specific Workflow ID initiated the reconciliation loop?",
+          "requires": "Kibana application-level audit logs"
+        },
+        {
+          "id": "http-payload-script-id",
+          "risk": "Without the POST body, we cannot distinguish the legitimate reconciliation script from an adversary's malicious script using the same API endpoint.",
+          "stage": "remote-script-execution",
+          "question": "What is the scriptId being passed in the run_script POST body?",
+          "requires": "Deep packet inspection or Kibana audit logs with request body content"
+        }
+      ]
+    },
+    "name": "Automated EDR Response Action Reconciliation",
+    "description": "This hunt identifies unauthorized remote code execution by analyzing the reconciliation loop pattern used for Linux endpoint management. It follows a phased approach: first, it baselines the cadence and source of management API calls used for endpoint discovery and tasking; second, it correlates those API triggers with host-side process execution and configuration file modifications. By distinguishing the 6-hour automated cadence of the Elastic reconciliation workflow from high-volume exploitation or ad-hoc admin abuse, the hunt isolates actors who use administrative orchestration for persistence or lateral movement."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "no-mdm-for-linux-a-68-line-elastic-workflow-keeps-every-endpoint-s-config-current",
+          "index": 1,
+          "title": "No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "workflow-scheduling",
+            "reason": "Internal Kibana workflow triggers are application-level events not captured by the provided network or endpoint surfaces.",
+            "status": "not_visible",
+            "blind_spot": "kibana-internal-workflow-triggers"
+          },
+          {
+            "stage": "endpoint-inventory-query",
+            "steps": [
+              "api-discovery-calls"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "pending-action-deduplication",
+            "steps": [
+              "api-discovery-calls"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remote-script-execution",
+            "steps": [
+              "api-execution-calls",
+              "endpoint-config-touches",
+              "edr-script-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "configuration-file-deployment",
+            "reason": "Belongs to another part of the \"No MDM for Linux? A 68-line Elastic workflow keeps every endpoint's config current\" series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has compromised a management principal or repurposed an Elastic workflow to perform mass remote execution across the Linux fleet, masquerading as a legitimate configuration reconciliation loop.",
+        "blind_spots": [
+          {
+            "id": "kibana-internal-workflow-triggers",
+            "risk": "Manual API abuse by a compromised administrator may appear identical to the automated workflow at the HTTP layer.",
+            "stage": "workflow-scheduling",
+            "question": "Which specific Workflow ID initiated the reconciliation loop?",
+            "requires": "Kibana application-level audit logs"
+          },
+          {
+            "id": "http-payload-script-id",
+            "risk": "Without the POST body, we cannot distinguish the legitimate reconciliation script from an adversary's malicious script using the same API endpoint.",
+            "stage": "remote-script-execution",
+            "question": "What is the scriptId being passed in the run_script POST body?",
+            "requires": "Deep packet inspection or Kibana audit logs with request body content"
+          }
+        ],
+        "scoping_notes": "The hunt targets the Kibana management server for control plane activity and the enrolled Linux workstations for host-side artifacts. Focus first on distro families mentioned in the article.",
+        "beyond_detection": "A simple detection for the run_script API would flood with legitimate alerts. This hunt provides the necessary context by baselining the 6-hour workflow cadence and correlating it with endpoint-side file modifications to find orchestration anomalies."
+      }
+    },
+    {
+      "id": "linux-host-scope",
+      "type": "query",
+      "label": "Identify Linux fleet",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT hostname, platform, os_name FROM hb_devices WHERE (instr(',' || '{{linux_distros}}' || ',', ',' || LOWER(platform) || ',') > 0 OR instr(',' || '{{linux_distros}}' || ',', ',' || LOWER(os_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_devices",
+        "description": "Identify the Linux endpoints potentially managed by the automated reconciliation workflow.",
+        "expected_signal": "A list of hostnames. Silence proves no Linux assets matching the workflow criteria are present in the inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Linux fleet",
+        "reads": [
+          "hostname",
+          "platform",
+          "os_name",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT hostname, platform, os_name FROM hb_devices WHERE (instr(',' || '{{linux_distros}}' || ',', ',' || LOWER(platform) || ',') > 0 OR instr(',' || '{{linux_distros}}' || ',', ',' || LOWER(os_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "A list of hostnames. Silence proves no Linux assets matching the workflow criteria are present in the inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "api-discovery-calls",
+      "type": "query",
+      "label": "Baseline discovery API traffic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT src_endpoint_ip, url_path, http_method, COUNT(*) as call_count, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_http_activity WHERE (instr(',' || '{{discovery_paths}}' || ',', ',' || url_path || ',') > 0) AND http_method = 'GET' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, url_path, http_method",
+        "surface": "hb_http_activity",
+        "description": "Identify the source IP and cadence for endpoint inventory and pending action queries.",
+        "expected_signal": "A single management IP performing requests every 6 hours. Multiple source IPs or non-standard timing indicate a compromised principal."
+      },
+      "parents": [
+        {
+          "id": "linux-host-scope"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Baseline discovery API traffic",
+        "reads": [
+          "src_endpoint_ip",
+          "url_path",
+          "http_method",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT src_endpoint_ip, url_path, http_method, COUNT(*) as call_count, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_http_activity WHERE (instr(',' || '{{discovery_paths}}' || ',', ',' || url_path || ',') > 0) AND http_method = 'GET' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, url_path, http_method",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A single management IP performing requests every 6 hours. Multiple source IPs or non-standard timing indicate a compromised principal.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 2
+        },
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "api-execution-calls",
+      "type": "query",
+      "label": "Monitor script execution triggers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT src_endpoint_ip, url_hostname, url_path, time, user_agent FROM hb_http_activity WHERE url_path = '/api/endpoint/action/run_script' AND http_method = 'POST' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify requests that trigger the run_script response action across the fleet.",
+        "expected_signal": "POST requests to the execution endpoint following the discovery hits. Silence proves no mass remote execution was initiated via this API during the window."
+      },
+      "parents": [
+        {
+          "id": "linux-host-scope"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Monitor script execution triggers",
+        "reads": [
+          "src_endpoint_ip",
+          "url_hostname",
+          "url_path",
+          "time",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT src_endpoint_ip, url_hostname, url_path, time, user_agent FROM hb_http_activity WHERE url_path = '/api/endpoint/action/run_script' AND http_method = 'POST' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "POST requests to the execution endpoint following the discovery hits. Silence proves no mass remote execution was initiated via this API during the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "api-orchestration-agent",
+      "type": "analytic",
+      "label": "Evaluate API orchestration cadence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "api-discovery-calls",
+          "api-execution-calls"
+        ],
+        "objective": "Confirm if the observed GET and POST traffic follows a periodic 6-hour pattern from a stable source IP.",
+        "description": "Determine if the management API traffic aligns with the authorized 6-hour reconciliation workflow.",
+        "max_iterations": 4,
+        "expected_signal": "A verdict identifying legitimate management source IPs versus suspicious ad-hoc activity.",
+        "success_criteria": "A list of IPs categorized as authorized-reconciliation or suspicious-manual-abuse, citing timing intervals."
+      },
+      "parents": [
+        {
+          "id": "api-discovery-calls",
+          "kind": "merge"
+        },
+        {
+          "id": "api-execution-calls",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "endpoint-config-touches",
+      "type": "query",
+      "label": "Verify configuration file modifications",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE (instr(',' || '{{config_paths}}' || ',', ',' || file_path || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find changes to Codex and Cursor configuration files on the Linux fleet.",
+        "expected_signal": "File touches on the managed TOML and JSON paths. These should correlate with the 6-hour API cadence."
+      },
+      "parents": [
+        {
+          "id": "api-orchestration-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Verify configuration file modifications",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE (instr(',' || '{{config_paths}}' || ',', ',' || file_path || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "File touches on the managed TOML and JSON paths. These should correlate with the 6-hour API cadence.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "edr-script-execution",
+      "type": "query",
+      "label": "Capture EDR script execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, script_path, script_type, script_content, time FROM hb_script_activity WHERE script_type = 'Unix Shell' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Identify Unix Shell script blocks executed by the EDR agent on endpoints.",
+        "expected_signal": "Script blocks containing Codex or Cursor deployment logic. Silence on a host that received an API execution command is suspicious."
+      },
+      "parents": [
+        {
+          "id": "api-orchestration-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Capture EDR script execution",
+        "reads": [
+          "device_hostname",
+          "script_path",
+          "script_type",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, script_path, script_type, script_content, time FROM hb_script_activity WHERE script_type = 'Unix Shell' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks containing Codex or Cursor deployment logic. Silence on a host that received an API execution command is suspicious.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "chain-reconciliation-agent",
+      "type": "analytic",
+      "label": "Correlate full attack chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "api-orchestration-agent",
+          "endpoint-config-touches",
+          "edr-script-execution"
+        ],
+        "objective": "Verify if the script content and file modifications on endpoints match the scope of the authorized MDM reconciliation loop.",
+        "description": "Link control plane API activity to endpoint-side artifacts to confirm if the workflow is authorized.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict linking an API trigger to a subsequent file modification or script run.",
+        "success_criteria": "A final verdict of malicious | suspicious | benign per host, citing the link between the API IP and host changes."
+      },
+      "parents": [
+        {
+          "id": "endpoint-config-touches",
+          "kind": "merge"
+        },
+        {
+          "id": "edr-script-execution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "verdict-decision",
+      "type": "checkpoint",
+      "label": "Route on reconciliation verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the chain-reconciliation-agent identifies malicious or suspicious orchestration activity inconsistent with the 6-hour workflow",
+        "condition": "the chain-reconciliation-agent identifies malicious or suspicious orchestration activity inconsistent with the 6-hour workflow",
+        "blind_spot": "kibana-internal-workflow-triggers",
+        "confidence": "high",
+        "description": "Direct response based on the legitimacy of mass remote execution activity.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "chain-reconciliation-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate compromised endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop unauthorized configuration changes by isolating the host.",
+        "instructions": "Isolate the host and notify the Infosec team to revoke the Kibana API principal's credentials.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "audit-principal",
+      "type": "task",
+      "label": "Audit management principal",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify the identity and permissions of the principal behind the API triggers.",
+        "instructions": "Locate the Workflow ID or API key in Kibana audit logs; verify if the trigger source matches the reconcile-managed-config-linux configuration."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "default"
+        },
+        {
+          "id": "verdict-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "documentation-task",
+      "type": "task",
+      "label": "Hunt documentation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and baseline legitimate management IPs.",
+        "instructions": "Document the legitimate source IPs as known-good and record any unauthorized execution attempts as a high-severity security incident."
+      },
+      "parents": [
+        {
+          "id": "verdict-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "audit-principal"
+        }
+      ]
+    }
+  ]
+}
