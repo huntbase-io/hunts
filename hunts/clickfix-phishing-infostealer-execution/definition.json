@@ -1,0 +1,541 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "ClickFix was responsible for over 50 percent of malware loader activity in 2025; ensuring these social engineering attempts are caught and addressed with training is critical for lowering organizational risk."
+      },
+      "name": "ClickFix Phishing and Infostealer Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566.002",
+        "attack.t1059.001",
+        "attack.t1555.003",
+        "credential access",
+        "execution",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "malicious-browser-extension-credential-theft",
+          "reason": "This hunt focuses on manual command pasting; credential theft via malicious browser extensions uses different telemetry surfaces.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A static detection rule for browser-spawned shells creates high noise from legitimate browser-update tasks; this hunt uses an agent to evaluate command suspicion and fleet prevalence to distinguish true threats from background noise.",
+      "coverage": [
+        {
+          "stage": "initial-access-clickfix-landing",
+          "steps": [
+            "browser-spawned-shells-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-clickfix-powershell",
+          "steps": [
+            "browser-spawned-shells-lead",
+            "rare-browser-shell-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-access-infostealer",
+          "steps": [
+            "unauthorized-credential-store-access"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "ClickFix Social Engineering",
+            "slug": "initial-access-clickfix-landing",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "ClickFix landing pages",
+              "Fake 'Fix' buttons",
+              "Network connections to ClickFix domains",
+              "ChatGPT-themed phishing sites"
+            ]
+          },
+          {
+            "name": "Malicious Command Execution",
+            "slug": "execution-clickfix-powershell",
+            "tactic": "execution",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "powershell.exe -enc",
+              "cmd.exe /c",
+              "Encoded PowerShell script blocks",
+              "User-initiated command execution from browser"
+            ]
+          },
+          {
+            "name": "Infostealer Credential Theft",
+            "slug": "credential-access-infostealer",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555"
+            ],
+            "observables": [
+              "Infostealer malware execution",
+              "Access to browser Login Data files",
+              "Access to Local State files in AppData\\Local\\Google\\Chrome\\User Data",
+              "Credential harvesting from password stores"
+            ]
+          }
+        ],
+        "summary": "Attackers utilize ClickFix social engineering to trick users into executing malicious commands under the guise of fixing browser or document errors. This technique typically serves as a delivery mechanism for information stealers that target credentials stored within web browsers."
+      },
+      "severity": "medium",
+      "rationale": "Focus on standard user endpoints where browsers are the primary tool. Domain controllers and dedicated servers are less likely to be initial ClickFix targets but should be monitored for secondary credential usage.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has tricked a user into manually executing an encoded command from a ClickFix landing page, which then deploys an infostealer to harvest browser credentials.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "shell_binaries": {
+          "type": "list[string]",
+          "default": [
+            "powershell.exe",
+            "cmd.exe",
+            "pwsh.exe"
+          ],
+          "description": "Shell binaries typically used in manual paste instructions."
+        },
+        "browser_binaries": {
+          "type": "list[string]",
+          "default": [
+            "chrome.exe",
+            "msedge.exe",
+            "brave.exe",
+            "firefox.exe",
+            "opera.exe"
+          ],
+          "description": "Common browser process names observed as parents in ClickFix attacks."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/defense-drill-interventions",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/defense-drill-interventions",
+          "name": "Huntress — Defense Drill Interventions"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-process-telemetry",
+          "risk": "If an adversary uses a method that breaks the parent-child relationship, the lead query will not see the execution.",
+          "stage": "execution-clickfix-powershell",
+          "question": "whether the shell was launched by a browser or a legitimate user-driven task",
+          "requires": "Reliable parent process reporting for all terminal shells"
+        },
+        {
+          "id": "no-file-access-telemetry",
+          "risk": "If the EDR only logs file writes or deletes, the stealthy read operations of an infostealer will be invisible.",
+          "stage": "credential-access-infostealer",
+          "question": "whether an infostealer successfully read the browser's Login Data file",
+          "requires": "hb_file_activity with activity_id 14 (Open)"
+        }
+      ]
+    },
+    "name": "ClickFix Phishing and Infostealer Execution",
+    "description": "ClickFix is a prominent social engineering technique where users are persuaded to manually execute malicious commands to fix a supposed browser or document error. This hunt finds shell executions originating from web browsers, uses an agent to evaluate the command for signs of obfuscation or infostealer loaders, and opens a fan-out investigation for suspicious leads. The hunt measures command rarity across the fleet while simultaneously monitoring for unauthorized access to browser credential stores. Finally, an analyst confirms the infection and assigns a Defense Drill to address the underlying human risk."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-clickfix-landing",
+            "steps": [
+              "browser-spawned-shells-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-clickfix-powershell",
+            "steps": [
+              "browser-spawned-shells-lead",
+              "rare-browser-shell-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-access-infostealer",
+            "steps": [
+              "unauthorized-credential-store-access"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has tricked a user into manually executing an encoded command from a ClickFix landing page, which then deploys an infostealer to harvest browser credentials.",
+        "blind_spots": [
+          {
+            "id": "missing-process-telemetry",
+            "risk": "If an adversary uses a method that breaks the parent-child relationship, the lead query will not see the execution.",
+            "stage": "execution-clickfix-powershell",
+            "question": "whether the shell was launched by a browser or a legitimate user-driven task",
+            "requires": "Reliable parent process reporting for all terminal shells"
+          },
+          {
+            "id": "no-file-access-telemetry",
+            "risk": "If the EDR only logs file writes or deletes, the stealthy read operations of an infostealer will be invisible.",
+            "stage": "credential-access-infostealer",
+            "question": "whether an infostealer successfully read the browser's Login Data file",
+            "requires": "hb_file_activity with activity_id 14 (Open)"
+          }
+        ],
+        "scoping_notes": "Focus on standard user endpoints where browsers are the primary tool. Domain controllers and dedicated servers are less likely to be initial ClickFix targets but should be monitored for secondary credential usage.",
+        "beyond_detection": "A static detection rule for browser-spawned shells creates high noise from legitimate browser-update tasks; this hunt uses an agent to evaluate command suspicion and fleet prevalence to distinguish true threats from background noise."
+      }
+    },
+    {
+      "id": "browser-spawned-shells-lead",
+      "type": "query",
+      "label": "Shell processes spawned by web browsers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE activity_id = 1 AND (instr(',' || '{{shell_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND (instr(',' || '{{browser_binaries}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%-enc%' OR LOWER(process_cmd_line) LIKE '%/c %' OR LOWER(process_cmd_line) LIKE '%-command%' OR LOWER(process_cmd_line) LIKE '%iex%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify potential ClickFix command execution by finding terminal shells launched directly from a web browser process.",
+        "expected_signal": "A shell command originating from a browser. This typically occurs when a user follows instructions to open a terminal and paste a command from a malicious landing page."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Shell processes spawned by web browsers",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE activity_id = 1 AND (instr(',' || '{{shell_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND (instr(',' || '{{browser_binaries}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%-enc%' OR LOWER(process_cmd_line) LIKE '%/c %' OR LOWER(process_cmd_line) LIKE '%-command%' OR LOWER(process_cmd_line) LIKE '%iex%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A shell command originating from a browser. This typically occurs when a user follows instructions to open a terminal and paste a command from a malicious landing page.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-06"
+      }
+    },
+    {
+      "id": "evaluate-lead-suspicion",
+      "type": "analytic",
+      "label": "Evaluate lead suspicion",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "browser-spawned-shells-lead"
+        ],
+        "objective": "Examine the process_cmd_line values from browser-spawned-shells-lead. Identify Base64 encoded blobs, Invoke-WebRequest or IEX patterns, and manual paste indicators that suggest an infostealer loader.",
+        "description": "Assess the shell command lines to distinguish between legitimate browser-driven tasks and malicious manual pastes.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the command line contains obfuscated code or infostealer download patterns.",
+        "success_criteria": "A per-host verdict of suspicious | benign for the detected browser-shell pairs."
+      },
+      "parents": [
+        {
+          "id": "browser-spawned-shells-lead"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-suspicion",
+      "type": "checkpoint",
+      "label": "Gate: Proceed to fan-out?",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-lead-suspicion verdict is suspicious for at least one host",
+        "condition": "the evaluate-lead-suspicion verdict is suspicious for at least one host",
+        "blind_spot": "missing-process-telemetry",
+        "confidence": "high",
+        "description": "Decide whether the expensive corroboration queries are justified based on the initial lead review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-lead-suspicion"
+        }
+      ]
+    },
+    {
+      "id": "rare-browser-shell-commands",
+      "type": "query",
+      "label": "Rare browser-spawned shell commands",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_cmd_line) AS cmd, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE activity_id = 1 AND (instr(',' || '{{browser_binaries}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0) AND (instr(',' || '{{shell_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY LOWER(process_cmd_line) HAVING host_count <= 2 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count the shell commands spawned by browsers to isolate unique manual pastes from fleet-wide software tasks.",
+        "expected_signal": "Malicious commands are typically unique to one victim or a small cluster, whereas legitimate updaters appear across many hosts."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicion",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare browser-spawned shell commands",
+        "reads": [
+          "process_cmd_line",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_cmd_line) AS cmd, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE activity_id = 1 AND (instr(',' || '{{browser_binaries}}' || ',', ',' || LOWER(parent_process_name) || ',') > 0) AND (instr(',' || '{{shell_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY LOWER(process_cmd_line) HAVING host_count <= 2 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Malicious commands are typically unique to one victim or a small cluster, whereas legitimate updaters appear across many hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-06"
+      }
+    },
+    {
+      "id": "unauthorized-credential-store-access",
+      "type": "query",
+      "label": "Unauthorized access to browser credential stores",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, actor_user_name, time FROM hb_file_activity WHERE activity_id IN (1, 2, 14) AND (LOWER(file_path) LIKE '%\\\\google\\\\chrome\\\\user data\\\\%\\\\login data' OR LOWER(file_path) LIKE '%\\\\microsoft\\\\edge\\\\user data\\\\%\\\\login data' OR LOWER(file_path) LIKE '%\\\\local state') AND NOT (instr(',' || '{{browser_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find non-browser processes accessing sensitive browser data files, which confirms infostealer behavior.",
+        "expected_signal": "Processes that are not legitimate browsers reading credential databases are a high-fidelity indicator of a successful infostealer infection."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicion",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Unauthorized access to browser credential stores",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, actor_user_name, time FROM hb_file_activity WHERE activity_id IN (1, 2, 14) AND (LOWER(file_path) LIKE '%\\\\google\\\\chrome\\\\user data\\\\%\\\\login data' OR LOWER(file_path) LIKE '%\\\\microsoft\\\\edge\\\\user data\\\\%\\\\login data' OR LOWER(file_path) LIKE '%\\\\local state') AND NOT (instr(',' || '{{browser_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Processes that are not legitimate browsers reading credential databases are a high-fidelity indicator of a successful infostealer infection.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-06"
+      }
+    },
+    {
+      "id": "triage-infection",
+      "type": "analytic",
+      "label": "Synthesize infection evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "evaluate-lead-suspicion",
+          "rare-browser-shell-commands",
+          "unauthorized-credential-store-access"
+        ],
+        "objective": "Determine if the host has been compromised by a ClickFix attack. A malicious verdict requires seeing a suspicious shell command that is both rare across the fleet and correlated with non-browser access to browser profile data.",
+        "description": "Combine the initial shell review with prevalence and file access results to reach a final verdict.",
+        "max_iterations": 5,
+        "expected_signal": "A final verdict citing the correlated activity of a rare browser-spawned shell and subsequent credential harvesting.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign, citing specific evidence rows."
+      },
+      "parents": [
+        {
+          "id": "rare-browser-shell-commands",
+          "kind": "merge"
+        },
+        {
+          "id": "unauthorized-credential-store-access",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route based on infection",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-infection verdict is malicious for at least one host",
+        "condition": "the triage-infection verdict is malicious for at least one host",
+        "blind_spot": "no-file-access-telemetry",
+        "confidence": "high",
+        "description": "Direct the workflow to containment for confirmed infections or review tasks.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-infection"
+        }
+      ]
+    },
+    {
+      "id": "isolate-infected-host",
+      "type": "action",
+      "label": "Isolate infected host",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately prevent further credential theft and lateral movement from a confirmed breach.",
+        "instructions": "Isolate the host and revoke all active cloud sessions for the affected user. Reset passwords for all accounts stored in the browser profile.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review and training",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform final human review and address the user behavior that led to the incident.",
+        "instructions": "Confirm the malicious command used. Assign a 'ClickFix Defense Drill' to the user to reduce future human risk. Document the specific infostealer variant if identified."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicion",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-suspicion",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-infected-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and close the investigation for this period.",
+        "instructions": "Record the number of suspicious browser shell spawns examined. Update browser parameter lists if new platforms are used by users."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicion",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

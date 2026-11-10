@@ -1,0 +1,567 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Adversaries scale identity attacks by renting legitimate infrastructure that standard risk scoring cannot distinguish from normal traffic. This hunt provides the manual oversight needed to identify these clusters across a fleet."
+      },
+      "name": "Abuse of Clean Hosting Infrastructure for Identity Attacks",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1110.003",
+        "attack.t1566",
+        "attack.t1572",
+        "command and control",
+        "credential access",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "mfa-bypass-device-code-flow",
+          "reason": "This hunt focuses on the infrastructure origin (hosting providers), while the sibling hunt focuses on the protocol mechanics across all IP ranges.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule on these IP ranges would produce too many false positives for legitimate developers. We use a gated flow to first confirm successful logins, then stack protocols for rarity, and finally correlate with host-side connections to differentiate between a developer and an adversary.",
+      "coverage": [
+        {
+          "stage": "initial-access-device-code-phishing",
+          "steps": [
+            "identify-infrastructure-signins",
+            "stack-auth-protocols"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-access-ropc-password-spray",
+          "steps": [
+            "identify-infrastructure-signins",
+            "stack-auth-protocols"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-infrastructure-token-replay",
+          "steps": [
+            "correlate-host-connections",
+            "analyst-review"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Device Code Phishing with AI Lures",
+            "slug": "initial-access-device-code-phishing",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "AI-tailored phishing lures",
+              "Railway developer cloud IP ranges",
+              "Device code flow authentication attempts"
+            ]
+          },
+          {
+            "name": "Legacy Auth Password Spraying",
+            "slug": "credential-access-ropc-password-spray",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1110.003"
+            ],
+            "observables": [
+              "ROPC (Resource Owner Password Credentials) legacy auth flow",
+              "81 million login attempts from specific IPv6 ranges",
+              "MFA-skipping authentication patterns"
+            ]
+          },
+          {
+            "name": "Token Replay via AiTM Relays",
+            "slug": "c2-infrastructure-token-replay",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1572"
+            ],
+            "observables": [
+              "193.26.115.0/24 (1337 Services GmbH)",
+              "German hosting provider IP ranges",
+              "AiTM (Adversary-in-the-Middle) relays",
+              "Railway-based token relays"
+            ]
+          }
+        ],
+        "summary": "Attackers utilize clean hosting infrastructure and AI-generated phishing lures to conduct high-volume identity attacks against Microsoft 365 tenants. These campaigns involve device-code phishing and password spraying via legacy ROPC flows to bypass MFA and harvest session tokens for replay through German hosting relays."
+      },
+      "severity": "high",
+      "rationale": "The lead query focuses on successful logins from documented hosting clusters. If the initial lead results in high volume, use the scope_hosts parameter to focus the network connection correlate step on the most active beachhead machines.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary uses trusted developer or cloud hosting platforms to bypass identity risk scoring, using legacy protocols (ROPC) or Device Code Flow to steal or replay session tokens.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional: Paste hostnames from the lead query to focus the enrichment steps."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "legacy_protocols": {
+          "type": "list[string]",
+          "default": [
+            "ROPC",
+            "DeviceCode",
+            "IMAP4",
+            "POP3"
+          ],
+          "description": "Auth protocols or flows used to bypass MFA or modern risk scoring."
+        },
+        "malicious_ranges": {
+          "from": {
+            "ref": "huntress-itdr-infrastructure",
+            "kind": "article",
+            "observed": "2026-11-05"
+          },
+          "type": "list[ip]",
+          "default": [
+            "193.26.115.",
+            "185.199.108.",
+            "185.199.109.",
+            "185.199.110.",
+            "185.199.111."
+          ],
+          "description": "Known malicious IP prefixes associated with documented hosting abuse."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/itdr-adversary-infrastructure",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/itdr-adversary-infrastructure",
+          "name": "Huntress — Adversary Infrastructure: Herd Immunity for Microsoft 365"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-auth-logging",
+          "risk": "A negative result may be a false negative if the tenant lacks the licensing (Entra P1/P2) or configuration to log these events.",
+          "question": "Are we seeing sign-ins from these ranges in tenants where audit logging is disabled?",
+          "requires": "hb_auth_signin or Entra ID P1 logging"
+        },
+        {
+          "id": "ip-rotation-drift",
+          "risk": "The hunt depends on the quality of the IP list; as adversaries rotate infrastructure, this durable list will become obsolete.",
+          "stage": "c2-infrastructure-token-replay",
+          "question": "Has the attacker moved to a new developer cloud range not in our list?",
+          "requires": "updated malicious_ranges"
+        }
+      ]
+    },
+    "name": "Abuse of Clean Hosting Infrastructure for Identity Attacks",
+    "description": "This hunt targets the use of clean cloud infrastructure, specifically Railway and 1337 Services GmbH ranges, to host AiTM relays and execute password sprays. Attackers use these platforms because they have high IP reputation, causing standard Entra ID risk scoring to ignore them. The hunt starts by identifying successful sign-ins from these known malicious hosting ranges, then fans out to analyze the prevalence of specific auth protocols (ROPC, Device Code Flow) and corroborates with endpoint-side network connections to the same infrastructure."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-device-code-phishing",
+            "steps": [
+              "identify-infrastructure-signins",
+              "stack-auth-protocols"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-access-ropc-password-spray",
+            "steps": [
+              "identify-infrastructure-signins",
+              "stack-auth-protocols"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-infrastructure-token-replay",
+            "steps": [
+              "correlate-host-connections",
+              "analyst-review"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary uses trusted developer or cloud hosting platforms to bypass identity risk scoring, using legacy protocols (ROPC) or Device Code Flow to steal or replay session tokens.",
+        "blind_spots": [
+          {
+            "id": "no-auth-logging",
+            "risk": "A negative result may be a false negative if the tenant lacks the licensing (Entra P1/P2) or configuration to log these events.",
+            "question": "Are we seeing sign-ins from these ranges in tenants where audit logging is disabled?",
+            "requires": "hb_auth_signin or Entra ID P1 logging"
+          },
+          {
+            "id": "ip-rotation-drift",
+            "risk": "The hunt depends on the quality of the IP list; as adversaries rotate infrastructure, this durable list will become obsolete.",
+            "stage": "c2-infrastructure-token-replay",
+            "question": "Has the attacker moved to a new developer cloud range not in our list?",
+            "requires": "updated malicious_ranges"
+          }
+        ],
+        "scoping_notes": "The lead query focuses on successful logins from documented hosting clusters. If the initial lead results in high volume, use the scope_hosts parameter to focus the network connection correlate step on the most active beachhead machines.",
+        "beyond_detection": "A simple detection rule on these IP ranges would produce too many false positives for legitimate developers. We use a gated flow to first confirm successful logins, then stack protocols for rarity, and finally correlate with host-side connections to differentiate between a developer and an adversary."
+      }
+    },
+    {
+      "id": "identify-infrastructure-signins",
+      "type": "query",
+      "label": "Sign-ins from malicious hosting ranges",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT time, actor_user_name, src_endpoint_ip, auth_protocol, auth_requirement, status_code, device_hostname FROM hb_auth_signin WHERE EXISTS (SELECT 1 FROM json_each('[\"' || replace('{{malicious_ranges}}', ',', '\",\"') || '\"]') WHERE src_endpoint_ip LIKE value || '%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify initial leads by finding successful sign-ins originating from documented adversary infrastructure.",
+        "expected_signal": "Successful sign-in logs originating from the German hosting or Railway ranges. None means no confirmed logins from these specific clusters."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Sign-ins from malicious hosting ranges",
+        "reads": [
+          "time",
+          "actor_user_name",
+          "src_endpoint_ip",
+          "auth_protocol",
+          "auth_requirement",
+          "status_code",
+          "device_hostname",
+          "status_id"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT time, actor_user_name, src_endpoint_ip, auth_protocol, auth_requirement, status_code, device_hostname FROM hb_auth_signin WHERE EXISTS (SELECT 1 FROM json_each('[\"' || replace('{{malicious_ranges}}', ',', '\",\"') || '\"]') WHERE src_endpoint_ip LIKE value || '%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Successful sign-in logs originating from the German hosting or Railway ranges. None means no confirmed logins from these specific clusters.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-07"
+      }
+    },
+    {
+      "id": "assess-infrastructure-lead",
+      "type": "analytic",
+      "label": "Assess Infrastructure Lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "identity",
+          "network"
+        ],
+        "context": [
+          "identify-infrastructure-signins"
+        ],
+        "objective": "Review the sign-ins from the documented malicious ranges and confirm which accounts and hosts are involved.",
+        "description": "Determine if the sign-ins from these IP ranges are suspicious enough to warrant a broader search.",
+        "max_iterations": 3,
+        "expected_signal": "A per-account assessment of the sign-in events.",
+        "success_criteria": "A verdict confirming the presence of hits from the targeted infrastructure."
+      },
+      "parents": [
+        {
+          "id": "identify-infrastructure-signins"
+        }
+      ]
+    },
+    {
+      "id": "is-lead-worthy",
+      "type": "checkpoint",
+      "label": "Is Lead Worthy?",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The first-read agent confirmed successful sign-ins from the malicious infrastructure prefixes.",
+        "condition": "The first-read agent confirmed successful sign-ins from the malicious infrastructure prefixes.",
+        "blind_spot": "no-auth-logging",
+        "confidence": "high",
+        "description": "Decide whether to open expensive queries based on the confirmed lead.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "assess-infrastructure-lead"
+        }
+      ]
+    },
+    {
+      "id": "stack-auth-protocols",
+      "type": "query",
+      "label": "Prevalence of Legacy and MFA-Skipping Protocols",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "identity",
+        "content": "SELECT auth_protocol, src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_attempts FROM hb_auth_signin WHERE instr(',' || '{{legacy_protocols}}' || ',', ',' || auth_protocol || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY auth_protocol, src_endpoint_ip HAVING user_count <= 3 ORDER BY user_count ASC, login_attempts DESC",
+        "surface": "hb_auth_signin",
+        "description": "Detect rare IPs that use ROPC or DeviceCode flow.",
+        "expected_signal": "Rare IP addresses that use ROPC or DeviceCode flow against a limited number of users."
+      },
+      "parents": [
+        {
+          "id": "is-lead-worthy",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Prevalence of Legacy and MFA-Skipping Protocols",
+        "reads": [
+          "auth_protocol",
+          "src_endpoint_ip",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT auth_protocol, src_endpoint_ip, COUNT(DISTINCT actor_user_name) AS user_count, COUNT(*) AS login_attempts FROM hb_auth_signin WHERE instr(',' || '{{legacy_protocols}}' || ',', ',' || auth_protocol || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY auth_protocol, src_endpoint_ip HAVING user_count <= 3 ORDER BY user_count ASC, login_attempts DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare IP addresses that use ROPC or DeviceCode flow against a limited number of users.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "auth_protocol",
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-07"
+      }
+    },
+    {
+      "id": "correlate-host-connections",
+      "type": "query",
+      "label": "Endpoint connections to malicious infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE EXISTS (SELECT 1 FROM json_each('[\"' || replace('{{malicious_ranges}}', ',', '\",\"') || '\"]') WHERE dst_endpoint_ip LIKE value || '%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Corroborate the cloud-side sign-in by finding if any process on the identified hosts is talking to the same IP ranges.",
+        "expected_signal": "Process-to-IP connections on the beachhead hosts that match the documented relay infrastructure."
+      },
+      "parents": [
+        {
+          "id": "is-lead-worthy",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Endpoint connections to malicious infrastructure",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE EXISTS (SELECT 1 FROM json_each('[\"' || replace('{{malicious_ranges}}', ',', '\",\"') || '\"]') WHERE dst_endpoint_ip LIKE value || '%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process-to-IP connections on the beachhead hosts that match the documented relay infrastructure.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-07"
+      }
+    },
+    {
+      "id": "triage-infrastructure-abuse",
+      "type": "analytic",
+      "label": "Triage Infrastructure Abuse",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "identity",
+          "network"
+        ],
+        "context": [
+          "assess-infrastructure-lead",
+          "stack-auth-protocols",
+          "correlate-host-connections"
+        ],
+        "objective": "Determine if the sign-ins from clean infrastructure combined with rare protocol use and host-side connections indicate a confirmed compromise.",
+        "description": "Synthesize sign-in leads, protocol prevalence, and network connections into a final verdict.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict citing rows from all three query steps.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host or user."
+      },
+      "parents": [
+        {
+          "id": "stack-auth-protocols",
+          "kind": "merge"
+        },
+        {
+          "id": "correlate-host-connections",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "compromise-confirmed",
+      "type": "checkpoint",
+      "label": "Compromise Confirmed?",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for at least one account.",
+        "condition": "The triage verdict is malicious for at least one account.",
+        "blind_spot": "no-auth-logging",
+        "confidence": "high",
+        "description": "Route the hunt to containment if a malicious verdict is reached.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-infrastructure-abuse"
+        }
+      ]
+    },
+    {
+      "id": "revoke-sessions",
+      "type": "action",
+      "label": "Revoke Sessions and Force Password Change",
+      "config": {
+        "target": "identity",
+        "description": "Immediately invalidate the adversary's access tokens and prevent further sign-ins.",
+        "instructions": "Revoke all active sessions for the identified user accounts and force a password reset immediately.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "compromise-confirmed",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Remediation and Post-Compromise Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review follow-on activity using active voice instructions.",
+        "instructions": "Inspect hb_cloud_api_activity for the compromised users. ensure the adversary did not establish persistence by looking for New-InboxRule or Update-MfaDevice. identify calls the adversary made after the initial sign-in from the malicious range."
+      },
+      "parents": [
+        {
+          "id": "is-lead-worthy",
+          "branch": "default"
+        },
+        {
+          "id": "is-lead-worthy",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "compromise-confirmed",
+          "branch": "default"
+        },
+        {
+          "id": "compromise-confirmed",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "revoke-sessions"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out Hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document result and update parameters for the next run.",
+        "instructions": "Record whether the malicious_ranges parameter needs updating based on current Huntress research. If confirmed malicious, ensure the team adds the ranges to the permanent blocklist."
+      },
+      "parents": [
+        {
+          "id": "is-lead-worthy",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "compromise-confirmed",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

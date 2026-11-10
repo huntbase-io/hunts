@@ -1,0 +1,668 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The VOLTA infostealer drastically reduces attacker monetization time by using AI to prioritize stolen data; a negative result across the estate confirms that no such automated harvesting campaign is currently active."
+      },
+      "name": "AI-Enhanced Infostealer Lifecycle",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1486",
+        "attack.t1555",
+        "attack.t1552.001",
+        "attack.t1566",
+        "attack.t1204.002",
+        "attack.t1114.002",
+        "attack.t1041",
+        "attack.t1070.004",
+        "collection",
+        "credential access",
+        "defense evasion",
+        "execution",
+        "exfiltration"
+      ],
+      "related": [
+        {
+          "hunt": "generic-headless-chrome-abuse",
+          "reason": "This hunt is specifically tailored to the VOLTA infostealer's AI-driven lifecycle, not general browser automation abuse.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single detection rule on headless Chrome flags too much legitimate automation. This hunt pivots between process parentage, file access patterns, and LLM-specific network traffic to confirm a malicious narrative.",
+      "coverage": [
+        {
+          "stage": "headless-browser-execution",
+          "steps": [
+            "headless-launch-analysis"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-and-wallet-harvesting",
+          "steps": [
+            "sensitive-file-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "email-enrichment-collection",
+          "reason": "Standard endpoint logs cannot see interaction between a headless browser and webmail APIs once the session is established.",
+          "status": "not_visible",
+          "blind_spot": "browser-internal-visibility"
+        },
+        {
+          "stage": "ai-prioritized-exfiltration",
+          "steps": [
+            "llm-exfiltration-dns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "evasion-via-self-deletion",
+          "steps": [
+            "malware-self-deletion"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Headless Browser Launch",
+            "slug": "headless-browser-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "chrome.exe launching with the --headless flag"
+            ]
+          },
+          {
+            "name": "Credential and Wallet Harvesting",
+            "slug": "credential-and-wallet-harvesting",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555",
+              "T1552.001"
+            ],
+            "observables": [
+              "Accessing Chrome App-Bound Encryption",
+              "Reading plaintext seed phrases for cryptocurrency wallets from disk",
+              "Harvesting session tokens and browser credentials"
+            ]
+          },
+          {
+            "name": "AI-Assisted Email Enrichment",
+            "slug": "email-enrichment-collection",
+            "tactic": "collection",
+            "techniques": [
+              "T1114.002"
+            ],
+            "observables": [
+              "Using stolen session tokens to search victim emails for purchase receipts",
+              "Extracting physical home addresses from email content"
+            ]
+          },
+          {
+            "name": "LLM-Based Data Prioritization",
+            "slug": "ai-prioritized-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "Sending structured evidence bundles to LLM APIs for ranking",
+              "Multi-model failover to different AI providers if primary assessment is refused",
+              "Exfiltration of a prioritized dossier of high-value assets"
+            ]
+          },
+          {
+            "name": "Malware Self-Deletion",
+            "slug": "evasion-via-self-deletion",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1070.004"
+            ],
+            "observables": [
+              "Malware executable deleting itself from the filesystem after exfiltration"
+            ]
+          }
+        ],
+        "summary": "VOLTA is a mature Windows infostealer that automates victim profiling by using LLMs to prioritize stolen data. The malware harvests credentials and cryptocurrency wallets before using stolen session access to search the victim's emails for physical addresses to enrich the data, finally exfiltrating a prioritized dossier and self-deleting."
+      },
+      "severity": "high",
+      "rationale": "Begin by focusing on hosts where developer tools or high-value crypto-related software is expected. Widen the hunt if DNS activity to LLM domains is observed on unrelated systems.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has deployed an infostealer that uses headless browser sessions to harvest credentials and cryptocurrency wallets, followed by exfiltration to LLM providers for AI-driven data prioritization and automated cleanup via self-deletion.",
+      "parameters": {
+        "llm_domains": {
+          "from": {
+            "ref": "talos",
+            "kind": "article",
+            "observed": "2026-11-05"
+          },
+          "type": "list[domain]",
+          "default": [
+            "api.openai.com",
+            "api.anthropic.com",
+            "api.cohere.ai",
+            "api.groq.com",
+            "api.mistral.ai",
+            "api.perplexity.ai"
+          ],
+          "description": "LLM API endpoints used for data prioritization and analysis."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2026-11-05"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Restrict the hunt to specific hosts; leave empty to scan the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-11-05"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "sensitive_filenames": {
+          "from": {
+            "ref": "talos",
+            "kind": "article",
+            "observed": "2026-11-05"
+          },
+          "type": "list[string]",
+          "default": [
+            "seed.txt",
+            "mnemonic.txt",
+            "wallet.json",
+            "key.txt",
+            "cookies",
+            "login data"
+          ],
+          "description": "Filenames associated with cryptocurrency wallets and browser credential stores."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.talosintelligence.com/bring-a-tent-ive-got-the-coffee-lessons-from-it-sa/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.talosintelligence.com/bring-a-tent-ive-got-the-coffee-lessons-from-it-sa/",
+          "name": "Cisco Talos — Bring a tent, I've got the coffee: Lessons from it-sa"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-process-telemetry",
+          "risk": "An attacker on a system without an agent can harvest data silently until exfiltration is detected at the network layer.",
+          "stage": "headless-browser-execution",
+          "question": "whether headless browser launches occurred on unmanaged systems",
+          "requires": "endpoint agent process monitoring"
+        },
+        {
+          "id": "browser-internal-visibility",
+          "risk": "We can see the browser ran and the host connected to the webmail domain, but not the specific search terms for receipts or home addresses.",
+          "stage": "email-enrichment-collection",
+          "question": "what specific data was retrieved from webmail services inside the browser session",
+          "requires": "TLS-inspecting proxy or browser-level tracing"
+        }
+      ]
+    },
+    "name": "AI-Enhanced Infostealer Lifecycle",
+    "description": "This hunt identifies the mature VOLTA infostealer lifecycle by correlating behavioral endpoint indicators with network-based data prioritization patterns. It begins by scoping hosts with browser installations, then parallelizes the search for headless browser execution and sensitive file access (wallets/cookies). An agent triages these early-stage results before the hunt pivots to observe exfiltration to LLM API endpoints and malware self-deletion. This phased approach allows for the detection of automated, AI-assisted theft that baseline detection rules often miss due to the modular nature of the attack."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "headless-browser-execution",
+            "steps": [
+              "headless-launch-analysis"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-and-wallet-harvesting",
+            "steps": [
+              "sensitive-file-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "email-enrichment-collection",
+            "reason": "Standard endpoint logs cannot see interaction between a headless browser and webmail APIs once the session is established.",
+            "status": "not_visible",
+            "blind_spot": "browser-internal-visibility"
+          },
+          {
+            "stage": "ai-prioritized-exfiltration",
+            "steps": [
+              "llm-exfiltration-dns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "evasion-via-self-deletion",
+            "steps": [
+              "malware-self-deletion"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has deployed an infostealer that uses headless browser sessions to harvest credentials and cryptocurrency wallets, followed by exfiltration to LLM providers for AI-driven data prioritization and automated cleanup via self-deletion.",
+        "blind_spots": [
+          {
+            "id": "missing-process-telemetry",
+            "risk": "An attacker on a system without an agent can harvest data silently until exfiltration is detected at the network layer.",
+            "stage": "headless-browser-execution",
+            "question": "whether headless browser launches occurred on unmanaged systems",
+            "requires": "endpoint agent process monitoring"
+          },
+          {
+            "id": "browser-internal-visibility",
+            "risk": "We can see the browser ran and the host connected to the webmail domain, but not the specific search terms for receipts or home addresses.",
+            "stage": "email-enrichment-collection",
+            "question": "what specific data was retrieved from webmail services inside the browser session",
+            "requires": "TLS-inspecting proxy or browser-level tracing"
+          }
+        ],
+        "scoping_notes": "Begin by focusing on hosts where developer tools or high-value crypto-related software is expected. Widen the hunt if DNS activity to LLM domains is observed on unrelated systems.",
+        "beyond_detection": "A single detection rule on headless Chrome flags too much legitimate automation. This hunt pivots between process parentage, file access patterns, and LLM-specific network traffic to confirm a malicious narrative."
+      }
+    },
+    {
+      "id": "scoping-chrome-installation",
+      "type": "query",
+      "label": "Scope hosts with browser installations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%chrome%' OR LOWER(package_name) LIKE '%chromium%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts in the estate that have Chrome or Chromium installed, focusing the hunt on platforms capable of supporting VOLTA's headless browser harvesting.",
+        "expected_signal": "A list of hosts where browser software is present. Silence means no hosts match, which restricts the hunt only to those systems."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope hosts with browser installations",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%chrome%' OR LOWER(package_name) LIKE '%chromium%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts where browser software is present. Silence means no hosts match, which restricts the hunt only to those systems.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-06"
+      }
+    },
+    {
+      "id": "headless-launch-analysis",
+      "type": "query",
+      "label": "Headless browser launch analysis",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, parent_process_name, parent_process_cmd_line, process_cmd_line, time FROM hb_process_activity WHERE LOWER(process_cmd_line) LIKE '%--headless%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify processes launching Chrome with the --headless flag and stack-count the parents to find rare, suspicious binaries.",
+        "expected_signal": "Rare parent processes launching headless Chrome. Legitimate automation (CI/CD, Selenium) will cluster together, while infostealer binaries will stand out."
+      },
+      "parents": [
+        {
+          "id": "scoping-chrome-installation"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Headless browser launch analysis",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "parent_process_name",
+          "parent_process_cmd_line",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, parent_process_name, parent_process_cmd_line, process_cmd_line, time FROM hb_process_activity WHERE LOWER(process_cmd_line) LIKE '%--headless%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare parent processes launching headless Chrome. Legitimate automation (CI/CD, Selenium) will cluster together, while infostealer binaries will stand out.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "parent_process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-06"
+      }
+    },
+    {
+      "id": "sensitive-file-access",
+      "type": "query",
+      "label": "Access to wallets and browser stores",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, file_name, activity_name, time FROM hb_file_activity WHERE (instr(',' || '{{sensitive_filenames}}' || ',', ',' || LOWER(file_name) || ',') > 0 OR LOWER(file_path) LIKE '%\\google\\chrome\\user data%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find file activity where suspicious processes access cryptocurrency seeds or browser credential files.",
+        "expected_signal": "Non-browser processes reading files related to credentials or crypto wallets. Any hit here is a high-fidelity indicator of harvesting."
+      },
+      "parents": [
+        {
+          "id": "scoping-chrome-installation"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Access to wallets and browser stores",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "file_name",
+          "activity_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, file_name, activity_name, time FROM hb_file_activity WHERE (instr(',' || '{{sensitive_filenames}}' || ',', ',' || LOWER(file_name) || ',') > 0 OR LOWER(file_path) LIKE '%\\google\\chrome\\user data%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Non-browser processes reading files related to credentials or crypto wallets. Any hit here is a high-fidelity indicator of harvesting.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-06"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Early-stage harvesting triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "headless-launch-analysis",
+          "sensitive-file-access"
+        ],
+        "objective": "Identify hosts where the headless browser execution correlates with unauthorized file access to sensitive credential stores or wallets.",
+        "description": "Assess whether the headless browser launches and file access patterns indicate active harvesting on a per-host basis.",
+        "max_iterations": 4,
+        "expected_signal": "A suspicious or malicious verdict per host based on early execution indicators.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing the relevant rows."
+      },
+      "parents": [
+        {
+          "id": "headless-launch-analysis",
+          "kind": "merge"
+        },
+        {
+          "id": "sensitive-file-access",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "llm-exfiltration-dns",
+      "type": "query",
+      "label": "Exfiltration to LLM endpoints",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) as lookup_count FROM hb_dns_activity WHERE instr(',' || '{{llm_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Correlate the suspicious hosts with DNS queries to known LLM API domains used for AI-driven data prioritization.",
+        "expected_signal": "Hosts already flagged for harvesting now resolving LLM provider domains. This confirms the prioritization and exfiltration phase."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Exfiltration to LLM endpoints",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) as lookup_count FROM hb_dns_activity WHERE instr(',' || '{{llm_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts already flagged for harvesting now resolving LLM provider domains. This confirms the prioritization and exfiltration phase.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-06"
+      }
+    },
+    {
+      "id": "malware-self-deletion",
+      "type": "query",
+      "label": "Cleanup via malware self-deletion",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE activity_id = 4 AND LOWER(process_name) = LOWER(file_path) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find file activity where a process deletes its own executable, the final evasion step in the VOLTA lifecycle.",
+        "expected_signal": "A binary deleting itself. While some installers do this, it is rare for sustained user processes and highly suspicious when following harvesting."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Cleanup via malware self-deletion",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE activity_id = 4 AND LOWER(process_name) = LOWER(file_path) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A binary deleting itself. While some installers do this, it is rare for sustained user processes and highly suspicious when following harvesting.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-06"
+      }
+    },
+    {
+      "id": "final-lifecycle-triage",
+      "type": "analytic",
+      "label": "Final lifecycle assessment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "early-stage-triage",
+          "llm-exfiltration-dns",
+          "malware-self-deletion"
+        ],
+        "objective": "Determine if the identified hosts exhibit the full lifecycle of the AI-enhanced infostealer, citing correlation between execution, harvesting, exfiltration to AI domains, and self-deletion.",
+        "description": "Synthesize the early-stage harvesting verdict with follow-on exfiltration and evasion evidence to reach a final decision.",
+        "max_iterations": 6,
+        "expected_signal": "A high-confidence verdict on the full infostealer lifecycle.",
+        "success_criteria": "A final malicious | suspicious verdict per host with a reasoning chain."
+      },
+      "parents": [
+        {
+          "id": "llm-exfiltration-dns",
+          "kind": "merge"
+        },
+        {
+          "id": "malware-self-deletion",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on final assessment",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-lifecycle-triage verdict is malicious for at least one host",
+        "condition": "the final-lifecycle-triage verdict is malicious for at least one host",
+        "blind_spot": "missing-process-telemetry",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's final lifecycle assessment.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-lifecycle-triage"
+        }
+      ]
+    },
+    {
+      "id": "contain-and-revoke",
+      "type": "action",
+      "label": "Isolate host and revoke sessions",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the attack chain and invalidate stolen credentials immediately.",
+        "instructions": "Isolate the host from the network. Revoke all active browser-based session tokens for the affected user. If crypto seed phrases were identified in the harvesting phase, treat the associated wallets as fully compromised and initiate fund migration protocols.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-forensic-review",
+      "type": "task",
+      "label": "Analyst forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Conduct deep analysis to identify the initial infection vector and precisely which assets were targeted by the AI prioritization.",
+        "instructions": "Review the host for evidence of the initial breach (e.g., suspicious Homebrew installations or phishing links). Use HTTP logs if available to trace what specific email contents were accessed during the AI enrichment phase."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-and-revoke"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize documentation and record tuning notes for future detections.",
+        "instructions": "Document all findings. If legitimate automation servers were flagged, update the baseline exclusion list for the headless browser launch query."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-forensic-review"
+        }
+      ]
+    }
+  ]
+}
