@@ -1,0 +1,677 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Modern identity attacks frequently bypass static MFA and exploit the lack of governance over non-human identities; a negative result confirms that identity resilience controls are effective."
+      },
+      "name": "Bypass of Legacy Identity Controls and Persistence via NHIs",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1133",
+        "attack.t1190",
+        "attack.t1550",
+        "attack.t1078",
+        "defense evasion",
+        "initial access",
+        "persistence",
+        "privilege escalation"
+      ],
+      "related": [
+        {
+          "hunt": "non-human-identity-governance-audit",
+          "reason": "This hunt identifies active abuse; a full audit is required to identify all overprivileged NHIs regardless of current activity.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single rule might catch a login from a new country, but it cannot weigh that against a subsequent shift to service-account behavior or the context of a long-standing unrotated admin credential. This hunt uses a phased flow and two agents to bridge the gap between individual authentication events and the lifecycle of identity abuse.",
+      "coverage": [
+        {
+          "stage": "initial-access-aitm-phishing",
+          "steps": [
+            "mfa-push-fatigue",
+            "triage-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-vpn-exploitation",
+          "steps": [
+            "scoping-vpn-gateways",
+            "vpn-ioc-traffic"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "defense-evasion-session-hijacking",
+          "steps": [
+            "triage-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-non-human-identities",
+          "steps": [
+            "rare-nhi-signins",
+            "triage-persistence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privilege-escalation-standing-admin",
+          "steps": [
+            "standing-admin-inventory",
+            "triage-persistence"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "AitM Phishing and Push Fatigue",
+            "slug": "initial-access-aitm-phishing",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "Adversary-in-the-middle (AitM) proxies",
+              "SMS code interception",
+              "MFA push notification fatigue (multiple rapid requests)",
+              "Phishing domains mimicking login portals"
+            ]
+          },
+          {
+            "name": "Exploitation of External Remote Services",
+            "slug": "initial-access-vpn-exploitation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1133",
+              "T1190"
+            ],
+            "observables": [
+              "VPN connections (vpn.com)",
+              "Checkpoint VPN gateway logs",
+              "Exploitation of vulnerabilities in internet-facing access gateways"
+            ]
+          },
+          {
+            "name": "Session Token Theft and MFA Bypass",
+            "slug": "defense-evasion-session-hijacking",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1550"
+            ],
+            "observables": [
+              "Captured session tokens used from new/unknown devices",
+              "Bypassing push-based MFA via fatigue",
+              "Login from anonymizing proxies or unusual geolocations"
+            ]
+          },
+          {
+            "name": "Abuse of Non-Human Identities",
+            "slug": "persistence-non-human-identities",
+            "tactic": "persistence",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "Service accounts with standing overprivileged access",
+              "AI agents performing actions outside of normal user intent",
+              "Orchestrator sub-agents acting within application processes",
+              "Stale service accounts from offboarded employees"
+            ]
+          },
+          {
+            "name": "Exploitation of Standing Privileges",
+            "slug": "privilege-escalation-standing-admin",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "Permanent administrative credentials used for high-impact tasks",
+              "Lack of Just-In-Time (JIT) elevation for sensitive commands",
+              "Administrative access to service accounts"
+            ]
+          }
+        ],
+        "summary": "This scenario represents a modern identity-focused intrusion where attackers bypass traditional MFA via adversary-in-the-middle phishing or push-fatigue tactics to hijack sessions. The campaign transitions from human identity compromise to long-term persistence by exploiting overprivileged non-human identities (NHIs) and standing administrative permissions that lack continuous verification."
+      },
+      "severity": "medium",
+      "rationale": "Start with internet-facing gateways identified in software inventory; focus the identity search on accounts with privileged status if the estate size requires narrowing.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has bypassed traditional MFA via session hijacking or push fatigue and established persistence using overprivileged non-human identities or standing administrative accounts.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the network search."
+        },
+        "vpn_domains": {
+          "from": {
+            "ref": "proofpoint-iam-assumptions",
+            "kind": "article",
+            "observed": "2026-11-10"
+          },
+          "type": "list[domain]",
+          "default": [
+            "vpn.com"
+          ],
+          "description": "Known VPN or remote access domains to monitor."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.proofpoint.com/us/newsroom/news/18-outdated-identity-and-access-management-assumptions-retire",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.proofpoint.com/us/newsroom/news/18-outdated-identity-and-access-management-assumptions-retire",
+          "name": "Proofpoint — 18 Outdated Identity And Access Management Assumptions To Retire"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-session-details",
+          "risk": "Without session-level tracking, attackers can mask shifts using proxies that mimic a user's known geolocation.",
+          "owner": "IAM Operations",
+          "stage": "defense-evasion-session-hijacking",
+          "question": "Was a specific session token hijacked from a trusted device?",
+          "requires": "Advanced IDP logging for session-specific attributes",
+          "remediation": "Enable and ingest debug-level IDP logs including user_agent and session identifiers."
+        },
+        {
+          "id": "jit-log-absence",
+          "risk": "In the absence of JIT logs, malicious use of standing admin rights is indistinguishable from legitimate maintenance.",
+          "owner": "Security Engineering",
+          "stage": "privilege-escalation-standing-admin",
+          "question": "Was an administrative action preceded by a legitimate JIT elevation request?",
+          "requires": "Just-In-Time (JIT) access logs from a PAM solution",
+          "remediation": "Integrate a PAM solution that logs JIT elevations into the primary telemetry stream."
+        }
+      ]
+    },
+    "name": "Bypass of Legacy Identity Controls and Persistence via NHIs",
+    "description": "An adversary steals active sessions or triggers push fatigue to bypass traditional authentication hurdles. The hunt first identifies internet-facing gateways and scans for high-frequency MFA failures that culminate in a single success. By correlating these access anomalies with the behavior of non-human identities and standing administrative accounts, the hunt identifies identities an intruder has repurposed for persistence. An analyst then reviews the linked chain of events to revoke compromised credentials and recommend phishing-resistant controls."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-aitm-phishing",
+            "steps": [
+              "mfa-push-fatigue",
+              "triage-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-vpn-exploitation",
+            "steps": [
+              "scoping-vpn-gateways",
+              "vpn-ioc-traffic"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "defense-evasion-session-hijacking",
+            "steps": [
+              "triage-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-non-human-identities",
+            "steps": [
+              "rare-nhi-signins",
+              "triage-persistence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privilege-escalation-standing-admin",
+            "steps": [
+              "standing-admin-inventory",
+              "triage-persistence"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has bypassed traditional MFA via session hijacking or push fatigue and established persistence using overprivileged non-human identities or standing administrative accounts.",
+        "blind_spots": [
+          {
+            "id": "no-session-details",
+            "risk": "Without session-level tracking, attackers can mask shifts using proxies that mimic a user's known geolocation.",
+            "owner": "IAM Operations",
+            "stage": "defense-evasion-session-hijacking",
+            "question": "Was a specific session token hijacked from a trusted device?",
+            "requires": "Advanced IDP logging for session-specific attributes",
+            "remediation": "Enable and ingest debug-level IDP logs including user_agent and session identifiers."
+          },
+          {
+            "id": "jit-log-absence",
+            "risk": "In the absence of JIT logs, malicious use of standing admin rights is indistinguishable from legitimate maintenance.",
+            "owner": "Security Engineering",
+            "stage": "privilege-escalation-standing-admin",
+            "question": "Was an administrative action preceded by a legitimate JIT elevation request?",
+            "requires": "Just-In-Time (JIT) access logs from a PAM solution",
+            "remediation": "Integrate a PAM solution that logs JIT elevations into the primary telemetry stream."
+          }
+        ],
+        "scoping_notes": "Start with internet-facing gateways identified in software inventory; focus the identity search on accounts with privileged status if the estate size requires narrowing.",
+        "beyond_detection": "A single rule might catch a login from a new country, but it cannot weigh that against a subsequent shift to service-account behavior or the context of a long-standing unrotated admin credential. This hunt uses a phased flow and two agents to bridge the gap between individual authentication events and the lifecycle of identity abuse."
+      }
+    },
+    {
+      "id": "scoping-vpn-gateways",
+      "type": "query",
+      "label": "Identify Remote Access Gateways",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%checkpoint%' OR LOWER(package_name) LIKE '%vpn%')",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts running VPN or remote access software to focus the later network traffic analysis.",
+        "expected_signal": "A list of hosts acting as remote gateways. Silence indicates no managed VPN software is recorded in inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Remote Access Gateways",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%checkpoint%' OR LOWER(package_name) LIKE '%vpn%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts acting as remote gateways. Silence indicates no managed VPN software is recorded in inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "mfa-push-fatigue",
+      "type": "query",
+      "label": "Patterns of MFA Push Fatigue",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, activity_id, COUNT(*) AS count, MIN(time) AS first_event, MAX(time) AS last_event FROM hb_auth_signin WHERE activity_id IN (1, 5) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, activity_id",
+        "surface": "hb_auth_signin",
+        "description": "Identify accounts experiencing high failure rates followed by a successful login, typical of push fatigue.",
+        "expected_signal": "High failure counts (activity_id 5) coupled with a final success (activity_id 1) for the same user and IP."
+      },
+      "parents": [
+        {
+          "id": "scoping-vpn-gateways"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Patterns of MFA Push Fatigue",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "activity_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, activity_id, COUNT(*) AS count, MIN(time) AS first_event, MAX(time) AS last_event FROM hb_auth_signin WHERE activity_id IN (1, 5) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, activity_id",
+        "silence": "not_evidence_of_absence",
+        "expected": "High failure counts (activity_id 5) coupled with a final success (activity_id 1) for the same user and IP.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "vpn-ioc-traffic",
+      "type": "query",
+      "label": "Connections to VPN IOC Domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT time, device_hostname, dst_endpoint_hostname, dst_endpoint_ip, dst_endpoint_port FROM hb_network_connection WHERE instr(',' || '{{vpn_domains}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Corroborate whether identified gateways or other hosts are communicating with the reported VPN IOC domain.",
+        "expected_signal": "Outbound traffic to vpn.com or related domains from internal hosts. Silence indicates no traffic to these domains in the window."
+      },
+      "parents": [
+        {
+          "id": "scoping-vpn-gateways"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Connections to VPN IOC Domains",
+        "reads": [
+          "time",
+          "device_hostname",
+          "dst_endpoint_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT time, device_hostname, dst_endpoint_hostname, dst_endpoint_ip, dst_endpoint_port FROM hb_network_connection WHERE instr(',' || '{{vpn_domains}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Outbound traffic to vpn.com or related domains from internal hosts. Silence indicates no traffic to these domains in the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "triage-access",
+      "type": "analytic",
+      "label": "Triage Initial Access Lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "mfa-push-fatigue",
+          "vpn-ioc-traffic"
+        ],
+        "objective": "Determine if the patterns of MFA fatigue and VPN connections identify compromised user accounts or exposed gateways.",
+        "description": "Evaluate whether the MFA patterns and network traffic indicate a successful session hijack or gateway compromise.",
+        "max_iterations": 5,
+        "expected_signal": "A verdict per account or host identifying suspicious initial entry points.",
+        "success_criteria": "A per-user or per-host verdict of suspicious or malicious, citing specific failure/success sequences or IOC connections."
+      },
+      "parents": [
+        {
+          "id": "mfa-push-fatigue",
+          "kind": "merge"
+        },
+        {
+          "id": "vpn-ioc-traffic",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "rare-nhi-signins",
+      "type": "query",
+      "label": "Rare Non-Human Identity Sign-ins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_auth_signin WHERE (LOWER(actor_user_name) LIKE 'svc_%' OR LOWER(actor_user_name) LIKE '%bot%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip HAVING host_count < 3",
+        "surface": "hb_auth_signin",
+        "description": "Identify service accounts signing in from unusual or rare source IPs, which may indicate attacker reuse.",
+        "expected_signal": "Service accounts appearing on a small number of hosts or new IPs. Silence means no service accounts matched naming patterns in the window."
+      },
+      "parents": [
+        {
+          "id": "triage-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Non-Human Identity Sign-ins",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_auth_signin WHERE (LOWER(actor_user_name) LIKE 'svc_%' OR LOWER(actor_user_name) LIKE '%bot%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip HAVING host_count < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Service accounts appearing on a small number of hosts or new IPs. Silence means no service accounts matched naming patterns in the window.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "actor_user_name",
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "standing-admin-inventory",
+      "type": "query",
+      "label": "Inventory of Standing Administrative Privileges",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "identity",
+        "content": "SELECT id, name, email, privileged, status, provider FROM hb_users WHERE (LOWER(privileged) = 'true') AND status = 'active'",
+        "surface": "hb_users",
+        "description": "Retrieve a list of accounts with permanent administrative roles to cross-reference with early-stage anomalies.",
+        "expected_signal": "A list of standing administrators. The agent will compare these against identities performing suspicious transactions."
+      },
+      "parents": [
+        {
+          "id": "triage-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Inventory of Standing Administrative Privileges",
+        "reads": [
+          "id",
+          "name",
+          "email",
+          "privileged",
+          "status",
+          "provider"
+        ],
+        "source": "hb_users",
+        "target": "identity",
+        "content": "SELECT id, name, email, privileged, status, provider FROM hb_users WHERE (LOWER(privileged) = 'true') AND status = 'active'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of standing administrators. The agent will compare these against identities performing suspicious transactions.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "triage-persistence",
+      "type": "analytic",
+      "label": "Triage Identity Persistence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "triage-access",
+          "rare-nhi-signins",
+          "standing-admin-inventory"
+        ],
+        "objective": "Determine if the suspicious access identified in the first triage stage has transitioned into persistence through service accounts or standing administrative abuse.",
+        "description": "Correlate early access anomalies with follow-on service account and admin activity to confirm an ongoing threat.",
+        "max_iterations": 6,
+        "expected_signal": "A final verdict linking initial compromise to the misuse of NHIs or standing privileges.",
+        "success_criteria": "A final malicious verdict if an account compromised via fatigue/session theft is seen interacting with or utilizing administrative or service account privileges from the same source infrastructure."
+      },
+      "parents": [
+        {
+          "id": "rare-nhi-signins",
+          "kind": "merge"
+        },
+        {
+          "id": "standing-admin-inventory",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-risk",
+      "type": "checkpoint",
+      "label": "Route on Persistence Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage-persistence verdict identifies a malicious linkage between initial access anomalies and subsequent NHI or standing administrative abuse.",
+        "condition": "The triage-persistence verdict identifies a malicious linkage between initial access anomalies and subsequent NHI or standing administrative abuse.",
+        "blind_spot": "no-session-details",
+        "confidence": "high",
+        "description": "Direct the response based on whether a confirmed identity compromise has reached the persistence phase.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-persistence"
+        }
+      ]
+    },
+    {
+      "id": "suspend-account",
+      "type": "action",
+      "label": "Suspend Compromised Accounts",
+      "config": {
+        "target": "identity",
+        "description": "Immediately revoke access for compromised users and service accounts to stop further lateral movement.",
+        "instructions": "Suspend the primary user account and any service accounts identified by the agent as being under attacker control. Revoke all active session tokens immediately.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-risk",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "iam-governance-review",
+      "type": "task",
+      "label": "IAM Governance Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform a broader audit to identify systematic failures in identity resilience and governance.",
+        "instructions": "Evaluate why standing privileges were available to the compromised user. Identify service accounts that lack distinct ownership or periodic review. Propose moving to FIDO2 or phishing-resistant MFA for the affected groups."
+      },
+      "parents": [
+        {
+          "id": "route-on-risk",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-risk",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-risk",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "suspend-account"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt Close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and telemetry gaps discovered during the hunt.",
+        "instructions": "Document all malicious activity confirmed. Record any telemetry blind spots identified, such as lack of session-level IDP tracking."
+      },
+      "parents": [
+        {
+          "id": "iam-governance-review"
+        }
+      ]
+    }
+  ]
+}

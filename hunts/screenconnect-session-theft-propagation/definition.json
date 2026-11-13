@@ -1,0 +1,578 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The SCKit worm targets technicians to harvest session cookies and spread laterally through RMM tools; a negative result over the technician estate confirms no such session hijacking is occurring."
+      },
+      "name": "ScreenConnect Session Theft and Toolbox Propagation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001",
+        "attack.t1539",
+        "attack.t1021.002",
+        "credential access",
+        "execution",
+        "initial access",
+        "lateral movement",
+        "persistence"
+      ],
+      "series": {
+        "slug": "sckit-worm-installs-rogue-screenconnect-clients-and-session-cookie-relays-across-hundreds-of-end",
+        "index": 2,
+        "title": "SCKit Worm Installs Rogue ScreenConnect Clients and Session Cookie Relays Across Hundreds of Endpoints",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "screenconnect-rogue-client-persistence",
+          "reason": "This hunt focuses on session theft and lateral movement; the installation of persistent rogue clients is a separate stage of the SCKit infection.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "sckit-endpoint-hijacking-persistence",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule might flag encoded PowerShell, but this hunt connects the harvesting of browser cookies via SQLite to the specific network relays and the custom uploader binary used by the SCKit worm, providing the context required to confirm lateral movement rather than a simple loader alert.",
+      "coverage": [
+        {
+          "stage": "session-cookie-harvesting",
+          "steps": [
+            "worm-script-execution",
+            "rare-binary-prevalence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "lateral-toolbox-propagation",
+          "steps": [
+            "worm-script-execution",
+            "attacker-dns-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "rmm-plus-extension-exploitation",
+          "reason": "Initial access through RMM+ vulnerabilities is handled in a separate scoping hunt focused on ScreenConnect server logs.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "scripted-loader-execution",
+          "reason": "The initial PowerShell loaders and decoders belong to the deployment hunt.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "trapwatch-task-persistence",
+          "reason": "The TrapWatch persistence mechanism via Scheduled Tasks is covered by standard persistence hunts.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "registry-run-persistence",
+          "reason": "Registry-based persistence using the RelayTrapLiteAlert key is out of scope for this propagation focus.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "RMM+ Extension Authentication Bypass",
+            "slug": "rmm-plus-extension-exploitation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "POST requests to ScreenConnect servers with blank RMMPlus.AccessKey",
+              "RMM+ versions 1.0.31 and 1.0.32"
+            ]
+          },
+          {
+            "name": "Scripted Loader and Payload Delivery",
+            "slug": "scripted-loader-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "Stage0Loader.ps1",
+              "Run-Lateral-Full.bat",
+              "sckit-loader.ps1",
+              "ns.mo7sen.dev/EadF.php?p=1",
+              "%TEMP%\\k<guid>.ps1",
+              "cdn007-digitaldownloads.com"
+            ]
+          },
+          {
+            "name": "High-Frequency Scheduled Task Persistence",
+            "slug": "trapwatch-task-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.005"
+            ],
+            "observables": [
+              "Task name: TrapWatch",
+              "Command: TrapWatch.ps1",
+              "Frequency: Every 10 seconds",
+              "Runs as SYSTEM"
+            ]
+          },
+          {
+            "name": "Registry Run Key Persistence",
+            "slug": "registry-run-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1547.001"
+            ],
+            "observables": [
+              "Run key name: RelayTrapLiteAlert",
+              "Command: Lite-Alert.ps1",
+              "C:\\ProgramData\\RelayTrap"
+            ]
+          },
+          {
+            "name": "Technician Session Cookie Theft",
+            "slug": "session-cookie-harvesting",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "sqlite3.exe reading browser cookie databases",
+              "Panel-Lateral.ps1",
+              "LabConfig.ps1",
+              "ns.mo7sen.dev/EadF.php?p=5"
+            ]
+          },
+          {
+            "name": "Shared Toolbox Lateral Propagation",
+            "slug": "lateral-toolbox-propagation",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "ToolboxRelayUploader.exe using stolen tokens",
+              "AddToToolbox command on ScreenConnect panels",
+              "sc.payproofkit.com",
+              "185.99.255.28",
+              "155.94.150.39"
+            ]
+          }
+        ],
+        "summary": "Attackers exploit an authentication flaw in the third-party RMM+ extension for ScreenConnect to push commands to managed endpoints. The resulting SCKit worm establishes persistence via high-frequency scheduled tasks and registry keys, hijacks legitimate client connections, and steals technician session cookies to propagate laterally through the ScreenConnect shared toolbox."
+      },
+      "severity": "high",
+      "rationale": "Focus on technician workstations and servers running ScreenConnect client software. If technician hostnames are known, use the execution_hosts parameter to reduce noise from developers using SQLite.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker is harvesting technician session cookies using SQLite-based scripts and using them to propagate payloads through the ScreenConnect Shared Toolbox.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "execution_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames identified in the lead step; leave empty to scan all."
+        },
+        "attacker_domains": {
+          "from": {
+            "ref": "huntress-sckit-worm",
+            "kind": "article",
+            "observed": "2026-11-12"
+          },
+          "type": "list[domain]",
+          "default": [
+            "relaytrap.cs",
+            "ns.mo7sen.dev",
+            "newnewnew.gotdns.org",
+            "sc.payproofkit.com",
+            "soxnewwork.homedns.org",
+            "cdn007-digitaldownloads.com"
+          ],
+          "description": "Known SCKit relay and C2 domains."
+        },
+        "found_process_name": {
+          "type": "string",
+          "default": "ToolboxRelayUploader.exe",
+          "description": "The specific uploader process name identified in the beachhead detection."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/sckit-worm-rogue-screenconnect",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/sckit-worm-rogue-screenconnect",
+          "name": "Huntress — SCKit Worm Installs Rogue ScreenConnect Clients and Session Cookie Relays"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-process-visibility",
+          "risk": "A host with truncated command-line logs might only show 'sqlite3.exe' without the target path, making it harder to distinguish from legitimate use.",
+          "stage": "session-cookie-harvesting",
+          "question": "whether the SQLite command line specifically targeted the Cookies file",
+          "requires": "EDR process command-line auditing"
+        },
+        {
+          "id": "encrypted-dns",
+          "risk": "If the attacker uses DNS-over-HTTPS, lookups for the C2 domains will not appear in hb_dns_activity, leaving only the process execution as a signal.",
+          "stage": "lateral-toolbox-propagation",
+          "question": "whether the host used DoH to resolve attacker relays",
+          "requires": "Network-level DNS inspection or EDR DNS capture"
+        }
+      ]
+    },
+    "name": "ScreenConnect Session Theft and Toolbox Propagation",
+    "description": "This hunt identifies the harvesting of ScreenConnect session cookies from technician browsers and the subsequent use of those hijacked sessions for lateral movement. The SCKit worm automates cookie extraction using a scripted SQLite utility and then broadcasts payloads to all endpoints accessible through the technician's ScreenConnect panel using a custom uploader tool. The hunt begins by identifying the execution of core worm scripts (Panel-Lateral.ps1, LabConfig.ps1) and the specialized uploader binary. It then fan-outs to verify the mechanism of theft—specifically sqlite3.exe interacting with browser database paths—and checks for connections to identified attacker relay infrastructure from those same hosts. An agent weighs these signals to determine if a host is an active beachhead for propagation."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "sckit-worm-installs-rogue-screenconnect-clients-and-session-cookie-relays-across-hundreds-of-end",
+          "index": 2,
+          "title": "SCKit Worm Installs Rogue ScreenConnect Clients and Session Cookie Relays Across Hundreds of Endpoints",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "session-cookie-harvesting",
+            "steps": [
+              "worm-script-execution",
+              "rare-binary-prevalence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "lateral-toolbox-propagation",
+            "steps": [
+              "worm-script-execution",
+              "attacker-dns-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "rmm-plus-extension-exploitation",
+            "reason": "Initial access through RMM+ vulnerabilities is handled in a separate scoping hunt focused on ScreenConnect server logs.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "scripted-loader-execution",
+            "reason": "The initial PowerShell loaders and decoders belong to the deployment hunt.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "trapwatch-task-persistence",
+            "reason": "The TrapWatch persistence mechanism via Scheduled Tasks is covered by standard persistence hunts.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "registry-run-persistence",
+            "reason": "Registry-based persistence using the RelayTrapLiteAlert key is out of scope for this propagation focus.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An attacker is harvesting technician session cookies using SQLite-based scripts and using them to propagate payloads through the ScreenConnect Shared Toolbox.",
+        "blind_spots": [
+          {
+            "id": "no-process-visibility",
+            "risk": "A host with truncated command-line logs might only show 'sqlite3.exe' without the target path, making it harder to distinguish from legitimate use.",
+            "stage": "session-cookie-harvesting",
+            "question": "whether the SQLite command line specifically targeted the Cookies file",
+            "requires": "EDR process command-line auditing"
+          },
+          {
+            "id": "encrypted-dns",
+            "risk": "If the attacker uses DNS-over-HTTPS, lookups for the C2 domains will not appear in hb_dns_activity, leaving only the process execution as a signal.",
+            "stage": "lateral-toolbox-propagation",
+            "question": "whether the host used DoH to resolve attacker relays",
+            "requires": "Network-level DNS inspection or EDR DNS capture"
+          }
+        ],
+        "scoping_notes": "Focus on technician workstations and servers running ScreenConnect client software. If technician hostnames are known, use the execution_hosts parameter to reduce noise from developers using SQLite.",
+        "beyond_detection": "A single rule might flag encoded PowerShell, but this hunt connects the harvesting of browser cookies via SQLite to the specific network relays and the custom uploader binary used by the SCKit worm, providing the context required to confirm lateral movement rather than a simple loader alert."
+      }
+    },
+    {
+      "id": "worm-script-execution",
+      "type": "query",
+      "label": "SCKit worm scripts and uploader execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%panel-lateral.ps1%' OR LOWER(process_cmd_line) LIKE '%labconfig.ps1%' OR LOWER(process_name) = 'toolboxrelayuploader.exe' OR (LOWER(process_name) = 'sqlite3.exe' AND (LOWER(process_cmd_line) LIKE '%cookies%' OR LOWER(process_cmd_line) LIKE '%login data%'))) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find the primary execution of the worm's harvesting and propagation components.",
+        "expected_signal": "Any row indicates the worm's presence. Silence suggests the harvesting phase has not started or used different filenames."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "SCKit worm scripts and uploader execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%panel-lateral.ps1%' OR LOWER(process_cmd_line) LIKE '%labconfig.ps1%' OR LOWER(process_name) = 'toolboxrelayuploader.exe' OR (LOWER(process_name) = 'sqlite3.exe' AND (LOWER(process_cmd_line) LIKE '%cookies%' OR LOWER(process_cmd_line) LIKE '%login data%'))) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Any row indicates the worm's presence. Silence suggests the harvesting phase has not started or used different filenames.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "rare-binary-prevalence",
+      "type": "query",
+      "label": "Prevalence of worm-related binaries",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_name) AS name, LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) = LOWER('{{found_process_name}}') OR LOWER(process_path) LIKE '%\\relaytrap\\%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2",
+        "surface": "hb_process_activity",
+        "description": "Stack-count the uploader utility identified in the beachhead check to establish rarity.",
+        "expected_signal": "Artifacts appearing on 1-2 hosts confirm they are likely the attacker's toolkit rather than common software."
+      },
+      "parents": [
+        {
+          "id": "worm-script-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Prevalence of worm-related binaries",
+        "reads": [
+          "process_name",
+          "process_path",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_name) AS name, LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) = LOWER('{{found_process_name}}') OR LOWER(process_path) LIKE '%\\relaytrap\\%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Artifacts appearing on 1-2 hosts confirm they are likely the attacker's toolkit rather than common software.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "process_path"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "attacker-dns-activity",
+      "type": "query",
+      "label": "DNS lookups from beachhead hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{attacker_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{execution_hosts}}' = '' OR instr(',' || '{{execution_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2",
+        "surface": "hb_dns_activity",
+        "description": "Confirm that the hosts executing worm scripts are also reaching out to known SCKit relays.",
+        "expected_signal": "DNS queries for the specified domains from the same hosts identified as executing the worm. Absence means direct IP communication or domain rotation."
+      },
+      "parents": [
+        {
+          "id": "worm-script-execution"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "DNS lookups from beachhead hosts",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{attacker_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{execution_hosts}}' = '' OR instr(',' || '{{execution_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS queries for the specified domains from the same hosts identified as executing the worm. Absence means direct IP communication or domain rotation.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "triage-worm-activity",
+      "type": "analytic",
+      "label": "Weigh worm execution and network signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "worm-script-execution",
+          "rare-binary-prevalence",
+          "attacker-dns-activity"
+        ],
+        "objective": "Determine if the identified host exhibits the full SCKit worm lifecycle, from cookie harvesting to propagation attempts.",
+        "description": "Determine if the identified host exhibits the full SCKit worm lifecycle, from cookie harvesting to propagation attempts.",
+        "max_iterations": 4,
+        "expected_signal": "A detailed verdict per host.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing the script execution and corresponding C2 traffic."
+      },
+      "parents": [
+        {
+          "id": "rare-binary-prevalence",
+          "kind": "merge"
+        },
+        {
+          "id": "attacker-dns-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on triage result",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-worm-activity verdict is malicious for at least one host",
+        "condition": "the triage-worm-activity verdict is malicious for at least one host",
+        "blind_spot": "no-process-visibility",
+        "confidence": "high",
+        "description": "Direct action or review based on the triage verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-worm-activity"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate beachhead host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further lateral propagation through the ScreenConnect toolbox.",
+        "instructions": "Isolate the host from the network and revoke any active ScreenConnect session tokens associated with users on this machine.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Verify session hijacking",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the extent of the compromise and identify which technician sessions were targeted.",
+        "instructions": "Examine the browser profile paths accessed by sqlite3.exe; verify if the stolen sessions were used to push payloads to other environments by checking ScreenConnect server audit logs for Toolbox activity."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and update detection rules.",
+        "instructions": "Document the identified binaries and domains. If new filenames or domains were found, update the hunt parameters and consider promoting the script execution query to a permanent detection rule."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
