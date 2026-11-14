@@ -1,0 +1,715 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "TA488 is a Russia-aligned threat actor using sophisticated OWA implants (OWAReaper) that achieve server-side persistence. This persistence survives credential resets and device re-imaging, making it a critical threat to long-term mailbox confidentiality."
+      },
+      "name": "TA488 OWA XSS Exploitation and OWAReaper Network Operations",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1071.001",
+        "attack.t1102",
+        "attack.t1090.003",
+        "attack.t1572",
+        "attack.t1041",
+        "attack.t1078",
+        "attack.t1021.001"
+      ],
+      "related": [
+        {
+          "hunt": "owa-permission-delegation-anomalies",
+          "reason": "OWAReaper grants itself Owner permissions to mail folders; this requires hb_auth_signin or Exchange audit logs specifically for permission changes.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple rule might detect requests to acocdn.com, but this hunt pivots from vulnerable infrastructure to anomalous authentication and then correlates GitHub C2 polling with legitimate CDN usage. This multi-stage behavioural chain is necessary to confirm the full OWAReaper infection and evict server-side persistence.",
+      "coverage": [
+        {
+          "stage": "compromised-account-access",
+          "steps": [
+            "anomalous-owa-logons"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "owa-xss-exploitation",
+          "steps": [
+            "vulnerable-owa-hosts",
+            "owa-session-data-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-via-github-polling",
+          "steps": [
+            "github-c2-polling"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "covert-data-exfiltration",
+          "steps": [
+            "cdn-proxied-exfiltration"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "owareaper-persistence-and-privilege",
+          "reason": "Belongs to a dedicated hunt for Exchange mailbox permission and storage persistence.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Abuse of Compromised Accounts",
+            "slug": "compromised-account-access",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "High volume outbound mail from compromised internal accounts",
+              "Sign-ins from unusual source IP addresses"
+            ]
+          },
+          {
+            "name": "OWA XSS Exploitation",
+            "slug": "owa-xss-exploitation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "CVE-2026-42897",
+              "Lure emails with subjects such as 'Semiconductor Supply Chain Indicators' or 'Global Tourism Indicators'",
+              "HTML message bodies containing icons with onload= event handlers",
+              "Base64 encoded JavaScript payload blobs in HTML icons"
+            ]
+          },
+          {
+            "name": "Browser and Mailbox Persistence",
+            "slug": "owareaper-persistence-and-privilege",
+            "tactic": "persistence",
+            "techniques": [
+              "T1137",
+              "T1098.002"
+            ],
+            "observables": [
+              "localStorage entries under PageDataPayload.OwaUserDefaultSettings",
+              "Modification of OwaFrontendSyncState",
+              "UpdateFolder API calls to grant 'Owner' permissions to the 'Default' user alias",
+              "Abuse of GetClientAccessToken for OAuth token theft"
+            ]
+          },
+          {
+            "name": "C2 via GitHub Search API",
+            "slug": "c2-via-github-polling",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1102",
+              "T1071.001"
+            ],
+            "observables": [
+              "HTTPS requests to GitHub Commit Search API",
+              "API queries containing the victim target email address",
+              "Encrypted command strings in GitHub commit messages"
+            ]
+          },
+          {
+            "name": "Multi-protocol Exfiltration",
+            "slug": "covert-data-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1090.003",
+              "T1572",
+              "T1041"
+            ],
+            "observables": [
+              "HTTP requests proxied through images.weserv.nl, i3.wp.com, and slack-imgs.com",
+              "HTTPS requests to acocdn.com",
+              "URI paths matching /assets/v1_<base64_aes_data>",
+              "DNS label tunneling to actor-controlled domains",
+              "HTTP POST of files: msanalytics.json, ews_extensions_debug.json, poison_wizard_error_dom.html",
+              "Requests to /owa/sessiondata.ashx"
+            ]
+          }
+        ],
+        "summary": "TA488 used a series of compromised accounts to deliver emails exploiting CVE-2026-42897, an XSS vulnerability in Outlook Web Access, to deploy the OWAReaper JavaScript implant. OWAReaper achieves stealthy persistence by modifying OWA settings and mailbox permissions, while utilizing GitHub and legitimate image CDNs for command retrieval and covert data exfiltration."
+      },
+      "severity": "high",
+      "rationale": "Scope the hunt to all internet-facing Microsoft Exchange servers and user endpoints known to access OWA. Prioritize servers where vulnerability findings for CVE-2026-42897 are unresolved.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has exploited CVE-2026-42897 in Outlook Web Access to deploy the OWAReaper implant, evidenced by anomalous sign-ins, OWA session data access, and covert exfiltration via image CDNs and GitHub.",
+      "parameters": {
+        "cve_id": {
+          "from": {
+            "ref": "Proofpoint-TA488",
+            "kind": "article",
+            "observed": "2026-07-22"
+          },
+          "type": "string",
+          "default": "CVE-2026-42897",
+          "description": "The OWA XSS vulnerability ID exploited by TA488."
+        },
+        "cdn_domains": {
+          "from": {
+            "ref": "Proofpoint-TA488",
+            "kind": "article",
+            "observed": "2026-07-22"
+          },
+          "type": "list[domain]",
+          "default": [
+            "weserv.nl",
+            "images.weserv.nl",
+            "i3.wp.com",
+            "slack-imgs.com"
+          ],
+          "description": "Legitimate CDN domains used by OWAReaper to proxy exfiltration."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hosts to narrow the hunt, such as known Exchange servers or user endpoints."
+        },
+        "actor_domain": {
+          "from": {
+            "ref": "Proofpoint-TA488",
+            "kind": "article",
+            "observed": "2026-07-22"
+          },
+          "type": "domain",
+          "default": "acocdn.com",
+          "description": "The primary actor-controlled C2 and exfiltration relay domain."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-07-25"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for exploitation and C2 activity."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.proofpoint.com/us/blog/threat-insight/cleaning-out-inboxes-ta488-comes-outlook-another-half-click-exploit",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.proofpoint.com/us/blog/threat-insight/cleaning-out-inboxes-ta488-comes-outlook-another-half-click-exploit",
+          "name": "Proofpoint \u2014 Cleaning Out Inboxes: TA488 Comes to Outlook with Another Half-Click Exploit"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "owa-storage-blind-spot",
+          "risk": "The hunt cannot see the actual persistence mechanism on the client side; we rely on the network aftermath (C2/exfil).",
+          "stage": "owareaper-persistence-and-privilege",
+          "question": "Are OWAReaper payloads present in the browser's localStorage or IndexedDB?",
+          "requires": "direct endpoint browser forensics"
+        },
+        {
+          "id": "mail-body-content-blind-spot",
+          "risk": "Without the email body, we cannot confirm the initial XSS trigger (onload handlers in icons).",
+          "stage": "owa-xss-exploitation",
+          "question": "What were the specific lure subjects and HTML contents of the delivered exploit emails?",
+          "requires": "email security gateway logs"
+        }
+      ]
+    },
+    "name": "TA488 OWA XSS Exploitation and OWAReaper Network Operations",
+    "description": "This hunt targets the infection chain of TA488's OWAReaper implant. It begins by identifying hosts vulnerable to CVE-2026-42897 and correlating them with anomalous OWA authentication events and session data access. The second phase hunts for the implant's unique C2 polling via the GitHub Search API and its exfiltration mechanism, which proxies data through legitimate image CDNs (weserv.nl, wp.com, slack-imgs.com) to an actor-controlled domain (acocdn.com). The hunt concludes with a multi-surface triage to confirm persistent server-side mailbox compromise."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "compromised-account-access",
+            "steps": [
+              "anomalous-owa-logons"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "owa-xss-exploitation",
+            "steps": [
+              "vulnerable-owa-hosts",
+              "owa-session-data-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-via-github-polling",
+            "steps": [
+              "github-c2-polling"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "covert-data-exfiltration",
+            "steps": [
+              "cdn-proxied-exfiltration"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "owareaper-persistence-and-privilege",
+            "reason": "Belongs to a dedicated hunt for Exchange mailbox permission and storage persistence.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has exploited CVE-2026-42897 in Outlook Web Access to deploy the OWAReaper implant, evidenced by anomalous sign-ins, OWA session data access, and covert exfiltration via image CDNs and GitHub.",
+        "blind_spots": [
+          {
+            "id": "owa-storage-blind-spot",
+            "risk": "The hunt cannot see the actual persistence mechanism on the client side; we rely on the network aftermath (C2/exfil).",
+            "stage": "owareaper-persistence-and-privilege",
+            "question": "Are OWAReaper payloads present in the browser's localStorage or IndexedDB?",
+            "requires": "direct endpoint browser forensics"
+          },
+          {
+            "id": "mail-body-content-blind-spot",
+            "risk": "Without the email body, we cannot confirm the initial XSS trigger (onload handlers in icons).",
+            "stage": "owa-xss-exploitation",
+            "question": "What were the specific lure subjects and HTML contents of the delivered exploit emails?",
+            "requires": "email security gateway logs"
+          }
+        ],
+        "scoping_notes": "Scope the hunt to all internet-facing Microsoft Exchange servers and user endpoints known to access OWA. Prioritize servers where vulnerability findings for CVE-2026-42897 are unresolved.",
+        "beyond_detection": "A simple rule might detect requests to acocdn.com, but this hunt pivots from vulnerable infrastructure to anomalous authentication and then correlates GitHub C2 polling with legitimate CDN usage. This multi-stage behavioural chain is necessary to confirm the full OWAReaper infection and evict server-side persistence."
+      }
+    },
+    {
+      "id": "vulnerable-owa-hosts",
+      "type": "query",
+      "label": "Identify Vulnerable OWA Infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_uid, affected_package_name, affected_package_version, severity, first_seen FROM hb_vulnerability_finding WHERE cve_uid = '{{cve_id}}' AND status = 'UNRESOLVED'",
+        "surface": "hb_vulnerability_finding",
+        "description": "Find systems reporting the CVE-2026-42897 vulnerability to scope the hunt to susceptible OWA targets.",
+        "expected_signal": "A list of device UIDs representing vulnerable Exchange servers. Absence suggests the estate is patched or scanning is incomplete."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Vulnerable OWA Infrastructure",
+        "reads": [
+          "affected_package_name",
+          "affected_package_version",
+          "cve_uid",
+          "device_uid",
+          "first_seen",
+          "severity",
+          "status"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT device_uid, affected_package_name, affected_package_version, severity, first_seen FROM hb_vulnerability_finding WHERE cve_uid = '{{cve_id}}' AND status = 'UNRESOLVED'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of device UIDs representing vulnerable Exchange servers. Absence suggests the estate is patched or scanning is incomplete.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "anomalous-owa-logons",
+      "type": "query",
+      "label": "Anomalous OWA Authentication Events",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, metadata_product, COUNT(*) as login_count, MIN(time) as first_seen FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%owa%' OR LOWER(dst_endpoint_name) LIKE '%outlook%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, metadata_product HAVING login_count < 10 ORDER BY login_count ASC",
+        "surface": "hb_auth_signin",
+        "description": "Baseline OWA sign-ins to identify rare source IPs or high-frequency activity typical of compromised account abuse.",
+        "expected_signal": "Rare login pairs from external IPs to OWA. These may represent the TA488 beachhead or the source of lure emails."
+      },
+      "parents": [
+        {
+          "id": "vulnerable-owa-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Anomalous OWA Authentication Events",
+        "reads": [
+          "actor_user_name",
+          "dst_endpoint_name",
+          "metadata_product",
+          "src_endpoint_ip",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, src_endpoint_ip, metadata_product, COUNT(*) as login_count, MIN(time) as first_seen FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%owa%' OR LOWER(dst_endpoint_name) LIKE '%outlook%') AND status_id = 1 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, src_endpoint_ip, metadata_product HAVING login_count < 10 ORDER BY login_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare login pairs from external IPs to OWA. These may represent the TA488 beachhead or the source of lure emails.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 10
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "owa-session-data-access",
+      "type": "query",
+      "label": "Access to OWA Session Data Blobs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, actor_user_name, url_path, url_hostname, user_agent, time FROM hb_http_activity WHERE LOWER(url_path) LIKE '%/owa/sessiondata.ashx%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Detect requests to sessiondata.ashx, which OWAReaper accesses to steal user identity and configuration info.",
+        "expected_signal": "HTTP requests to the OWA session handler. While OWA uses this normally, it provides a pivot for an analyst to correlate with exfiltration activity."
+      },
+      "parents": [
+        {
+          "id": "vulnerable-owa-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Access to OWA Session Data Blobs",
+        "reads": [
+          "actor_user_name",
+          "device_hostname",
+          "time",
+          "url_hostname",
+          "url_path",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, actor_user_name, url_path, url_hostname, user_agent, time FROM hb_http_activity WHERE LOWER(url_path) LIKE '%/owa/sessiondata.ashx%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests to the OWA session handler. While OWA uses this normally, it provides a pivot for an analyst to correlate with exfiltration activity.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-initial-access",
+      "type": "analytic",
+      "label": "Triage Initial Access and OWA Interaction",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "vulnerable-owa-hosts",
+          "anomalous-owa-logons",
+          "owa-session-data-access"
+        ],
+        "objective": "Determine if any host or user account identified in the early stages likely represents a TA488 beachhead.",
+        "description": "Evaluate whether vulnerable hosts or specific user accounts show signs of anomalous access coinciding with OWA session extraction.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host or per-user verdict identifying potential beachheads for phase-two investigation.",
+        "success_criteria": "A verdict citing specific users and IPs that should be tracked into the network operations phase."
+      },
+      "parents": [
+        {
+          "id": "anomalous-owa-logons",
+          "kind": "merge"
+        },
+        {
+          "id": "owa-session-data-access",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "github-c2-polling",
+      "type": "query",
+      "label": "GitHub Commit Search API Polling",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, url_query, time FROM hb_http_activity WHERE LOWER(url_hostname) = 'api.github.com' AND (LOWER(url_path) LIKE '%/search/commits%' OR LOWER(url_path) LIKE '%/search/code%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Find systems querying GitHub's search API for target email identifiers, matching OWAReaper's primary C2 method.",
+        "expected_signal": "Frequent, automated-looking queries to api.github.com. Look for encoded strings or email addresses in the url_query."
+      },
+      "parents": [
+        {
+          "id": "triage-initial-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "GitHub Commit Search API Polling",
+        "reads": [
+          "device_hostname",
+          "time",
+          "url_hostname",
+          "url_path",
+          "url_query"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, url_query, time FROM hb_http_activity WHERE LOWER(url_hostname) = 'api.github.com' AND (LOWER(url_path) LIKE '%/search/commits%' OR LOWER(url_path) LIKE '%/search/code%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Frequent, automated-looking queries to api.github.com. Look for encoded strings or email addresses in the url_query.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "cdn-proxied-exfiltration",
+      "type": "query",
+      "label": "Exfiltration via Image CDNs and acocdn.com",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, http_method, user_agent, time FROM hb_http_activity WHERE (instr(',' || '{{cdn_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 OR LOWER(url_hostname) = '{{actor_domain}}') AND (LOWER(url_path) LIKE '/assets/v1_%' OR LOWER(url_path) LIKE '%msanalytics.json%' OR LOWER(url_path) LIKE '%ews_extensions_debug.json%' OR LOWER(url_path) LIKE '%poison_wizard_error_dom.html%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Find the high-fidelity indicators of OWAReaper exfiltration: proxied asset requests via CDNs or direct POSTs to acocdn.com.",
+        "expected_signal": "Requests to legitimate CDN domains with encrypted URI paths or POST requests to acocdn.com containing the specific exfiltration filenames."
+      },
+      "parents": [
+        {
+          "id": "triage-initial-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Exfiltration via Image CDNs and acocdn.com",
+        "reads": [
+          "device_hostname",
+          "http_method",
+          "time",
+          "url_hostname",
+          "url_path",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, http_method, user_agent, time FROM hb_http_activity WHERE (instr(',' || '{{cdn_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 OR LOWER(url_hostname) = '{{actor_domain}}') AND (LOWER(url_path) LIKE '/assets/v1_%' OR LOWER(url_path) LIKE '%msanalytics.json%' OR LOWER(url_path) LIKE '%ews_extensions_debug.json%' OR LOWER(url_path) LIKE '%poison_wizard_error_dom.html%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Requests to legitimate CDN domains with encrypted URI paths or POST requests to acocdn.com containing the specific exfiltration filenames.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-full-infection",
+      "type": "analytic",
+      "label": "Triage Full OWAReaper Infection Chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "triage-initial-access",
+          "github-c2-polling",
+          "cdn-proxied-exfiltration"
+        ],
+        "objective": "Weigh the sign-in patterns, session data access, and the unique GitHub/CDN network behavior to confirm a persistent OWA compromise.",
+        "description": "Combine the early access evidence with follow-on network operations to confirm an active OWAReaper implant.",
+        "max_iterations": 5,
+        "expected_signal": "A high-confidence verdict of malicious activity on one or more hosts.",
+        "success_criteria": "A final verdict citing rows across the auth, vulnerability, and HTTP surfaces."
+      },
+      "parents": [
+        {
+          "id": "github-c2-polling",
+          "kind": "merge"
+        },
+        {
+          "id": "cdn-proxied-exfiltration",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Full Triage Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-full-infection verdict is malicious for at least one user or host",
+        "condition": "the triage-full-infection verdict is malicious for at least one user or host",
+        "blind_spot": "owa-storage-blind-spot",
+        "confidence": "high",
+        "description": "Route to containment if the triage identifies malicious OWAReaper activity.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-full-infection"
+        }
+      ]
+    },
+    {
+      "id": "isolate-and-revoke",
+      "type": "action",
+      "label": "Isolate Host and Revoke Exchange Permissions",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt data exfiltration and remove the actor's server-side persistence.",
+        "instructions": "Isolate the identified host. Critically, review and revoke 'Owner' or 'ReadWrite' permissions granted to the 'Default' user or suspicious accounts on the Exchange server to evict the actor's server-side persistence.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-investigation",
+      "type": "task",
+      "label": "Detailed Forensic Investigation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually inspect OWA settings and local browser storage for OWAReaper artifacts.",
+        "instructions": "Examine the browser's localStorage for the 'PageDataPayload.OwaUserDefaultSettings' key and the offline IndexedDB for hidden iframes as described in the report."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-and-revoke"
+        }
+      ]
+    },
+    {
+      "id": "remediation-verification",
+      "type": "task",
+      "label": "Verify Remediation and Patching",
+      "config": {
+        "assignee": "analyst",
+        "description": "Ensure the vulnerability is patched and all persistence methods are cleared.",
+        "instructions": "Verify that Microsoft Exchange is patched for CVE-2026-42897. Perform a tenant-wide sweep for anomalous 'UpdateFolder' permission changes."
+      },
+      "parents": [
+        {
+          "id": "forensic-investigation"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out Hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and close the hunt.",
+        "instructions": "Record the hosts and users examined and any tuning recommendations for the HTTP exfiltration query."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

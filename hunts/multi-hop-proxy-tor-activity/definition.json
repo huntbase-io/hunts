@@ -1,0 +1,495 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Multi-hop proxies are a primary method for masking long-term C2; identifying them ensures that even if individual domains are rotated, the underlying persistence mechanism is discovered."
+      },
+      "name": "Multi-hop Proxy and Tor Infrastructure Activity",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "rare-vpn-and-tunnel-process-behaviors",
+          "reason": "Uses similar process behavior but focuses on VPN client abuse rather than proxy relays.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "Existing rules look for specific ngrok and .onion domain strings. This hunt pivots to identify the process behavior (running from writable paths) and correlates it with network signatures (9001/9050 ports) and subdomain-agnostic DNS patterns to find unknown proxy tools that rotation would normally hide.",
+      "coverage": [
+        {
+          "stage": "proxy-infrastructure-resolution",
+          "steps": [
+            "dns-proxy-resolution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "proxy-tunnel-establishment",
+          "steps": [
+            "network-activity-writable-paths",
+            "tor-relay-port-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "DNS Resolution of Proxy Infrastructure",
+            "slug": "proxy-infrastructure-resolution",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion domains (e.g., .onion.ca, .onion.direct)",
+              "DNS lookups for tunneling services like ngrok (tunnel.us.ngrok.com)",
+              "Resolution of known Tor relay hostnames"
+            ]
+          },
+          {
+            "name": "Multi-hop Proxy Tunnel Establishment",
+            "slug": "proxy-tunnel-establishment",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Outbound TCP connections to Tor entry nodes on ports 9001, 9050",
+              "Network connections to ngrok tunnel endpoints (e.g., tunnel.us.ngrok.com)",
+              "Persistent outbound traffic to known VPS or ORB relay IP addresses",
+              "Outbound traffic originating from unusual or renamed binaries performing network encapsulation"
+            ]
+          }
+        ],
+        "summary": "Adversaries utilize multi-hop proxying and onion routing infrastructure to disguise the origin of malicious command-and-control traffic. This involves resolving proxy-related domains and establishing encrypted tunnels through third-party relays or Tor nodes to evade detection."
+      },
+      "severity": "medium",
+      "rationale": "Focus on endpoints with high user activity first. Populate the scope_hosts and scope_processes parameters from the results of the lead query to narrow the corroboration steps if the initial results are noisy.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is masking command-and-control traffic by routing it through multi-hop proxies, Tor entry nodes, or tunneling services to bypass perimeter monitoring.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-input",
+            "kind": "manual",
+            "observed": "2024-07-27"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Filter to these hosts; leave empty to scan the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2024-07-27"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "proxy_domains": {
+          "from": {
+            "ref": "mitre-t1090",
+            "kind": "article",
+            "observed": "2024-07-27"
+          },
+          "type": "list[domain]",
+          "default": [
+            "tunnel.us.ngrok.com",
+            "tunnel.eu.ngrok.com",
+            "tunnel.ap.ngrok.com",
+            "tunnel.au.ngrok.com",
+            "loclx.io",
+            "pagekite.me"
+          ],
+          "description": "Known tunneling and proxy domain infrastructure."
+        },
+        "scope_processes": {
+          "from": {
+            "ref": "analyst-input",
+            "kind": "manual",
+            "observed": "2024-07-27"
+          },
+          "type": "list[string]",
+          "default": [],
+          "description": "Filter to these process names; leave empty to scan all processes."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/ai-agent-optimization-production-scale",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/ai-agent-optimization-production-scale",
+          "name": "Elastic Security Labs \u2014 Inside the Agentic SOC"
+        },
+        {
+          "url": "https://attack.mitre.org/techniques/T1090/003/",
+          "name": "MITRE ATT&CK: Multi-hop Proxy"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "incomplete-network-telemetry",
+          "risk": "A persistent but low-volume tunnel may be indistinguishable from background noise without traffic volume analysis.",
+          "owner": "Network Engineering",
+          "stage": "proxy-tunnel-establishment",
+          "question": "What is the volume of data being exfiltrated or tunneled?",
+          "requires": "hb_network_connection with bytes/packets for outbound traffic",
+          "remediation": "Enable flow log capture with byte counts for all outbound VPC traffic."
+        },
+        {
+          "id": "encrypted-dns",
+          "risk": "Modern browsers and proxies use DoH/DoT to bypass local DNS visibility, rendering hb_dns_activity silent for these resolutions.",
+          "owner": "Infrastructure Team",
+          "stage": "proxy-infrastructure-resolution",
+          "question": "Are tunneling domains being resolved over encrypted DNS (DoH/DoT)?",
+          "requires": "hb_dns_activity from endpoint including DoH/DoT",
+          "remediation": "Deploy endpoint policies to disable DoH or intercept DoH traffic at the gateway."
+        }
+      ]
+    },
+    "name": "Multi-hop Proxy and Tor Infrastructure Activity",
+    "description": "Adversaries often chain proxies or use encrypted tunneling services to disguise the origin and destination of malicious traffic. This hunt identifies suspicious binaries running from user-writable paths that establish outbound network connections. It corroborates these leads by checking for DNS resolutions of known tunneling providers and network traffic on standard Tor relay ports. An agent weighs the location of the binary, the destination domains, and the port behavior to distinguish unauthorized proxy activity from legitimate administrative tools."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "proxy-infrastructure-resolution",
+            "steps": [
+              "dns-proxy-resolution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "proxy-tunnel-establishment",
+            "steps": [
+              "network-activity-writable-paths",
+              "tor-relay-port-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is masking command-and-control traffic by routing it through multi-hop proxies, Tor entry nodes, or tunneling services to bypass perimeter monitoring.",
+        "blind_spots": [
+          {
+            "id": "incomplete-network-telemetry",
+            "risk": "A persistent but low-volume tunnel may be indistinguishable from background noise without traffic volume analysis.",
+            "owner": "Network Engineering",
+            "stage": "proxy-tunnel-establishment",
+            "question": "What is the volume of data being exfiltrated or tunneled?",
+            "requires": "hb_network_connection with bytes/packets for outbound traffic",
+            "remediation": "Enable flow log capture with byte counts for all outbound VPC traffic."
+          },
+          {
+            "id": "encrypted-dns",
+            "risk": "Modern browsers and proxies use DoH/DoT to bypass local DNS visibility, rendering hb_dns_activity silent for these resolutions.",
+            "owner": "Infrastructure Team",
+            "stage": "proxy-infrastructure-resolution",
+            "question": "Are tunneling domains being resolved over encrypted DNS (DoH/DoT)?",
+            "requires": "hb_dns_activity from endpoint including DoH/DoT",
+            "remediation": "Deploy endpoint policies to disable DoH or intercept DoH traffic at the gateway."
+          }
+        ],
+        "scoping_notes": "Focus on endpoints with high user activity first. Populate the scope_hosts and scope_processes parameters from the results of the lead query to narrow the corroboration steps if the initial results are noisy.",
+        "beyond_detection": "Existing rules look for specific ngrok and .onion domain strings. This hunt pivots to identify the process behavior (running from writable paths) and correlates it with network signatures (9001/9050 ports) and subdomain-agnostic DNS patterns to find unknown proxy tools that rotation would normally hide."
+      }
+    },
+    {
+      "id": "network-activity-writable-paths",
+      "type": "query",
+      "label": "Outbound activity from user-writable paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, process_path, user_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE direction = 'outbound' AND (LOWER(process_path) LIKE '%\\users\\public\\%' OR LOWER(process_path) LIKE '%\\appdata\\%' OR LOWER(process_path) LIKE '/tmp/%' OR LOWER(process_path) LIKE '/var/tmp/%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify potential proxy or tunnel binaries by finding outbound network connections originating from suspicious directories.",
+        "expected_signal": "Outbound connections from binaries in temporary or public folders. Legitimate applications like installers or browser updaters may appear, but persistence tools or proxies are the targets."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Outbound activity from user-writable paths",
+        "reads": [
+          "device_hostname",
+          "direction",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "process_path",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, process_path, user_name, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE direction = 'outbound' AND (LOWER(process_path) LIKE '%\\users\\public\\%' OR LOWER(process_path) LIKE '%\\appdata\\%' OR LOWER(process_path) LIKE '/tmp/%' OR LOWER(process_path) LIKE '/var/tmp/%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Outbound connections from binaries in temporary or public folders. Legitimate applications like installers or browser updaters may appear, but persistence tools or proxies are the targets.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "dns-proxy-resolution",
+      "type": "query",
+      "label": "Tunnel and Proxy domain resolution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{proxy_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR query_hostname LIKE '%.onion%' OR query_hostname LIKE '%.onion.%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{scope_processes}}' = '' OR instr(',' || '{{scope_processes}}' || ',', ',' || process_name || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Find resolution of domains associated with tunneling services or Tor infrastructure.",
+        "expected_signal": "Lookups for tunneling services or .onion domains. Frequent resolution by a non-browser process is suspicious."
+      },
+      "parents": [
+        {
+          "id": "network-activity-writable-paths"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Tunnel and Proxy domain resolution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{proxy_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR query_hostname LIKE '%.onion%' OR query_hostname LIKE '%.onion.%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{scope_processes}}' = '' OR instr(',' || '{{scope_processes}}' || ',', ',' || process_name || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Lookups for tunneling services or .onion domains. Frequent resolution by a non-browser process is suspicious.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "tor-relay-port-activity",
+      "type": "query",
+      "label": "Known Tor and Relay port traffic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, COUNT(*) AS session_count FROM hb_network_connection WHERE dst_endpoint_port IN (9001, 9050, 9150) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{scope_processes}}' = '' OR instr(',' || '{{scope_processes}}' || ',', ',' || process_name || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name",
+        "surface": "hb_network_connection",
+        "description": "Detect network traffic directed at common Tor entry and relay ports.",
+        "expected_signal": "Outbound TCP sessions to ports 9001, 9050, or 9150. These are the default ports for Tor and various proxy implementations."
+      },
+      "parents": [
+        {
+          "id": "network-activity-writable-paths"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Known Tor and Relay port traffic",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name, COUNT(*) AS session_count FROM hb_network_connection WHERE dst_endpoint_port IN (9001, 9050, 9150) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{scope_processes}}' = '' OR instr(',' || '{{scope_processes}}' || ',', ',' || process_name || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip, dst_endpoint_port, process_name",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "Outbound TCP sessions to ports 9001, 9050, or 9150. These are the default ports for Tor and various proxy implementations.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-proxy-behavior",
+      "type": "analytic",
+      "label": "Triage proxy and tunnel activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "network-activity-writable-paths",
+          "dns-proxy-resolution",
+          "tor-relay-port-activity"
+        ],
+        "objective": "Determine if any host shows a pattern of running a binary from a writable path that also performs proxy-related DNS resolution or connects to standard Tor ports.",
+        "description": "Correlate the process location, DNS resolution, and network ports to determine if the activity is an unauthorized multi-hop proxy.",
+        "max_iterations": 5,
+        "success_criteria": "A per-host verdict of malicious, suspicious, or benign based on the correlation of the three data points."
+      },
+      "parents": [
+        {
+          "id": "dns-proxy-resolution",
+          "kind": "merge"
+        },
+        {
+          "id": "tor-relay-port-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "verdict-routing",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "incomplete-network-telemetry",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's confidence in the malicious proxy finding.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-proxy-behavior"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Host and Terminate Process",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the potentially compromised host to prevent further C2 communication or data tunneling.",
+        "instructions": "Isolate the host and terminate the process identified in the triage report. Collect the binary for analysis before proceeding.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "verdict-routing",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-forensic-review",
+      "type": "task",
+      "label": "Forensic binary and connection review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Analyze the identified binary to confirm proxy or tunneling capability and identify the intended C2 destination.",
+        "instructions": "Examine the binary identified by the triage agent. Check for static strings related to proxy protocols (SOCKS, HTTP) or tunneling tokens. Review destination IPs for association with known VPS providers."
+      },
+      "parents": [
+        {
+          "id": "verdict-routing",
+          "branch": "default"
+        },
+        {
+          "id": "verdict-routing",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update any domain/IP blocklists based on the identified infrastructure.",
+        "instructions": "Document the hunt results. If malicious activity was found, promote the network-activity-writable-paths query to a detection rule if it did not exist, or tune existing ones."
+      },
+      "parents": [
+        {
+          "id": "verdict-routing",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-forensic-review"
+        }
+      ]
+    }
+  ]
+}

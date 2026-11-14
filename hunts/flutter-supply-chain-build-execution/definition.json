@@ -1,0 +1,641 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Supply chain attacks against trusted maintainers bypass reputation-based filters; confirming the absence of these malicious build hooks protects high-value credentials in development pipelines."
+      },
+      "name": "Flutter Supply Chain Build Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1195",
+        "attack.t1190",
+        "attack.t1204.002",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "dependency-confusion-npm-pypi",
+          "reason": "This hunt focuses specifically on the Flutter/Dart build-time injection; NPM confusion is a separate sibling hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt is superior to a single rule because it pivots between host inventory and behavioural prevalence. A single rule targeting the rotating C2 domains would fail as the attacker updates their infrastructure, but the hunt identifies the durable pattern of obfuscated shell execution originating from build tools.",
+      "coverage": [
+        {
+          "stage": "initial-access-supply-chain-registry",
+          "steps": [
+            "find-affected-packages"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-native-build-injection",
+          "steps": [
+            "rare-process-baseline",
+            "build-script-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-rotating-domain-callback",
+          "steps": [
+            "c2-dns-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Malicious Flutter package ingestion",
+            "slug": "initial-access-supply-chain-registry",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195",
+              "T1190"
+            ],
+            "observables": [
+              "universal_file_viewer version 0.1.5",
+              "universal_file_viewer version 0.1.6",
+              "surveyjs_flutter version 0.1.1",
+              "surveyjs_flutter version 0.1.2",
+              "surveyjs_flutter version 0.1.3",
+              "pubspec.lock",
+              "pub.dev"
+            ]
+          },
+          {
+            "name": "Build-time code execution",
+            "slug": "execution-native-build-injection",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "build.gradle.kts",
+              "project.pbxproj",
+              "example/android/app/build.gradle.kts",
+              "example/ios/Runner.xcodeproj/project.pbxproj",
+              "PBXBuildRule with filePatterns = \"*.md\"",
+              "build setting A3EA261",
+              "printf xAxd | tr -d A",
+              "printf bdase64 | tr -d d",
+              "sh"
+            ]
+          },
+          {
+            "name": "C2 payload download",
+            "slug": "c2-rotating-domain-callback",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "elvynforge.xyz",
+              "POST /a",
+              "body p=xcode_phase",
+              "body p=gradle",
+              "body p=xcode_rule",
+              "rotating .ru domains"
+            ]
+          }
+        ],
+        "summary": "Legitimate Flutter packages on the pub.dev registry were compromised after a maintainer's development environment was infected, leading to the injection of malicious code into native build files. This code executes during build-time on developer or CI machines to download and execute shell scripts from remote C2 domains, targeting sensitive credentials and secrets."
+      },
+      "severity": "high",
+      "rationale": "Focus initial analysis on developer VLANs and CI/CD runners. While the download count was low, transitive dependencies mean these packages could appear in unexpected projects.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has compromised developer and CI environments by injecting malicious Flutter packages that execute obfuscated shell scripts during native Android or iOS builds.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "ossprey-blog",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[domain]",
+          "default": [
+            "elvynforge.xyz"
+          ],
+          "description": "Known C2 domains; the hunt also looks for generic .ru TLD traffic from build processes."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "scoping-output",
+            "kind": "manual",
+            "observed": "2026-09-08"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts from the lead query to focus the behavioral analysis."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "ossprey-blog",
+            "kind": "article",
+            "observed": "2026-08-12"
+          },
+          "type": "number",
+          "default": "30",
+          "description": "Days of history to examine, covering the known activity window."
+        },
+        "affected_packages": {
+          "from": {
+            "ref": "ossprey-blog",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[string]",
+          "default": [
+            "universal_file_viewer",
+            "surveyjs_flutter"
+          ],
+          "description": "Names of the compromised Flutter packages."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.ossprey.com/blog/pub-dev-compromise",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.ossprey.com/blog/pub-dev-compromise",
+          "name": "OSSPREY \u2014 pub.dev compromise: malicious Dart/Flutter packages"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "ci-runner-ephemerality",
+          "risk": "A malicious build could execute on a short-lived runner, exfiltrate credentials, and disappear without being recorded in the inventory surface.",
+          "owner": "Cloud Infrastructure",
+          "stage": "initial-access-supply-chain-registry",
+          "question": "whether ephemeral CI runners executed the build and terminated before inventory was captured",
+          "requires": "hb_software_inventory snapshot persistence",
+          "remediation": "Implement real-time package monitoring or log pubspec.lock file touches."
+        },
+        {
+          "id": "xcode-project-file-visibility",
+          "risk": "We can only see the execution of the script, not the latent build configuration itself, via current behavioral surfaces.",
+          "owner": "Security Engineering",
+          "stage": "execution-native-build-injection",
+          "question": "whether the malicious PBXBuildRule exists in the project configuration without the script executing",
+          "requires": "hb_file_activity with file content inspection",
+          "remediation": "Deploy a scanner to audit project.pbxproj files for unauthorized script build phases."
+        },
+        {
+          "id": "no-dns-logging",
+          "risk": "We rely on DNS to confirm the rotating .ru domains; if telemetry is missing, we may miss the callback confirmation.",
+          "owner": "Endpoint Engineering",
+          "stage": "c2-rotating-domain-callback",
+          "question": "whether the C2 callback occurred on hosts missing DNS telemetry",
+          "requires": "hb_dns_activity from developer hosts",
+          "remediation": "Ensure the endpoint agent is deployed with network monitoring to all developer machines."
+        }
+      ]
+    },
+    "name": "Flutter Supply Chain Build Execution",
+    "description": "This hunt targets a specific supply chain attack on the pub.dev ecosystem where malicious code was injected into native build files (Gradle and Xcode). The attack occurs at build time rather than runtime, making it invisible to standard application-level monitoring. The hunt first identifies hosts with the affected package versions, then fans out to look for characteristic obfuscated shell script execution, rare build-process activity, and C2 callbacks to rotating domains. An agent weighs the inventory, behavioral, and network evidence to determine if a host was compromised."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-supply-chain-registry",
+            "steps": [
+              "find-affected-packages"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-native-build-injection",
+            "steps": [
+              "rare-process-baseline",
+              "build-script-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-rotating-domain-callback",
+            "steps": [
+              "c2-dns-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has compromised developer and CI environments by injecting malicious Flutter packages that execute obfuscated shell scripts during native Android or iOS builds.",
+        "blind_spots": [
+          {
+            "id": "ci-runner-ephemerality",
+            "risk": "A malicious build could execute on a short-lived runner, exfiltrate credentials, and disappear without being recorded in the inventory surface.",
+            "owner": "Cloud Infrastructure",
+            "stage": "initial-access-supply-chain-registry",
+            "question": "whether ephemeral CI runners executed the build and terminated before inventory was captured",
+            "requires": "hb_software_inventory snapshot persistence",
+            "remediation": "Implement real-time package monitoring or log pubspec.lock file touches."
+          },
+          {
+            "id": "xcode-project-file-visibility",
+            "risk": "We can only see the execution of the script, not the latent build configuration itself, via current behavioral surfaces.",
+            "owner": "Security Engineering",
+            "stage": "execution-native-build-injection",
+            "question": "whether the malicious PBXBuildRule exists in the project configuration without the script executing",
+            "requires": "hb_file_activity with file content inspection",
+            "remediation": "Deploy a scanner to audit project.pbxproj files for unauthorized script build phases."
+          },
+          {
+            "id": "no-dns-logging",
+            "risk": "We rely on DNS to confirm the rotating .ru domains; if telemetry is missing, we may miss the callback confirmation.",
+            "owner": "Endpoint Engineering",
+            "stage": "c2-rotating-domain-callback",
+            "question": "whether the C2 callback occurred on hosts missing DNS telemetry",
+            "requires": "hb_dns_activity from developer hosts",
+            "remediation": "Ensure the endpoint agent is deployed with network monitoring to all developer machines."
+          }
+        ],
+        "scoping_notes": "Focus initial analysis on developer VLANs and CI/CD runners. While the download count was low, transitive dependencies mean these packages could appear in unexpected projects.",
+        "beyond_detection": "This hunt is superior to a single rule because it pivots between host inventory and behavioural prevalence. A single rule targeting the rotating C2 domains would fail as the attacker updates their infrastructure, but the hunt identifies the durable pattern of obfuscated shell execution originating from build tools."
+      }
+    },
+    {
+      "id": "find-affected-packages",
+      "type": "query",
+      "label": "Identify hosts with malicious package versions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path, provider FROM hb_software_inventory WHERE instr(',' || '{{affected_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 AND (package_version IN ('0.1.1', '0.1.2', '0.1.3', '0.1.5', '0.1.6'))",
+        "surface": "hb_software_inventory",
+        "description": "Find developer workstations or CI runners that have downloaded the specific compromised versions of the target packages.",
+        "expected_signal": "Hosts and paths where the packages are present. Silence means the specific versions were not detected in current inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify hosts with malicious package versions",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path",
+          "provider"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path, provider FROM hb_software_inventory WHERE instr(',' || '{{affected_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 AND (package_version IN ('0.1.1', '0.1.2', '0.1.3', '0.1.5', '0.1.6'))",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts and paths where the packages are present. Silence means the specific versions were not detected in current inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "assess-lead-scope",
+      "type": "analytic",
+      "label": "Assess lead scope",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "find-affected-packages"
+        ],
+        "objective": "Determine if any hosts in the environment have the specific malicious Flutter package versions present.",
+        "description": "Evaluate the lead query results to prioritize hosts for behavioral analysis.",
+        "max_iterations": 3,
+        "expected_signal": "A summary of identified hosts and versions.",
+        "success_criteria": "A list of hostnames requiring deep inspection."
+      },
+      "parents": [
+        {
+          "id": "find-affected-packages"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-discovery",
+      "type": "checkpoint",
+      "label": "Gate on discovery",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the assess-lead-scope agent identifies at least one host with a malicious package version",
+        "condition": "the assess-lead-scope agent identifies at least one host with a malicious package version",
+        "blind_spot": "ci-runner-ephemerality",
+        "confidence": "high",
+        "description": "Route to deeper behavioral queries only if affected packages are identified.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "assess-lead-scope"
+        }
+      ]
+    },
+    {
+      "id": "rare-process-baseline",
+      "type": "query",
+      "label": "Stack-count rare shell-spawned processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(parent_process_name) IN ('sh', 'zsh', 'bash') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_path HAVING host_count <= 3",
+        "surface": "hb_process_activity",
+        "description": "Identify rare child processes spawned by shell interpreters on developer hosts, which may indicate build-time injection.",
+        "expected_signal": "A small set of processes; unexpected binaries spawned from shells during builds are highlights."
+      },
+      "parents": [
+        {
+          "id": "gate-on-discovery",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Stack-count rare shell-spawned processes",
+        "reads": [
+          "device_hostname",
+          "process_path",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(parent_process_name) IN ('sh', 'zsh', 'bash') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_path HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A small set of processes; unexpected binaries spawned from shells during builds are highlights.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "build-script-activity",
+      "type": "query",
+      "label": "Detect obfuscated build scripts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%printf%tr%sh%' OR LOWER(script_content) LIKE '%a3ea261%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Find the specific obfuscation pattern (printf/tr/sh) used in the Gradle and Xcode build-time injections.",
+        "expected_signal": "A row containing the obfuscated shell command evaluated by sh. This is high-confidence evidence of the reported injection."
+      },
+      "parents": [
+        {
+          "id": "gate-on-discovery",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect obfuscated build scripts",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%printf%tr%sh%' OR LOWER(script_content) LIKE '%a3ea261%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A row containing the obfuscated shell command evaluated by sh. This is high-confidence evidence of the reported injection.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "c2-dns-activity",
+      "type": "query",
+      "label": "Match C2 network activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR LOWER(query_hostname) LIKE '%.ru') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Check for DNS callbacks to the known C2 domain or rotating .ru domains from processes involved in the build.",
+        "expected_signal": "DNS resolutions for the named domain or .ru TLDs from shell or developer tools. Silence means the domain has rotated or no callback occurred."
+      },
+      "parents": [
+        {
+          "id": "gate-on-discovery",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Match C2 network activity",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR LOWER(query_hostname) LIKE '%.ru') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS resolutions for the named domain or .ru TLDs from shell or developer tools. Silence means the domain has rotated or no callback occurred.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "final-triage",
+      "type": "analytic",
+      "label": "Final triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "assess-lead-scope",
+          "rare-process-baseline",
+          "build-script-activity",
+          "c2-dns-activity"
+        ],
+        "objective": "Determine if any host with the malicious packages also exhibits behavioral or network evidence of the build-time compromise.",
+        "description": "Synthesize the inventory, script, and network evidence into a per-host verdict.",
+        "max_iterations": 5,
+        "expected_signal": "A clear malicious | suspicious | benign verdict citing the package and script rows.",
+        "success_criteria": "A verdict citing script execution or C2 callbacks on a host with affected packages."
+      },
+      "parents": [
+        {
+          "id": "rare-process-baseline",
+          "kind": "merge"
+        },
+        {
+          "id": "build-script-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "c2-dns-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-triage verdict is malicious for at least one host",
+        "condition": "the final-triage verdict is malicious for at least one host",
+        "blind_spot": "no-dns-logging",
+        "confidence": "high",
+        "description": "Isolate confirmed compromised hosts or route to analyst review for suspicious cases.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop potential credential exfiltration from a confirmed compromised developer machine.",
+        "instructions": "Isolate the host from the network and revoke any CI secrets or cloud credentials stored on the machine.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "remediation-tasks",
+      "type": "task",
+      "label": "Remediation tasks",
+      "config": {
+        "assignee": "analyst",
+        "description": "Guide the analyst through manual verification and credential rotation.",
+        "instructions": "Manually inspect the pubspec.lock files on the identified hosts. Review the full text of any scripts captured in hb_script_activity. Rotate all credentials that were active on the machine during the identified lookback window."
+      },
+      "parents": [
+        {
+          "id": "gate-on-discovery",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-discovery",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and document any coverage gaps.",
+        "instructions": "Document which hosts were inspected and whether additional forensic collection is required. Record any tuning notes if the obfuscated script check caught benign developer activity."
+      },
+      "parents": [
+        {
+          "id": "gate-on-discovery",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "remediation-tasks"
+        }
+      ]
+    }
+  ]
+}

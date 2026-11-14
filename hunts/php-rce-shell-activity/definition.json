@@ -1,0 +1,490 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "PHP is a foundational component for web applications. These unauthenticated remote code execution vulnerabilities (CVE-2026-109618, CVE-2026-109619) pose a critical risk to any internet-facing host. A negative result across the estate provides necessary assurance that these flaws have not been weaponized internally."
+      },
+      "name": "PHP Remote Code Execution and Shell Activity",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1059.003",
+        "attack.t1059.004",
+        "attack.t1105",
+        "command and control",
+        "execution",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "web-server-webshell-behavior",
+          "reason": "This hunt targets the specific PHP RCE advisory; a sibling hunt addresses broader webshell persistence behavior across all web servers.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule might alert on a shell from a web process, but this hunt adds value by scoping to vulnerable software inventory, stack-counting rare child processes to find non-standard tool use, and applying an agent read across multiple queries to distinguish exploitation from admin maintenance.",
+      "coverage": [
+        {
+          "stage": "vulnerability-exposure",
+          "steps": [
+            "identify-vulnerable-php-instances"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "web-based-exploitation",
+          "reason": "Exploitation payloads for these CVEs often reside in HTTP bodies or headers which hb_http_activity does not reliably capture.",
+          "status": "not_visible",
+          "blind_spot": "http-payload-visibility"
+        },
+        {
+          "stage": "php-shell-execution",
+          "steps": [
+            "rare-php-child-processes",
+            "detect-suspicious-php-children"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "ingress-tool-retrieval",
+          "steps": [
+            "detect-suspicious-php-children"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Exposure to PHP RCE Vulnerabilities",
+            "slug": "vulnerability-exposure",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "CVE-2026-109618",
+              "CVE-2026-109619",
+              "PHP 8.2 < 8.2.35",
+              "PHP 8.3 < 8.3.36",
+              "PHP 8.4 < 8.4.27",
+              "PHP 8.5 < 8.5.12",
+              "PHP 8.1 and earlier"
+            ]
+          },
+          {
+            "name": "Unauthenticated Remote Code Execution",
+            "slug": "web-based-exploitation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "HTTP requests targeting PHP handlers",
+              "Exploitation of php2shell"
+            ]
+          },
+          {
+            "name": "PHP Worker Process Spawning Shells",
+            "slug": "php-shell-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.003",
+              "T1059.004"
+            ],
+            "observables": [
+              "php-fpm spawning /bin/sh",
+              "php-fpm spawning /bin/bash",
+              "php.exe spawning cmd.exe",
+              "php.exe spawning powershell.exe",
+              "PHP worker processes launching shells"
+            ]
+          },
+          {
+            "name": "Tool Download via PHP Process",
+            "slug": "ingress-tool-retrieval",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1105"
+            ],
+            "observables": [
+              "php-fpm spawning curl",
+              "php-fpm spawning wget",
+              "php.exe spawning certutil.exe",
+              "PHP worker processes downloading tools"
+            ]
+          }
+        ],
+        "summary": "Attackers exploit unauthenticated remote code execution vulnerabilities in PHP, known as 'php2shell' (CVE-2026-109618, CVE-2026-109619), to gain initial access to web servers. Following exploitation, the vulnerability is leveraged to command PHP worker processes to spawn interactive shells or download additional malicious tools."
+      },
+      "severity": "high",
+      "rationale": "The hunt uses hb_software_inventory to identify unpatched PHP versions. This is more reliable than vulnerability findings alone, as CISA notes PHP is often embedded and not directly observable by all scanners. The behavioral analysis then focuses on the hosts running these specific versions.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is exploiting the php2shell vulnerabilities (CVE-2026-109618 or CVE-2026-109619) to execute unauthenticated code, which manifests as PHP worker processes spawning interactive shells or utility tools to retrieve secondary payloads.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Limit analysis to these hostnames; leave empty for the full estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "suspicious_tools": {
+          "type": "list[string]",
+          "default": [
+            "sh",
+            "bash",
+            "cmd.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "curl",
+            "wget",
+            "certutil.exe"
+          ],
+          "description": "Common shells and download tools used in post-exploitation."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.cisa.gov/news-events/alerts/2026/10/21/critical-vulnerabilities-php-require-immediate-patching",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.cisa.gov/news-events/alerts/2026/10/21/critical-vulnerabilities-php-require-immediate-patching",
+          "name": "CISA Advisory: Critical Vulnerabilities in PHP Require Immediate Patching"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "vulnerability-scan-staleness",
+          "risk": "A newly deployed or unmanaged server running vulnerable PHP would not appear in the scoping query, creating a blind spot for the rest of the hunt.",
+          "stage": "vulnerability-exposure",
+          "question": "Which systems have unpatched PHP versions but have not reported inventory in the last 24 hours?",
+          "requires": "recent hb_software_inventory collection"
+        },
+        {
+          "id": "http-payload-visibility",
+          "risk": "Without the request body, the hunt cannot observe the exploitation attempt itself, only the resulting process behavior, which an adversary could attempt to obfuscate.",
+          "stage": "web-based-exploitation",
+          "question": "Does the HTTP request contain the php2shell exploit payload?",
+          "requires": "hb_http_activity with full request body"
+        }
+      ]
+    },
+    "name": "PHP Remote Code Execution and Shell Activity",
+    "description": "This hunt identifies internet-facing systems running vulnerable versions of PHP and monitors for post-exploitation indicators following an unauthenticated remote code execution. It follows the exposure flow, starting with a scope of vulnerable software versions, then baselines the normal behavior of PHP worker processes like php-fpm or php.exe to find rare child processes. Finally, it looks for specific, high-confidence behavior of shells and downloaders being spawned directly from PHP handlers. An agent then weighs the prevalence and behavior together to identify compromised hosts."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "vulnerability-exposure",
+            "steps": [
+              "identify-vulnerable-php-instances"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "web-based-exploitation",
+            "reason": "Exploitation payloads for these CVEs often reside in HTTP bodies or headers which hb_http_activity does not reliably capture.",
+            "status": "not_visible",
+            "blind_spot": "http-payload-visibility"
+          },
+          {
+            "stage": "php-shell-execution",
+            "steps": [
+              "rare-php-child-processes",
+              "detect-suspicious-php-children"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "ingress-tool-retrieval",
+            "steps": [
+              "detect-suspicious-php-children"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is exploiting the php2shell vulnerabilities (CVE-2026-109618 or CVE-2026-109619) to execute unauthenticated code, which manifests as PHP worker processes spawning interactive shells or utility tools to retrieve secondary payloads.",
+        "blind_spots": [
+          {
+            "id": "vulnerability-scan-staleness",
+            "risk": "A newly deployed or unmanaged server running vulnerable PHP would not appear in the scoping query, creating a blind spot for the rest of the hunt.",
+            "stage": "vulnerability-exposure",
+            "question": "Which systems have unpatched PHP versions but have not reported inventory in the last 24 hours?",
+            "requires": "recent hb_software_inventory collection"
+          },
+          {
+            "id": "http-payload-visibility",
+            "risk": "Without the request body, the hunt cannot observe the exploitation attempt itself, only the resulting process behavior, which an adversary could attempt to obfuscate.",
+            "stage": "web-based-exploitation",
+            "question": "Does the HTTP request contain the php2shell exploit payload?",
+            "requires": "hb_http_activity with full request body"
+          }
+        ],
+        "scoping_notes": "The hunt uses hb_software_inventory to identify unpatched PHP versions. This is more reliable than vulnerability findings alone, as CISA notes PHP is often embedded and not directly observable by all scanners. The behavioral analysis then focuses on the hosts running these specific versions.",
+        "beyond_detection": "A standard detection rule might alert on a shell from a web process, but this hunt adds value by scoping to vulnerable software inventory, stack-counting rare child processes to find non-standard tool use, and applying an agent read across multiple queries to distinguish exploitation from admin maintenance."
+      }
+    },
+    {
+      "id": "identify-vulnerable-php-instances",
+      "type": "query",
+      "label": "Identify vulnerable PHP instances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) = 'php' OR LOWER(package_name) LIKE 'php%') AND (package_version < '8.2.35' OR (package_version >= '8.3' AND package_version < '8.3.36') OR (package_version >= '8.4' AND package_version < '8.4.27') OR (package_version >= '8.5' AND package_version < '8.5.12'))",
+        "surface": "hb_software_inventory",
+        "description": "Inventory systems running PHP versions below the security fix thresholds to establish the vulnerable surface.",
+        "expected_signal": "A list of hostnames running unpatched versions of PHP. Silence indicates no known vulnerable PHP installations are present in the inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable PHP instances",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) = 'php' OR LOWER(package_name) LIKE 'php%') AND (package_version < '8.2.35' OR (package_version >= '8.3' AND package_version < '8.3.36') OR (package_version >= '8.4' AND package_version < '8.4.27') OR (package_version >= '8.5' AND package_version < '8.5.12'))",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames running unpatched versions of PHP. Silence indicates no known vulnerable PHP installations are present in the inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-22"
+      }
+    },
+    {
+      "id": "rare-php-child-processes",
+      "type": "query",
+      "label": "Rare child processes of PHP workers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_name) AS child_process, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%php-fpm%' OR LOWER(parent_process_name) LIKE '%php.exe%' OR LOWER(parent_process_name) LIKE '%php-cgi%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY child_process HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count children of PHP worker processes across the scoped hosts to find anomalous binaries that differ from standard web server behavior.",
+        "expected_signal": "Anomalous binaries appearing on only a few hosts stand out from fleet-wide standard children. Silence suggests the PHP processes are only performing expected operations."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-php-instances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare child processes of PHP workers",
+        "reads": [
+          "process_name",
+          "parent_process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_name) AS child_process, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%php-fpm%' OR LOWER(parent_process_name) LIKE '%php.exe%' OR LOWER(parent_process_name) LIKE '%php-cgi%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY child_process HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Anomalous binaries appearing on only a few hosts stand out from fleet-wide standard children. Silence suggests the PHP processes are only performing expected operations.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-22"
+      }
+    },
+    {
+      "id": "detect-suspicious-php-children",
+      "type": "query",
+      "label": "Specific shell or downloader activity from PHP",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%php-fpm%' OR LOWER(parent_process_name) LIKE '%php.exe%' OR LOWER(parent_process_name) LIKE '%php-cgi%') AND (instr(',' || '{{suspicious_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || '{{suspicious_tools}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Monitor for the high-confidence behavioral indicator of a PHP worker process launching common shells or ingress tools.",
+        "expected_signal": "A hit shows a PHP process spawning a shell or utility, which is a strong indicator of successful remote code execution. Silence is evidence of absence for this specific behavioral pattern."
+      },
+      "parents": [
+        {
+          "id": "rare-php-child-processes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Specific shell or downloader activity from PHP",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "process_original_file_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%php-fpm%' OR LOWER(parent_process_name) LIKE '%php.exe%' OR LOWER(parent_process_name) LIKE '%php-cgi%') AND (instr(',' || '{{suspicious_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR instr(',' || '{{suspicious_tools}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "A hit shows a PHP process spawning a shell or utility, which is a strong indicator of successful remote code execution. Silence is evidence of absence for this specific behavioral pattern.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-22"
+      }
+    },
+    {
+      "id": "analyze-php-activity",
+      "type": "analytic",
+      "label": "Analyze PHP exposure and child behavior",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "identify-vulnerable-php-instances",
+          "rare-php-child-processes",
+          "detect-suspicious-php-children"
+        ],
+        "objective": "Review the inventory of vulnerable PHP hosts and determine if any match the hosts exhibiting rare child processes or specific shell/tool launches. Determine if the behavior is malicious exploitation or benign administrator activity.",
+        "description": "Correlate the list of vulnerable hosts with the observed rare and suspicious process behavior to identify compromised systems.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict indicating whether exploitation has likely occurred on vulnerable systems.",
+        "success_criteria": "A verdict for each host citing evidence from process logs and inventory state."
+      },
+      "parents": [
+        {
+          "id": "detect-suspicious-php-children"
+        }
+      ]
+    },
+    {
+      "id": "exploitation-decision",
+      "type": "checkpoint",
+      "label": "Exploitation decision",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the verdict for any host is malicious based on shell or tool activity from a PHP worker",
+        "condition": "the verdict for any host is malicious based on shell or tool activity from a PHP worker",
+        "blind_spot": "vulnerability-scan-staleness",
+        "confidence": "high",
+        "description": "Route to remediation if an agent identifies evidence of unauthenticated shell execution on a vulnerable PHP host.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "analyze-php-activity"
+        }
+      ]
+    },
+    {
+      "id": "remediation-review",
+      "type": "task",
+      "label": "Remediation and patching review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Conduct an incident response investigation for compromised hosts and ensure all vulnerable hosts are prioritized for immediate patching.",
+        "instructions": "For hosts identified with malicious shell activity, perform an incident response investigation to determine the extent of the breach and lateral movement. For all other hosts identified in the scoping step, immediately update PHP to the patched versions (8.5.12, 8.4.27, 8.3.36, or 8.2.35) as mandated by CISA."
+      },
+      "parents": [
+        {
+          "id": "exploitation-decision",
+          "branch": "on_supports"
+        },
+        {
+          "id": "exploitation-decision",
+          "branch": "default"
+        },
+        {
+          "id": "exploitation-decision",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the hunt results and notify the vulnerability management team of the current exposure status.",
+        "instructions": "Confirm that no indicators of active exploitation were found during the lookback period. Provide the list of vulnerable PHP hostnames to the patching team for remediation and close the hunt."
+      },
+      "parents": [
+        {
+          "id": "exploitation-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

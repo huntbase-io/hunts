@@ -1,0 +1,498 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Session replay is a primary method for bypassing MFA. Proving its absence across targeted high-value accounts provides critical assurance against sophisticated account takeover attempts."
+      },
+      "name": "Session Hijacking and Replay Investigation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1133",
+        "attack.t1555.003",
+        "attack.t1550.004",
+        "credential access",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "mfa-push-fatigue-attack",
+          "reason": "This hunt focuses on session reuse, while push fatigue focuses on the coercion of a new MFA event.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single rule might detect unauthorized cookie access, but the hunt correlates that with identity-level anomalies (impossible travel, proxy logins) across separate telemetry surfaces to confirm a hijacking incident without excessive noise.",
+      "coverage": [
+        {
+          "stage": "credential-access-session-theft",
+          "steps": [
+            "rare-binaries",
+            "unauthorized-cookie-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-session-replay",
+          "steps": [
+            "suspicious-sign-ins"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Browser Session Material Theft",
+            "slug": "credential-access-session-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555.003"
+            ],
+            "observables": [
+              "unsigned process",
+              "browser session material",
+              "cfo@corp"
+            ]
+          },
+          {
+            "name": "Impossible Travel via Session Replay",
+            "slug": "initial-access-session-replay",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1133",
+              "T1550.004"
+            ],
+            "observables": [
+              "Boston",
+              "distant hosting network",
+              "same session identifier",
+              "no fresh MFA event",
+              "cfo@corp"
+            ]
+          }
+        ],
+        "summary": "An attacker uses an unsigned process on a compromised endpoint to steal browser session material, allowing them to hijack an executive account. The stolen session is then replayed from a distant hosting network to bypass multi-factor authentication, resulting in an unauthorized login that manifests as an impossible-travel event."
+      },
+      "severity": "high",
+      "rationale": "The analyst starts with high-value executive accounts (CFO, CEO) and administrators. The hunt focuses endpoint scoping on hosts whose names appear as src_endpoint_hostname in anomalous sign-in events.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has stolen session cookies from a high-value endpoint and replayed them from a hosting network to bypass MFA and access corporate resources.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts to narrow the search for cookie theft."
+        },
+        "browser_excl": {
+          "from": {
+            "ref": "Common Browser Process Names",
+            "kind": "manual",
+            "observed": "2026-10-08"
+          },
+          "type": "list[string]",
+          "default": [
+            "chrome.exe",
+            "msedge.exe",
+            "firefox.exe",
+            "brave.exe",
+            "opera.exe"
+          ],
+          "description": "Legitimate browser processes to exclude from file access checks."
+        },
+        "target_users": {
+          "from": {
+            "ref": "Introducing AlertZero",
+            "kind": "article",
+            "observed": "2026-10-08"
+          },
+          "type": "list[string]",
+          "default": [
+            "cfo@corp"
+          ],
+          "description": "High-value accounts to monitor for anomalous logins."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "Standard Hunt Window",
+            "kind": "manual",
+            "observed": "2026-10-08"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/ai-soc-automation-alertzero",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/ai-soc-automation-alertzero",
+          "name": "Introducing AlertZero: Inbox zero for your alert queue"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-file-read-telemetry",
+          "risk": "Endpoint configurations often only audit file writes; cookie theft via reading would be invisible.",
+          "stage": "credential-access-session-theft",
+          "question": "whether a process read browser files silently",
+          "requires": "hb_file_activity with file-read auditing"
+        },
+        {
+          "id": "identity-proxy-labeling",
+          "risk": "If the identity provider fails to flag a hosting network as a proxy, the replay may appear as a legitimate sign-in.",
+          "stage": "initial-access-session-replay",
+          "question": "whether a login originated from a hosting network",
+          "requires": "Accurate proxy and hosting network identification in hb_auth_signin"
+        }
+      ]
+    },
+    "name": "Session Hijacking and Replay Investigation",
+    "description": "This hunt identifies account takeovers caused by session replay. It correlates anomalous sign-in events like impossible travel or proxy usage with endpoint evidence of browser cookie theft. By finding where unauthorized processes have accessed sensitive browser profile data on the same hosts used by targeted accounts, the hunt distinguishes between legitimate remote access and malicious session identifier reuse. It focuses on the pattern of session identifier reuse without a fresh MFA event, originating from hosting network IPs or anonymizing proxies."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "credential-access-session-theft",
+            "steps": [
+              "rare-binaries",
+              "unauthorized-cookie-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-session-replay",
+            "steps": [
+              "suspicious-sign-ins"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has stolen session cookies from a high-value endpoint and replayed them from a hosting network to bypass MFA and access corporate resources.",
+        "blind_spots": [
+          {
+            "id": "missing-file-read-telemetry",
+            "risk": "Endpoint configurations often only audit file writes; cookie theft via reading would be invisible.",
+            "stage": "credential-access-session-theft",
+            "question": "whether a process read browser files silently",
+            "requires": "hb_file_activity with file-read auditing"
+          },
+          {
+            "id": "identity-proxy-labeling",
+            "risk": "If the identity provider fails to flag a hosting network as a proxy, the replay may appear as a legitimate sign-in.",
+            "stage": "initial-access-session-replay",
+            "question": "whether a login originated from a hosting network",
+            "requires": "Accurate proxy and hosting network identification in hb_auth_signin"
+          }
+        ],
+        "scoping_notes": "The analyst starts with high-value executive accounts (CFO, CEO) and administrators. The hunt focuses endpoint scoping on hosts whose names appear as src_endpoint_hostname in anomalous sign-in events.",
+        "beyond_detection": "A single rule might detect unauthorized cookie access, but the hunt correlates that with identity-level anomalies (impossible travel, proxy logins) across separate telemetry surfaces to confirm a hijacking incident without excessive noise."
+      }
+    },
+    {
+      "id": "suspicious-sign-ins",
+      "type": "query",
+      "label": "Suspicious sign-ins for target accounts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT DISTINCT src_endpoint_hostname AS device_hostname, actor_user_name, src_endpoint_ip, src_location_country, is_proxy, time FROM hb_auth_signin WHERE instr(',' || '{{target_users}}' || ',', ',' || LOWER(actor_user_name) || ',') > 0 AND status_id = 1 AND (is_proxy = 'true' OR src_location_country IS NOT NULL) AND src_endpoint_hostname IS NOT NULL AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "The hunt finds successful sign-ins from proxies or distant countries for target users to scope the endpoint investigation.",
+        "expected_signal": "Rows map suspicious external logins to internal workstation names. Silence means no suspicious external auth was recorded for these users."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Suspicious sign-ins for target accounts",
+        "reads": [
+          "src_endpoint_hostname",
+          "actor_user_name",
+          "src_endpoint_ip",
+          "src_location_country",
+          "is_proxy",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT DISTINCT src_endpoint_hostname AS device_hostname, actor_user_name, src_endpoint_ip, src_location_country, is_proxy, time FROM hb_auth_signin WHERE instr(',' || '{{target_users}}' || ',', ',' || LOWER(actor_user_name) || ',') > 0 AND status_id = 1 AND (is_proxy = 'true' OR src_location_country IS NOT NULL) AND src_endpoint_hostname IS NOT NULL AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows map suspicious external logins to internal workstation names. Silence means no suspicious external auth was recorded for these users.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-09"
+      }
+    },
+    {
+      "id": "rare-binaries",
+      "type": "query",
+      "label": "Rare binary baseline",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_name) AS proc, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY proc HAVING hosts < 3",
+        "surface": "hb_process_activity",
+        "description": "The hunt identifies rare processes running on the scoped hosts that might harvest cookies.",
+        "expected_signal": "The query returns processes unique to a scoped host. Common software should be filtered out by the count."
+      },
+      "parents": [
+        {
+          "id": "suspicious-sign-ins"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare binary baseline",
+        "reads": [
+          "process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_name) AS proc, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY proc HAVING hosts < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "The query returns processes unique to a scoped host. Common software should be filtered out by the count.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-09"
+      }
+    },
+    {
+      "id": "unauthorized-cookie-access",
+      "type": "query",
+      "label": "Access to browser session material",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, actor_user_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(file_path) LIKE '%\\\\cookies' OR LOWER(file_path) LIKE '%\\\\login data' OR LOWER(file_path) LIKE '%\\\\local state') AND NOT instr(',' || '{{browser_excl}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "The hunt detects processes reading browser cookie files while excluding the browser itself.",
+        "expected_signal": "A row shows a non-browser process accessing browser material. Silence means the file surface did not see unauthorized reads."
+      },
+      "parents": [
+        {
+          "id": "suspicious-sign-ins"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Access to browser session material",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, actor_user_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(file_path) LIKE '%\\\\cookies' OR LOWER(file_path) LIKE '%\\\\login data' OR LOWER(file_path) LIKE '%\\\\local state') AND NOT instr(',' || '{{browser_excl}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A row shows a non-browser process accessing browser material. Silence means the file surface did not see unauthorized reads.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-09"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Weigh the evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "suspicious-sign-ins",
+          "rare-binaries",
+          "unauthorized-cookie-access"
+        ],
+        "objective": "Determine if a scoped host shows unauthorized browser material access followed by a suspicious sign-in for that same user from a proxy or hosting network.",
+        "description": "The agent correlates suspicious sign-ins with rare processes and cookie access to confirm whether an adversary hijacked the session.",
+        "max_iterations": 6,
+        "expected_signal": "A verdict per host citing the specific process responsible for theft and the corresponding replayed sign-in.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host."
+      },
+      "parents": [
+        {
+          "id": "rare-binaries",
+          "kind": "merge"
+        },
+        {
+          "id": "unauthorized-cookie-access",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "missing-file-read-telemetry",
+        "confidence": "high",
+        "description": "The decision routes the investigation based on the agent verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "The analyst isolates the compromised host to prevent data exfiltration.",
+        "instructions": "Isolate the host using the endpoint agent and collect the identified rare binary for forensics.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "revoke-identity-sessions",
+      "type": "action",
+      "label": "Revoke identity sessions",
+      "config": {
+        "target": "identity",
+        "description": "The analyst invalidates the replayed session to stop the attacker's access.",
+        "instructions": "Revoke all active OAuth and SAML sessions for the affected user in the identity provider to invalidate replayed cookies.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "The analyst performs a final confirmation of the incident findings.",
+        "instructions": "Review the process tree for the identified binary and the user's recent cloud API activity for signs of exfiltration occurring after the suspicious login."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "revoke-identity-sessions"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the findings when no malicious activity is confirmed.",
+        "instructions": "Record the examined time window and any benign explanations for suspicious sign-ins, such as authorized corporate VPN usage or verified travel."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

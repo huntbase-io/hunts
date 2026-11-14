@@ -1,0 +1,529 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "WordPress core RCE vulnerabilities (wp2shell) are actively exploited in the wild. Ensuring all instances are patched and haven't been compromised is a critical priority for public-facing assets."
+      },
+      "name": "WordPress Core REST API RCE (wp2shell)",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1078",
+        "attack.t1090.003"
+      ],
+      "series": {
+        "slug": "wp2shell-critical-rce-in-wordpress-core",
+        "index": 1,
+        "title": "wp2shell: critical RCE in WordPress core",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "host-rce-execution",
+          "reason": "Host-level command execution following a successful webshell upload is covered by a separate post-exploit hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule might alert on any batch API request, but this hunt provides the context of vulnerable inventory, stack-counts the source IPs to find rare traffic, and correlates it with follow-on plugin file modifications to confirm compromise.",
+      "coverage": [
+        {
+          "stage": "wordpress-vulnerability-exposure",
+          "steps": [
+            "identify-vulnerable-wordpress"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "wp-batch-api-sqli-exploit",
+          "steps": [
+            "rare-batch-api-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "account-persistence-creation",
+          "reason": "Requires application-level database logs to see account creation; partially inferred from follow-on activity.",
+          "status": "not_visible",
+          "blind_spot": "wordpress-db-audit-gap"
+        },
+        {
+          "stage": "plugin-webshell-deployment",
+          "steps": [
+            "new-plugin-php-files"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "host-rce-execution",
+          "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "post-exploit-rdp-access",
+          "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Vulnerable WordPress Core Detection",
+            "slug": "wordpress-vulnerability-exposure",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "WordPress version 6.9.0-6.9.4",
+              "WordPress version 7.0.0-7.0.1",
+              "CVE-2026-63030",
+              "CVE-2026-60137"
+            ]
+          },
+          {
+            "name": "REST API Batch Endpoint SQLi",
+            "slug": "wp-batch-api-sqli-exploit",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190",
+              "T1090.003"
+            ],
+            "observables": [
+              "POST /wp-json/batch/v1",
+              "POST ?rest_route=/batch/v1",
+              "author__not_in parameter with UNION SELECT payloads",
+              "Traffic from Tor or proxy exit nodes"
+            ]
+          },
+          {
+            "name": "Unauthorized Administrator Creation",
+            "slug": "account-persistence-creation",
+            "tactic": "persistence",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "New administrator user creation via internal WordPress logic",
+              "Unexpected login to /wp-admin/ or /wp-login.php"
+            ]
+          },
+          {
+            "name": "Malicious Plugin Persistence",
+            "slug": "plugin-webshell-deployment",
+            "tactic": "persistence",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "Upload of .zip plugin files to /wp-admin/plugin-install.php",
+              "New .php files created in wp-content/plugins/"
+            ]
+          },
+          {
+            "name": "Remote Code Execution via Web Server",
+            "slug": "host-rce-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Web server (php-fpm, apache, nginx) spawning sh, bash, or cmd.exe",
+              "Execution of whoami, id, or net commands from web directory"
+            ]
+          },
+          {
+            "name": "Lateral Movement via RDP",
+            "slug": "post-exploit-rdp-access",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1021.001"
+            ],
+            "observables": [
+              "Inbound RDP connections on port 3389",
+              "Authentication to RDP using credentials created during the WordPress exploit"
+            ]
+          }
+        ],
+        "summary": "An unauthenticated attacker exploits a logic flaw in the WordPress REST API batch processor (CVE-2026-63030) combined with a SQL injection vulnerability (CVE-2026-60137) to bypass authentication. This exploit chain allows for the creation of unauthorized administrator accounts, which are subsequently used to upload malicious plugins for full remote code execution and lateral movement."
+      },
+      "severity": "high",
+      "rationale": "Start with servers that host public-facing websites. Use the first step's findings to populate the scope_hosts parameter for the subsequent behavioral queries.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An unauthenticated attacker executes code on an internet-facing WordPress server by exploiting a logic flaw in the REST API batch endpoint to perform SQL injection and upload a malicious plugin.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames identified as running vulnerable WordPress versions; if empty, the hunt runs across the full estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/etr-cve-2026-63030-wp2shell-a-critical-remote-code-execution-vulnerability-in-wordpress-core/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/etr-cve-2026-63030-wp2shell-a-critical-remote-code-execution-vulnerability-in-wordpress-core/",
+          "name": "Rapid7 \u2014 wp2shell: critical RCE in WordPress core"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "http-body-blind-spot",
+          "risk": "Without body visibility, we cannot distinguish between a legitimate recursive batch call and one containing a SQL injection payload.",
+          "stage": "wp-batch-api-sqli-exploit",
+          "question": "the content of the POST body sent to the batch API",
+          "requires": "hb_http_activity with request body visibility"
+        },
+        {
+          "id": "wordpress-db-audit-gap",
+          "risk": "The desynchronization exploit allows the creation of accounts via internal logic that may not trigger a standard OS-level authentication or file event until the attacker later logs in.",
+          "stage": "account-persistence-creation",
+          "question": "whether an administrator account was created directly in the database",
+          "requires": "WordPress application-level database audit logging"
+        }
+      ]
+    },
+    "name": "WordPress Core REST API RCE (wp2shell)",
+    "description": "This hunt identifies WordPress installations exposed to CVE-2026-63030 and CVE-2026-60137. It examines the estate for vulnerable core versions and then hunts for the desynchronization exploit against the batch API. By correlating rare source IP behavior with the subsequent creation of PHP files in the plugins directory, the hunt distinguishes legitimate administrative updates from unauthorized webshell deployment. The flow is designed to assess exposure and confirmed compromise without assuming every batch request is malicious."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "wp2shell-critical-rce-in-wordpress-core",
+          "index": 1,
+          "title": "wp2shell: critical RCE in WordPress core",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "wordpress-vulnerability-exposure",
+            "steps": [
+              "identify-vulnerable-wordpress"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "wp-batch-api-sqli-exploit",
+            "steps": [
+              "rare-batch-api-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "account-persistence-creation",
+            "reason": "Requires application-level database logs to see account creation; partially inferred from follow-on activity.",
+            "status": "not_visible",
+            "blind_spot": "wordpress-db-audit-gap"
+          },
+          {
+            "stage": "plugin-webshell-deployment",
+            "steps": [
+              "new-plugin-php-files"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "host-rce-execution",
+            "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "post-exploit-rdp-access",
+            "reason": "Belongs to another part of the 'wp2shell: critical RCE in WordPress core' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An unauthenticated attacker executes code on an internet-facing WordPress server by exploiting a logic flaw in the REST API batch endpoint to perform SQL injection and upload a malicious plugin.",
+        "blind_spots": [
+          {
+            "id": "http-body-blind-spot",
+            "risk": "Without body visibility, we cannot distinguish between a legitimate recursive batch call and one containing a SQL injection payload.",
+            "stage": "wp-batch-api-sqli-exploit",
+            "question": "the content of the POST body sent to the batch API",
+            "requires": "hb_http_activity with request body visibility"
+          },
+          {
+            "id": "wordpress-db-audit-gap",
+            "risk": "The desynchronization exploit allows the creation of accounts via internal logic that may not trigger a standard OS-level authentication or file event until the attacker later logs in.",
+            "stage": "account-persistence-creation",
+            "question": "whether an administrator account was created directly in the database",
+            "requires": "WordPress application-level database audit logging"
+          }
+        ],
+        "scoping_notes": "Start with servers that host public-facing websites. Use the first step's findings to populate the scope_hosts parameter for the subsequent behavioral queries.",
+        "beyond_detection": "A single rule might alert on any batch API request, but this hunt provides the context of vulnerable inventory, stack-counts the source IPs to find rare traffic, and correlates it with follow-on plugin file modifications to confirm compromise."
+      }
+    },
+    {
+      "id": "identify-vulnerable-wordpress",
+      "type": "query",
+      "label": "Identify vulnerable WordPress versions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) = 'wordpress' AND (package_version LIKE '6.9%' OR package_version LIKE '7.0%') AND package_version NOT IN ('6.9.5', '7.0.2')",
+        "surface": "hb_software_inventory",
+        "description": "Scope the hunt to hosts running WordPress versions affected by CVE-2026-63030.",
+        "expected_signal": "A list of hosts and their current WordPress version. Silence means no vulnerable instances were found in the inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable WordPress versions",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) = 'wordpress' AND (package_version LIKE '6.9%' OR package_version LIKE '7.0%') AND package_version NOT IN ('6.9.5', '7.0.2')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts and their current WordPress version. Silence means no vulnerable instances were found in the inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-batch-api-activity",
+      "type": "query",
+      "label": "Rare batch API interaction",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT src_endpoint_ip, device_hostname, url_path, url_query, COUNT(*) AS request_count, MIN(time) AS first_seen FROM hb_http_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(url_path) LIKE '%/wp-json/batch/v1%' OR LOWER(url_query) LIKE '%batch/v1%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, device_hostname, url_path, url_query HAVING request_count < 100 ORDER BY request_count ASC",
+        "surface": "hb_http_activity",
+        "description": "Stack-count source IPs hitting the vulnerable batch endpoint to find anomalous activity.",
+        "expected_signal": "Rare source IPs hitting the batch endpoint indicate potential exploitation. Baseline traffic is typically automated or administrative."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-wordpress"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare batch API interaction",
+        "reads": [
+          "src_endpoint_ip",
+          "device_hostname",
+          "url_path",
+          "url_query",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT src_endpoint_ip, device_hostname, url_path, url_query, COUNT(*) AS request_count, MIN(time) AS first_seen FROM hb_http_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(url_path) LIKE '%/wp-json/batch/v1%' OR LOWER(url_query) LIKE '%batch/v1%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, device_hostname, url_path, url_query HAVING request_count < 100 ORDER BY request_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare source IPs hitting the batch endpoint indicate potential exploitation. Baseline traffic is typically automated or administrative.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "new-plugin-php-files",
+      "type": "query",
+      "label": "New PHP files in plugins directory",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE activity_id = 1 AND LOWER(file_path) LIKE '%/wp-content/plugins/%.php' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify the creation of PHP files within the WordPress plugins folder, which follows a successful exploit.",
+        "expected_signal": "Creation of PHP files by the web server process (e.g., apache2, php-fpm) rather than a package manager or admin user is suspicious."
+      },
+      "parents": [
+        {
+          "id": "rare-batch-api-activity"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "New PHP files in plugins directory",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "file_name",
+          "process_name",
+          "time",
+          "activity_id"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, file_name, process_name, time FROM hb_file_activity WHERE activity_id = 1 AND LOWER(file_path) LIKE '%/wp-content/plugins/%.php' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation of PHP files by the web server process (e.g., apache2, php-fpm) rather than a package manager or admin user is suspicious.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "weigh-exposure-risk",
+      "type": "analytic",
+      "label": "Weigh exposure and signs of compromise",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "identify-vulnerable-wordpress",
+          "rare-batch-api-activity",
+          "new-plugin-php-files"
+        ],
+        "objective": "Determine if any host running a vulnerable version of WordPress shows patterns of batch API desynchronization followed by plugin file creation.",
+        "description": "Correlate the vulnerable inventory with subsequent HTTP and file activity.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict of compromised, exposed, or clean.",
+        "success_criteria": "A detailed assessment citing the timing of HTTP requests and file modifications per host."
+      },
+      "parents": [
+        {
+          "id": "new-plugin-php-files"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on risk level",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is compromised for at least one host",
+        "condition": "the triage verdict is compromised for at least one host",
+        "blind_spot": "http-body-blind-spot",
+        "confidence": "high",
+        "description": "Direct the analyst based on the agent's findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "weigh-exposure-risk"
+        }
+      ]
+    },
+    {
+      "id": "remediation-review",
+      "type": "task",
+      "label": "Remediation and upgrade review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify patching and investigate malicious artifacts on compromised hosts.",
+        "instructions": "For hosts marked as compromised, verify the presence of new administrator accounts in the WordPress database and inspect the content of PHP files identified in the plugins directory. Ensure all instances are upgraded to WordPress 6.9.5 or 7.0.2."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the exposure review.",
+        "instructions": "Document the vulnerable WordPress instances found during scoping and confirm if any showed suspicious activity. Close the hunt if no signs of compromise were identified."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

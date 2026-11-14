@@ -1,0 +1,574 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "PureCrypter is an active loader used to deploy Mallox ransomware. Detecting its early evasion and payload retrieval stages provides a critical window to intervene before data encryption begins."
+      },
+      "name": "PureCrypter Loader and Mallox Ransomware Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1562.001",
+        "attack.t1059.001",
+        "attack.t1047",
+        "attack.t1547.001",
+        "attack.t1105",
+        "attack.t1486"
+      ],
+      "series": {
+        "slug": "mallox-ransomware-affiliate-leverages-purecrypter-in-mssql-exploitation",
+        "index": 2,
+        "title": "Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "initial-access-mssql-brute-force",
+          "reason": "This hunt focuses on the loader behavior post-compromise, not the initial SQL brute-force attack.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "mallox-mssql-initial-access-execution",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule would alert on a 'MpPreference' exclusion but would suffer from high false-positive rates from legitimate IT tasks. This hunt correlates that evasion lead with persistence and network patterns across three surfaces, allowing an analyst to verify the full attack chain.",
+      "coverage": [
+        {
+          "stage": "command-and-control-payload-download",
+          "steps": [
+            "media-payload-downloads"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "defense-evasion-purecrypter-loading",
+          "steps": [
+            "defender-and-payload-lead",
+            "persistence-run-keys"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "impact-mallox-encryption",
+          "steps": [
+            "defender-and-payload-lead",
+            "triage-loader-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-mssql-brute-force",
+          "reason": "Belongs to a separate hunt targeting SQL authentication logs.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "execution-mssql-exploitation",
+          "reason": "Belongs to a separate hunt focusing on SQL server internal audit logs and assemblies.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "MSSQL Brute-force",
+            "slug": "initial-access-mssql-brute-force",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1110",
+              "T1190"
+            ],
+            "observables": [
+              "Targeting 'sa' account",
+              "~320 attempts per minute",
+              "Inbound traffic on port 1433",
+              "Application name vYMiFrYR"
+            ]
+          },
+          {
+            "name": "MSSQL Feature Abuse",
+            "slug": "execution-mssql-exploitation",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1047"
+            ],
+            "observables": [
+              "Enable TRUSTWORTHY parameter on master database",
+              "Enable clr enabled parameter",
+              "Create assembly named 'shell' on msdb database",
+              "Enable xp_cmdshell",
+              "Use sp_oacreate to create wscript.shell OLE object",
+              "PowerShell script in C:\\ProgramData",
+              "WMIC execution of binary"
+            ]
+          },
+          {
+            "name": "PureCrypter Retrieval",
+            "slug": "command-and-control-payload-download",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Download of random-named files with media extensions (.mp4, .wav, .pdf)",
+              "3DES encrypted data payload"
+            ]
+          },
+          {
+            "name": "PureCrypter Evasion and Persistence",
+            "slug": "defense-evasion-purecrypter-loading",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1059.001",
+              "T1047"
+            ],
+            "observables": [
+              "Registry key Software\\Microsoft\\Windows\\CurrentVersion\\Run\\",
+              "WMI query select * from Win32_BIOS",
+              "WMI query select * from Win32_ComputerSystem",
+              "EtwEventWrite patching",
+              "AmsiScanBuffer patching",
+              "MpPreference -Exclusion commands",
+              "Module load of SbieDll.dll",
+              "Reflective code loading of .NET library"
+            ]
+          },
+          {
+            "name": "Mallox Ransomware Encryption",
+            "slug": "impact-mallox-encryption",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "Ydxhjxwf.exe in %appdata%",
+              "AES-CBC encrypted file content",
+              "Ransomware file encryption activity"
+            ]
+          }
+        ],
+        "summary": "Mallox ransomware affiliates compromise internet-facing MS-SQL servers through brute-force attacks on the 'sa' account. Once inside, they abuse internal SQL features like CLR assemblies and OLE automation to execute PowerShell scripts that deploy PureCrypter, which eventually loads the Mallox ransomware in memory."
+      },
+      "severity": "high",
+      "rationale": "Focus on Windows servers, specifically those running Microsoft SQL Server, as they are the primary targets for this Mallox affiliate.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using PureCrypter to deliver Mallox ransomware, identified by Windows Defender exclusion commands followed by the retrieval of encrypted payloads disguised as media files and persistent Run keys in user profiles.",
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "mallox_binary_name": {
+          "from": {
+            "ref": "https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/",
+            "kind": "article",
+            "observed": "2024-05-02"
+          },
+          "type": "string",
+          "default": "ydxhjxwf.exe",
+          "description": "Specific binary name observed for the Mallox ransomware payload."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.sekoia.io/mallox-ransomware-affiliate-leverages-purecrypter-in-microsoft-sql-exploitation-campaigns/",
+          "name": "Sekoia \u2014 Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-endpoint-coverage",
+          "risk": "An intruder could compromise an unmanaged server and deploy the loader without producing any behavioral telemetry.",
+          "question": "Are we missing activity on hosts that are not enrolled in the monitoring platform?",
+          "requires": "EDR agent coverage on all internet-facing servers"
+        },
+        {
+          "id": "patching-bypasses-script-logging",
+          "risk": "If patching occurs, the hb_script_activity surface may fail to record the malicious commands, leaving only the process command-line as evidence.",
+          "stage": "defense-evasion-purecrypter-loading",
+          "question": "Did the loader successfully patch AMSI or ETW to blind PowerShell script logging?",
+          "requires": "Memory injection monitoring"
+        },
+        {
+          "id": "encrypted-payload-inspection",
+          "risk": "The hunt identifies the transfer of media files, but because they are 3DES encrypted, their malicious nature is only confirmed by observing the subsequent endpoint behavior.",
+          "stage": "command-and-control-payload-download",
+          "question": "Was the content of the media files (.mp4, .pdf) actually a malicious payload?",
+          "requires": "Network-level decryption or sandbox analysis"
+        }
+      ]
+    },
+    "name": "PureCrypter Loader and Mallox Ransomware Execution",
+    "description": "This hunt targets the behavioral indicators of the PureCrypter loader as it prepares a host for Mallox ransomware. It identifies the use of 'Add-MpPreference' commands to blind local security, then correlates this lead with two independent signals: the creation of persistent Run keys pointing to profile-based binaries and the retrieval of encrypted stages disguised as common media files (.mp4, .wav, .pdf). An agent evaluates the combined evidence to detect active loader activity before the ransomware proceeds to full-scale file encryption."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "mallox-ransomware-affiliate-leverages-purecrypter-in-mssql-exploitation",
+          "index": 2,
+          "title": "Mallox ransomware affiliate leverages PureCrypter in MSSQL exploitation",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "command-and-control-payload-download",
+            "steps": [
+              "media-payload-downloads"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "defense-evasion-purecrypter-loading",
+            "steps": [
+              "defender-and-payload-lead",
+              "persistence-run-keys"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "impact-mallox-encryption",
+            "steps": [
+              "defender-and-payload-lead",
+              "triage-loader-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-mssql-brute-force",
+            "reason": "Belongs to a separate hunt targeting SQL authentication logs.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "execution-mssql-exploitation",
+            "reason": "Belongs to a separate hunt focusing on SQL server internal audit logs and assemblies.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using PureCrypter to deliver Mallox ransomware, identified by Windows Defender exclusion commands followed by the retrieval of encrypted payloads disguised as media files and persistent Run keys in user profiles.",
+        "blind_spots": [
+          {
+            "id": "no-endpoint-coverage",
+            "risk": "An intruder could compromise an unmanaged server and deploy the loader without producing any behavioral telemetry.",
+            "question": "Are we missing activity on hosts that are not enrolled in the monitoring platform?",
+            "requires": "EDR agent coverage on all internet-facing servers"
+          },
+          {
+            "id": "patching-bypasses-script-logging",
+            "risk": "If patching occurs, the hb_script_activity surface may fail to record the malicious commands, leaving only the process command-line as evidence.",
+            "stage": "defense-evasion-purecrypter-loading",
+            "question": "Did the loader successfully patch AMSI or ETW to blind PowerShell script logging?",
+            "requires": "Memory injection monitoring"
+          },
+          {
+            "id": "encrypted-payload-inspection",
+            "risk": "The hunt identifies the transfer of media files, but because they are 3DES encrypted, their malicious nature is only confirmed by observing the subsequent endpoint behavior.",
+            "stage": "command-and-control-payload-download",
+            "question": "Was the content of the media files (.mp4, .pdf) actually a malicious payload?",
+            "requires": "Network-level decryption or sandbox analysis"
+          }
+        ],
+        "scoping_notes": "Focus on Windows servers, specifically those running Microsoft SQL Server, as they are the primary targets for this Mallox affiliate.",
+        "beyond_detection": "A simple detection rule would alert on a 'MpPreference' exclusion but would suffer from high false-positive rates from legitimate IT tasks. This hunt correlates that evasion lead with persistence and network patterns across three surfaces, allowing an analyst to verify the full attack chain."
+      }
+    },
+    {
+      "id": "defender-and-payload-lead",
+      "type": "query",
+      "label": "Defender Exclusions and Ransomware Binary",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%add-mppreference%' OR LOWER(process_cmd_line) LIKE '%{{mallox_binary_name}}%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detects attempts to blind Windows Defender or the execution of known ransomware binaries.",
+        "expected_signal": "Processes attempting to exclude paths from Windows Defender or executions of the specific Mallox binary. Silence suggests this specific evasion or payload was not seen."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Defender Exclusions and Ransomware Binary",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%add-mppreference%' OR LOWER(process_cmd_line) LIKE '%{{mallox_binary_name}}%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes attempting to exclude paths from Windows Defender or executions of the specific Mallox binary. Silence suggests this specific evasion or payload was not seen.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "persistence-run-keys",
+      "type": "query",
+      "label": "Registry Run-Key Persistence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, MIN(time) AS first_seen FROM hb_registry_activity WHERE activity_id = 2 AND LOWER(reg_target) LIKE '%\\\\software\\\\microsoft\\\\windows\\\\currentversion\\\\run%' AND (LOWER(reg_value_data) LIKE '%\\\\appdata\\\\%' OR LOWER(reg_value_data) LIKE '%\\\\users\\public\\\\%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY reg_value_data HAVING COUNT(DISTINCT device_hostname) < 3",
+        "surface": "hb_registry_activity",
+        "description": "Check for the loader's persistence mechanism in the Run key pointing at user-writable paths.",
+        "expected_signal": "Rare Run-key values pointing to executables in profile directories. Legitimate software usually appears across more hosts."
+      },
+      "parents": [
+        {
+          "id": "defender-and-payload-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Registry Run-Key Persistence",
+        "reads": [
+          "activity_id",
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, MIN(time) AS first_seen FROM hb_registry_activity WHERE activity_id = 2 AND LOWER(reg_target) LIKE '%\\\\software\\\\microsoft\\\\windows\\\\currentversion\\\\run%' AND (LOWER(reg_value_data) LIKE '%\\\\appdata\\\\%' OR LOWER(reg_value_data) LIKE '%\\\\users\\public\\\\%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY reg_value_data HAVING COUNT(DISTINCT device_hostname) < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare Run-key values pointing to executables in profile directories. Legitimate software usually appears across more hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "reg_value_data"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "media-payload-downloads",
+      "type": "query",
+      "label": "Suspicious Media Payload Downloads",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%.mp4' OR LOWER(url_path) LIKE '%.wav' OR LOWER(url_path) LIKE '%.pdf') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_hostname HAVING COUNT(DISTINCT device_hostname) < 3",
+        "surface": "hb_http_activity",
+        "description": "Detect the retrieval of encrypted stages disguised as common media files, a specific PureCrypter behavior.",
+        "expected_signal": "HTTP requests for media files that occur near the time of Defender exclusions or Run-key changes. Random filenames are high confidence indicators."
+      },
+      "parents": [
+        {
+          "id": "defender-and-payload-lead"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Suspicious Media Payload Downloads",
+        "reads": [
+          "device_hostname",
+          "time",
+          "url_hostname",
+          "url_path"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%.mp4' OR LOWER(url_path) LIKE '%.wav' OR LOWER(url_path) LIKE '%.pdf') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_hostname HAVING COUNT(DISTINCT device_hostname) < 3",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests for media files that occur near the time of Defender exclusions or Run-key changes. Random filenames are high confidence indicators.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-loader-activity",
+      "type": "analytic",
+      "label": "Triage Loader Activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "defender-and-payload-lead",
+          "persistence-run-keys",
+          "media-payload-downloads"
+        ],
+        "objective": "Determine if the collective evidence on any host indicates a PureCrypter loader delivering Mallox ransomware. Focus on the timing of Defender exclusions relative to suspicious media downloads and Run-key persistence.",
+        "description": "Correlate Defender evasion, persistence, and network patterns to confirm a PureCrypter/Mallox infection.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict linking the identified rows into a coherent attack chain.",
+        "success_criteria": "A verdict of malicious for hosts exhibiting multiple correlated stages, prioritizing those where a rare media download occurred shortly before or alongside a Defender exclusion event or a new Run-key entry."
+      },
+      "parents": [
+        {
+          "id": "persistence-run-keys",
+          "kind": "merge"
+        },
+        {
+          "id": "media-payload-downloads",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host, citing specific Defender exclusions, rare media downloads, or the mallox binary name",
+        "condition": "the triage verdict is malicious for at least one host, citing specific Defender exclusions, rare media downloads, or the mallox binary name",
+        "blind_spot": "no-endpoint-coverage",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's confidence in the infection chain.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-loader-activity"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate Endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent the Mallox ransomware from proceeding to the encryption phase.",
+        "instructions": "Isolate the host immediately. Do not reboot, as it may trigger the persistence mechanism or final encryption stage. Collect the suspicious binary identified in the Run key for analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review and Tuning",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the agent's findings and identify potential tuning opportunities.",
+        "instructions": "Review the cited rows from process, registry, and network activity. If legitimate administrative activity is identified, record the exclusion pattern for future tuning. Verify if the host was compromised via the MSSQL sa account."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and record results.",
+        "instructions": "Document the hosts examined, the malicious artifacts identified, and whether any remediation steps were taken. If no activity was found, record the period of negative coverage."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

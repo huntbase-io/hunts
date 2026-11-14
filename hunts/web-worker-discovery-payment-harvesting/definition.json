@@ -1,0 +1,659 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Web servers hosting payment data are high-value targets. This hunt ensures that post-compromise activity, such as credential harvesting and card data searches, is detected even if the initial exploit is missed."
+      },
+      "name": "Web Worker Discovery and Payment Data Harvesting",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1505.003",
+        "attack.t1059.001",
+        "attack.t1047",
+        "attack.t1083",
+        "collection",
+        "discovery",
+        "execution",
+        "initial access"
+      ],
+      "series": {
+        "slug": "determined-attacker-uploads-malicious-webshells-to-parks-and-rec-management-platform-servers",
+        "index": 2,
+        "title": "Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "web-application-probing-and-brute-force",
+          "reason": "Initial access attempts via brute force and tilde enumeration are handled by a separate hunt focused on web logs.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "web-shell-ingress-platform-probing",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single detection rule on 'w3wp spawning cmd' often generates too much noise from legitimate maintenance. This hunt distinguishes threat from noise by using a gated flow, stack-counting commands for rarity, and corroborating with file access to sensitive configuration and payment files.",
+      "coverage": [
+        {
+          "stage": "web-worker-shell-execution",
+          "steps": [
+            "iis-worker-shell-execution-lead",
+            "evaluate-lead-agent"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "iis-and-web-environment-discovery",
+          "steps": [
+            "rare-w3wp-child-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "payment-data-harvesting",
+          "steps": [
+            "rare-w3wp-child-commands",
+            "sensitive-file-access-triage"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "web-application-probing-and-brute-force",
+          "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "webshell-ingress-via-member-upload",
+          "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Web Application Probing and Brute Force",
+            "slug": "web-application-probing-and-brute-force",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1110",
+              "T1190"
+            ],
+            "observables": [
+              "POST /management/login.aspx",
+              "POST /info/household/login.aspx",
+              "GET /a*~1* (IIS 8.3 tilde enumeration)",
+              "WebDAV OPTIONS method",
+              "Upload.ashx::$DATA",
+              "FileUpload.ashx::$DATA"
+            ]
+          },
+          {
+            "name": "Webshell Ingress via Member Upload",
+            "slug": "webshell-ingress-via-member-upload",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190",
+              "T1505.003"
+            ],
+            "observables": [
+              "Path: /documents/MemberFiles/",
+              "aa7d-4056-8061-8f32887196b9.aspx",
+              "5893-4e83-a45c-188a5e4686fd.aspx",
+              "2ae9-4d05-ae6d-ad10ccf25ed9.aspx",
+              "ed12-4938-9661-f4034526d911.aspx",
+              "8362-42b6-8906-4a33eaaa4bb0.aspx",
+              "5ef0-4da3-b162-01844bf0109e.aspx",
+              "791a-4e96-a5ea-e5c7cfd35fd2.jpg"
+            ]
+          },
+          {
+            "name": "Web-Worker Shell Execution",
+            "slug": "web-worker-shell-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1047"
+            ],
+            "observables": [
+              "Parent process w3wp.exe spawning cmd.exe",
+              "Parent process w3wp.exe spawning powershell.exe",
+              "cmd.exe /c whoami",
+              "cmd.exe /c net user",
+              "cmd.exe /c wmic process where \"name='w3wp.exe'\" get ProcessId,CommandLine",
+              "Import-Module WebAdministration; Get-Website"
+            ]
+          },
+          {
+            "name": "IIS and Web Environment Discovery",
+            "slug": "iis-and-web-environment-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1083"
+            ],
+            "observables": [
+              "appcmd.exe list sites",
+              "appcmd.exe list vdirs",
+              "appcmd.exe list app",
+              "dir /b E:\\Content\\info\\App_Code\\*DB*",
+              "dir /b E:\\Content\\info\\App_Code\\*Sql*",
+              "C:\\inetpub\\temp\\appPools",
+              "C:\\Windows\\System32\\drivers\\etc\\hosts"
+            ]
+          },
+          {
+            "name": "Payment Data Harvesting",
+            "slug": "payment-data-harvesting",
+            "tactic": "collection",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "findstr /i /c:\"connectionString\" /c:\"password\" /c:\"Data Source\" E:\\Content\\info\\web.config",
+              "findstr /s /i /m /c:\"CVV\" /c:\"CardNumber\" /c:\"CreditCard\" E:\\Content\\info\\*.aspx",
+              "findstr /s /i /m \"AuthorizeNet Fortis CardConnect BluePay PayPal Braintree Stripe\"",
+              "type E:\\Content\\info\\_fortis\\Webhooks\\*.txt",
+              "findstr /i \"exp_date exp_month exp_year expiration cvv first_six last_four card_number\""
+            ]
+          }
+        ],
+        "summary": "A threat actor, likely based in China, compromised multiple instances of a parks and recreation management platform by abusing a legitimate member registration and file upload feature to plant ASPX webshells. Once established, the attacker performed extensive reconnaissance of the IIS environment and local file system, specifically targeting configuration files and Fortis webhook logs to steal payment card data and credentials."
+      },
+      "severity": "high",
+      "rationale": "Start with internet-facing IIS servers, specifically those with multi-tenant directory structures on secondary drives (D:, E:).",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder is using a compromised IIS web worker to execute discovery tools and search for payment card data or database credentials.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the detailed investigation."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "discovery_tools": {
+          "from": {
+            "ref": "huntress-parks-and-rec",
+            "kind": "article",
+            "observed": "2026-09-30"
+          },
+          "type": "list[string]",
+          "default": [
+            "appcmd.exe",
+            "whoami.exe",
+            "hostname.exe",
+            "systeminfo.exe",
+            "net.exe",
+            "netstat.exe",
+            "tasklist.exe",
+            "ipconfig.exe"
+          ],
+          "description": "Administrative tools often used via a web shell."
+        },
+        "sensitive_filenames": {
+          "from": {
+            "ref": "huntress-parks-and-rec",
+            "kind": "article",
+            "observed": "2026-09-30"
+          },
+          "type": "list[string]",
+          "default": [
+            "web.config",
+            "applicationhost.config",
+            "connectionstrings.config"
+          ],
+          "description": "Configuration files that store credentials or secrets."
+        },
+        "payment_endpoint_paths": {
+          "from": {
+            "ref": "huntress-parks-and-rec",
+            "kind": "article",
+            "observed": "2026-09-30"
+          },
+          "type": "list[string]",
+          "default": [
+            "_fortis\\webhooks",
+            "webhooks",
+            "payment"
+          ],
+          "description": "Substrings of paths associated with payment transaction logs."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/parks-recreation-platform-webshell-attack",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/parks-recreation-platform-webshell-attack",
+          "name": "Huntress \u2014 Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-process-telemetry",
+          "risk": "A compromised server without process telemetry could execute shells and harvest data invisibly.",
+          "stage": "web-worker-shell-execution",
+          "question": "whether w3wp.exe spawned any child processes on non-enrolled hosts",
+          "requires": "Endpoint agent coverage on every web server"
+        },
+        {
+          "id": "obfuscated-script-content",
+          "risk": "Attackers using -enc will hide their discovery intent from process command-line monitoring.",
+          "stage": "web-worker-shell-execution",
+          "question": "what code was executed within encoded PowerShell blocks",
+          "requires": "hb_script_activity for deep script inspection"
+        }
+      ]
+    },
+    "name": "Web Worker Discovery and Payment Data Harvesting",
+    "description": "This hunt targets the post-exploitation phase following a web shell upload to an IIS server. It starts with a cheap lead query to identify interactive command shells spawned by the IIS web worker. If shell activity is confirmed, the hunt fans out to identify rare administrative commands and targeted file access to sensitive configuration files or payment integration logs. This allows an analyst to distinguish between routine application maintenance and an active intruder harvesting credentials and credit card information."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "determined-attacker-uploads-malicious-webshells-to-parks-and-rec-management-platform-servers",
+          "index": 2,
+          "title": "Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "web-worker-shell-execution",
+            "steps": [
+              "iis-worker-shell-execution-lead",
+              "evaluate-lead-agent"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "iis-and-web-environment-discovery",
+            "steps": [
+              "rare-w3wp-child-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "payment-data-harvesting",
+            "steps": [
+              "rare-w3wp-child-commands",
+              "sensitive-file-access-triage"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "web-application-probing-and-brute-force",
+            "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "webshell-ingress-via-member-upload",
+            "reason": "Belongs to another part of the 'Determined Attacker Uploads Malicious Webshells to Parks and Rec Management Platform Servers' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder is using a compromised IIS web worker to execute discovery tools and search for payment card data or database credentials.",
+        "blind_spots": [
+          {
+            "id": "missing-process-telemetry",
+            "risk": "A compromised server without process telemetry could execute shells and harvest data invisibly.",
+            "stage": "web-worker-shell-execution",
+            "question": "whether w3wp.exe spawned any child processes on non-enrolled hosts",
+            "requires": "Endpoint agent coverage on every web server"
+          },
+          {
+            "id": "obfuscated-script-content",
+            "risk": "Attackers using -enc will hide their discovery intent from process command-line monitoring.",
+            "stage": "web-worker-shell-execution",
+            "question": "what code was executed within encoded PowerShell blocks",
+            "requires": "hb_script_activity for deep script inspection"
+          }
+        ],
+        "scoping_notes": "Start with internet-facing IIS servers, specifically those with multi-tenant directory structures on secondary drives (D:, E:).",
+        "beyond_detection": "A single detection rule on 'w3wp spawning cmd' often generates too much noise from legitimate maintenance. This hunt distinguishes threat from noise by using a gated flow, stack-counting commands for rarity, and corroborating with file access to sensitive configuration and payment files."
+      }
+    },
+    {
+      "id": "iis-worker-shell-execution-lead",
+      "type": "query",
+      "label": "IIS worker spawning command shells",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%\\\\w3wp.exe' AND (LOWER(process_name) LIKE '%\\\\cmd.exe' OR LOWER(process_name) LIKE '%\\\\powershell.exe' OR LOWER(process_name) LIKE '%\\\\wmic.exe') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify any instance where the IIS web worker process (w3wp.exe) spawns a command shell or administrative tool to detect active web shells.",
+        "expected_signal": "Rows showing w3wp.exe spawning shell interpreters. Silence suggests no common shell-based webshell activity occurred on these hosts during the window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "IIS worker spawning command shells",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time",
+          "user_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%\\\\w3wp.exe' AND (LOWER(process_name) LIKE '%\\\\cmd.exe' OR LOWER(process_name) LIKE '%\\\\powershell.exe' OR LOWER(process_name) LIKE '%\\\\wmic.exe') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows showing w3wp.exe spawning shell interpreters. Silence suggests no common shell-based webshell activity occurred on these hosts during the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "evaluate-lead-agent",
+      "type": "analytic",
+      "label": "Evaluate shell execution lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "iis-worker-shell-execution-lead"
+        ],
+        "objective": "Review the shell commands spawned by w3wp.exe. Look for reconnaissance like whoami, hostname, or directory listings (dir /b) on non-standard drives like D: or E:. Determine if these commands suggest a human operator.",
+        "description": "Decide if the child processes of w3wp.exe represent manual intruder reconnaissance or legitimate application features.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict on whether the commands warrant further investigation into data harvesting.",
+        "success_criteria": "A clear per-host assessment of suspicious activity."
+      },
+      "parents": [
+        {
+          "id": "iis-worker-shell-execution-lead"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-lead-decision",
+      "type": "checkpoint",
+      "label": "Gate on shell lead",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluation identifies at least one host with suspicious w3wp.exe child processes",
+        "condition": "the evaluation identifies at least one host with suspicious w3wp.exe child processes",
+        "blind_spot": "missing-process-telemetry",
+        "confidence": "high",
+        "description": "Route the hunt based on the initial shell execution lead to avoid expensive file activity queries across the whole estate.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-lead-agent"
+        }
+      ]
+    },
+    {
+      "id": "rare-w3wp-child-commands",
+      "type": "query",
+      "label": "Rare w3wp.exe child commands",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND LOWER(parent_process_name) LIKE '%\\\\w3wp.exe' AND (LOWER(process_name) LIKE '%\\\\appcmd.exe' OR LOWER(process_name) LIKE '%\\\\whoami.exe' OR LOWER(process_name) LIKE '%\\\\hostname.exe' OR LOWER(process_name) LIKE '%\\\\systeminfo.exe' OR LOWER(process_name) LIKE '%\\\\net.exe' OR LOWER(process_name) LIKE '%\\\\netstat.exe' OR LOWER(process_name) LIKE '%\\\\tasklist.exe' OR LOWER(process_name) LIKE '%\\\\ipconfig.exe' OR LOWER(process_cmd_line) LIKE '%findstr%') AND ('{{discovery_tools}}' != '') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Identify rare administrative or search commands spawned by the web worker that deviate from baseline behavior.",
+        "expected_signal": "Specific search commands or tools like appcmd.exe appearing on a small number of web servers. High-count commands are likely legitimate application updates."
+      },
+      "parents": [
+        {
+          "id": "gate-on-lead-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare w3wp.exe child commands",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND LOWER(parent_process_name) LIKE '%\\\\w3wp.exe' AND (LOWER(process_name) LIKE '%\\\\appcmd.exe' OR LOWER(process_name) LIKE '%\\\\whoami.exe' OR LOWER(process_name) LIKE '%\\\\hostname.exe' OR LOWER(process_name) LIKE '%\\\\systeminfo.exe' OR LOWER(process_name) LIKE '%\\\\net.exe' OR LOWER(process_name) LIKE '%\\\\netstat.exe' OR LOWER(process_name) LIKE '%\\\\tasklist.exe' OR LOWER(process_name) LIKE '%\\\\ipconfig.exe' OR LOWER(process_cmd_line) LIKE '%findstr%') AND ('{{discovery_tools}}' != '') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Specific search commands or tools like appcmd.exe appearing on a small number of web servers. High-count commands are likely legitimate application updates.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "sensitive-file-access-triage",
+      "type": "query",
+      "label": "Sensitive file access by shell processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(parent_process_name) LIKE '%\\\\w3wp.exe' OR LOWER(process_name) LIKE '%\\\\cmd.exe' OR LOWER(process_name) LIKE '%\\\\powershell.exe') AND (instr(',' || '{{sensitive_filenames}}' || ',', ',' || LOWER(file_name) || ',') > 0 OR LOWER(file_path) LIKE '%\\\\_fortis\\\\webhooks\\\\%' OR LOWER(file_path) LIKE '%\\\\webhooks\\\\%') AND ('{{payment_endpoint_paths}}' != '') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify instances where shells or administrative children of w3wp.exe access sensitive configuration or payment log files.",
+        "expected_signal": "Command processes reading configuration files or payment logs. This is highly suspicious as applications should read these directly without spawning a shell."
+      },
+      "parents": [
+        {
+          "id": "gate-on-lead-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Sensitive file access by shell processes",
+        "reads": [
+          "activity_name",
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "parent_process_name",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, activity_name, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(parent_process_name) LIKE '%\\\\w3wp.exe' OR LOWER(process_name) LIKE '%\\\\cmd.exe' OR LOWER(process_name) LIKE '%\\\\powershell.exe') AND (instr(',' || '{{sensitive_filenames}}' || ',', ',' || LOWER(file_name) || ',') > 0 OR LOWER(file_path) LIKE '%\\\\_fortis\\\\webhooks\\\\%' OR LOWER(file_path) LIKE '%\\\\webhooks\\\\%') AND ('{{payment_endpoint_paths}}' != '') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Command processes reading configuration files or payment logs. This is highly suspicious as applications should read these directly without spawning a shell.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-01"
+      }
+    },
+    {
+      "id": "triage-breach-agent",
+      "type": "analytic",
+      "label": "Triage breach evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "evaluate-lead-agent",
+          "rare-w3wp-child-commands",
+          "sensitive-file-access-triage"
+        ],
+        "objective": "Determine if any host shows signs of a human intruder. Look for the chain: shell launch -> environment discovery (appcmd, drive enumeration) -> data harvesting (findstr for card data, reading web.config or payment logs). Citing specific command lines and file paths is required.",
+        "description": "Correlate shell execution, rare commands, and sensitive file access to confirm an active intruder.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict citing the chain of evidence from lead to harvesting.",
+        "success_criteria": "A final malicious | suspicious | benign verdict per host."
+      },
+      "parents": [
+        {
+          "id": "rare-w3wp-child-commands",
+          "kind": "merge"
+        },
+        {
+          "id": "sensitive-file-access-triage",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-triage-decision",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host based on shell execution and harvesting activity",
+        "condition": "the triage verdict is malicious for at least one host based on shell execution and harvesting activity",
+        "blind_spot": "missing-process-telemetry",
+        "confidence": "high",
+        "description": "Direct the hunt to containment for malicious results or manual review for suspicious ones.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-breach-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop data exfiltration and prevent further movement by the attacker.",
+        "instructions": "Isolate the compromised web server immediately. Collect memory samples and preserve application directories for forensic investigation.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-triage-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-final-review",
+      "type": "task",
+      "label": "Analyst final review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Human confirmation of the agent's findings and coordination of incident response.",
+        "instructions": "Review cited rows; confirm if findstr keywords match patterns observed in the report (CVV, CardNumber). Rotate any credentials found in configuration files."
+      },
+      "parents": [
+        {
+          "id": "gate-on-lead-decision",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-lead-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-triage-decision",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-triage-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out-summary",
+      "type": "task",
+      "label": "Hunt close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the negative result or any low-priority findings for the estate.",
+        "instructions": "Record that no suspicious w3wp.exe shell activity was found. Document any benign application child processes for future tuning."
+      },
+      "parents": [
+        {
+          "id": "gate-on-lead-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-on-triage-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

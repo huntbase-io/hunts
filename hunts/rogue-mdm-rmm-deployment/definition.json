@@ -1,0 +1,648 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Legitimate MDM platforms provide a trusted, privileged path for software deployment that bypasses most endpoint security alerts. A negative result confirming no unauthorized enrollments is a high-value security assurance."
+      },
+      "name": "Rogue MDM and RMM Deployment",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1204.002",
+        "attack.t1112",
+        "attack.t1219",
+        "command and control",
+        "execution",
+        "initial access",
+        "persistence"
+      ],
+      "related": [
+        {
+          "hunt": "unauthorized-rmm-detection",
+          "reason": "A broader hunt for RMM tools that does not focus on the MDM delivery vector.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This is a hunt because detection rules for legitimate software like Rippling or ScreenConnect often trigger excessive noise. This hunt correlates the social engineering lure (DNS), the enrollment (rare registry keys), and the C2 activity (relay traffic) into a single phased attack chain triage.",
+      "coverage": [
+        {
+          "stage": "phishing-initial-access",
+          "steps": [
+            "dns-phishing-lookups",
+            "lure-file-hits"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "mdm-agent-installation",
+          "steps": [
+            "identify-mdm-software",
+            "lure-file-hits"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "mdm-enrollment-persistence",
+          "steps": [
+            "mdm-registry-stack"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "rogue-rmm-deployment",
+          "steps": [
+            "rmm-relay-connections"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Phishing via Business-Themed Lures",
+            "slug": "phishing-initial-access",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "webdocusign.viewportal.es",
+              "teams-microsoftcom5d41402abc4b2a76b9719d911017c592.kiratham.com",
+              "index.php",
+              "enroll14.php"
+            ]
+          },
+          {
+            "name": "Malicious MDM Agent Installation",
+            "slug": "mdm-agent-installation",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "eD0cuSign_Installer.msi",
+              "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local\\mdm\\{GUID}.msi",
+              "C:\\Rippling\\daemon.exe",
+              "Hexnode Gateway"
+            ]
+          },
+          {
+            "name": "MDM Enrollment and Persistence",
+            "slug": "mdm-enrollment-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1112"
+            ],
+            "observables": [
+              "Rippling enrollment registry key"
+            ]
+          },
+          {
+            "name": "ScreenConnect Deployment via MDM",
+            "slug": "rogue-rmm-deployment",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1219"
+            ],
+            "observables": [
+              "ScreenConnect",
+              "relay.bobdthjau.com",
+              "relay.pronconetydesire.online",
+              "port 8041"
+            ]
+          }
+        ],
+        "summary": "Attackers leverage business-themed phishing lures to trick users into installing or enrolling in rogue MDM platforms like Hexnode and Rippling. Once enrolled, the attackers use the MDM's administrative privileges to deploy ScreenConnect RMM agents, providing persistent remote access to the compromised endpoints."
+      },
+      "severity": "high",
+      "rationale": "Start by identifying all hosts with Rippling or Hexnode agents. In many environments, these will be absent, making any hit suspicious. Focus on endpoints where users might be lured by business proposals or meeting invites.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker uses social engineering to enroll a device into an unauthorized MDM tenant, providing a persistent and privileged path to deploy a rogue RMM tool for remote access.",
+      "parameters": {
+        "rmm_relays": {
+          "from": {
+            "ref": "huntress-mdm-malice",
+            "kind": "article",
+            "observed": "2026-10-28"
+          },
+          "type": "list[domain]",
+          "default": [
+            "relay.bobdthjau.com",
+            "relay.pronconetydesire.online"
+          ],
+          "description": "Attacker-controlled ScreenConnect relays."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames to focus the follow-on investigation; leave empty to hunt the whole estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "lure_keywords": {
+          "from": {
+            "ref": "huntress-mdm-malice",
+            "kind": "article",
+            "observed": "2026-10-28"
+          },
+          "type": "list[string]",
+          "default": [
+            "edocusign_installer.msi",
+            "enroll14.php"
+          ],
+          "description": "Specific file or resource names associated with the lures."
+        },
+        "phishing_domains": {
+          "from": {
+            "ref": "huntress-mdm-malice",
+            "kind": "article",
+            "observed": "2026-10-28"
+          },
+          "type": "list[domain]",
+          "default": [
+            "webdocusign.viewportal.es",
+            "teams-microsoftcom5d41402abc4b2a76b9719d911017c592.kiratham.com"
+          ],
+          "description": "Lure domains identified in the research."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/attackers-turn-mdm-into-remote-access",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/attackers-turn-mdm-into-remote-access",
+          "name": "Huntress \u2014 Attackers Turn MDM into Remote Access"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-agent-on-endpoint",
+          "risk": "A device without our endpoint agent will not report registry, file, or network activity, leaving the enrollment invisible until it touches the network fabric.",
+          "stage": "mdm-agent-installation",
+          "question": "whether the MDM agent was installed on an unmanaged or BYOD device",
+          "requires": "endpoint agent coverage for all devices"
+        },
+        {
+          "id": "mdm-tenant-logs",
+          "risk": "We can see the presence of the agent but cannot see the attacker's console activity (e.g., commands issued) without native provider logs.",
+          "question": "which specific MDM tenant and attacker account were used to manage the device",
+          "requires": "API access to the MDM provider's audit logs"
+        }
+      ]
+    },
+    "name": "Rogue MDM and RMM Deployment",
+    "description": "This hunt examines the abuse of legitimate Mobile Device Management (MDM) platforms like Hexnode and Rippling. Attackers use business-themed phishing lures, such as fake DocuSign installers or Teams meeting invitations, to facilitate enrollment. Once enrolled, the MDM platform is used to deploy ScreenConnect agents that connect to attacker-controlled relays. The hunt follows a phased flow: first identifying MDM software presence and suspicious enrollment registry keys, then searching for the phishing lure execution and outbound RMM network traffic on non-standard ports. This correlation across identity, registry, and network telemetry distinguishes malicious use of these tools from legitimate administration."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "phishing-initial-access",
+            "steps": [
+              "dns-phishing-lookups",
+              "lure-file-hits"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "mdm-agent-installation",
+            "steps": [
+              "identify-mdm-software",
+              "lure-file-hits"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "mdm-enrollment-persistence",
+            "steps": [
+              "mdm-registry-stack"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "rogue-rmm-deployment",
+            "steps": [
+              "rmm-relay-connections"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker uses social engineering to enroll a device into an unauthorized MDM tenant, providing a persistent and privileged path to deploy a rogue RMM tool for remote access.",
+        "blind_spots": [
+          {
+            "id": "no-agent-on-endpoint",
+            "risk": "A device without our endpoint agent will not report registry, file, or network activity, leaving the enrollment invisible until it touches the network fabric.",
+            "stage": "mdm-agent-installation",
+            "question": "whether the MDM agent was installed on an unmanaged or BYOD device",
+            "requires": "endpoint agent coverage for all devices"
+          },
+          {
+            "id": "mdm-tenant-logs",
+            "risk": "We can see the presence of the agent but cannot see the attacker's console activity (e.g., commands issued) without native provider logs.",
+            "question": "which specific MDM tenant and attacker account were used to manage the device",
+            "requires": "API access to the MDM provider's audit logs"
+          }
+        ],
+        "scoping_notes": "Start by identifying all hosts with Rippling or Hexnode agents. In many environments, these will be absent, making any hit suspicious. Focus on endpoints where users might be lured by business proposals or meeting invites.",
+        "beyond_detection": "This is a hunt because detection rules for legitimate software like Rippling or ScreenConnect often trigger excessive noise. This hunt correlates the social engineering lure (DNS), the enrollment (rare registry keys), and the C2 activity (relay traffic) into a single phased attack chain triage."
+      }
+    },
+    {
+      "id": "identify-mdm-software",
+      "type": "query",
+      "label": "Identify hosts with target MDM software",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%rippling%' OR LOWER(package_name) LIKE '%hexnode%' OR LOWER(vendor_name) LIKE '%rippling%' OR LOWER(vendor_name) LIKE '%hexnode%'",
+        "surface": "hb_software_inventory",
+        "description": "Scope the investigation to hosts running Hexnode or Rippling software, which are the platforms observed in this campaign.",
+        "expected_signal": "A list of hostnames with MDM software. Silence means these platforms are not present in the estate."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify hosts with target MDM software",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%rippling%' OR LOWER(package_name) LIKE '%hexnode%' OR LOWER(vendor_name) LIKE '%rippling%' OR LOWER(vendor_name) LIKE '%hexnode%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames with MDM software. Silence means these platforms are not present in the estate.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "dns-phishing-lookups",
+      "type": "query",
+      "label": "DNS queries for phishing lure domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Match host activity against the lookalike Teams and DocuSign domains used to deliver the MDM installers.",
+        "expected_signal": "Any resolution of these domains by a scoped host. Silence may mean the attacker used different domains or the logs have expired."
+      },
+      "parents": [
+        {
+          "id": "identify-mdm-software"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "DNS queries for phishing lure domains",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, query_hostname, time FROM hb_dns_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND instr(',' || '{{phishing_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Any resolution of these domains by a scoped host. Silence may mean the attacker used different domains or the logs have expired.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "mdm-registry-stack",
+      "type": "query",
+      "label": "Stack-count rare MDM enrollment keys",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT reg_key_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE (LOWER(reg_key_path) LIKE '%rippling%' OR LOWER(reg_key_path) LIKE '%hexnode%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY reg_key_path HAVING host_count <= 3",
+        "surface": "hb_registry_activity",
+        "description": "Find rare MDM enrollment keys that stand out from the normal management baseline of the fleet.",
+        "expected_signal": "Rippling or Hexnode keys appearing on only a few hosts, which is suspicious in an estate that does not use them for primary management."
+      },
+      "parents": [
+        {
+          "id": "identify-mdm-software"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Stack-count rare MDM enrollment keys",
+        "reads": [
+          "reg_key_path",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT reg_key_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_registry_activity WHERE (LOWER(reg_key_path) LIKE '%rippling%' OR LOWER(reg_key_path) LIKE '%hexnode%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY reg_key_path HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rippling or Hexnode keys appearing on only a few hosts, which is suspicious in an estate that does not use them for primary management.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "reg_key_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "read-early-signals",
+      "type": "analytic",
+      "label": "Assess early exposure and enrollment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "identify-mdm-software",
+          "dns-phishing-lookups",
+          "mdm-registry-stack"
+        ],
+        "objective": "Identify hosts that resolved phishing domains and subsequently showed rare MDM-related registry modifications.",
+        "description": "Analyze whether the inventory, DNS lookups, and rare registry keys suggest an unauthorized MDM enrollment.",
+        "max_iterations": 3,
+        "expected_signal": "A list of hosts showing evidence of phishing interaction followed by MDM presence.",
+        "success_criteria": "A per-host verdict of suspicious if the DNS and registry signals align."
+      },
+      "parents": [
+        {
+          "id": "dns-phishing-lookups",
+          "kind": "merge"
+        },
+        {
+          "id": "mdm-registry-stack",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "lure-file-hits",
+      "type": "query",
+      "label": "Identify lure files by keyword",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND instr(',' || '{{lure_keywords}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find host evidence of the specific installer files named in the research using the lure_keywords list.",
+        "expected_signal": "File create or open events for the phishing lure installers. Any row is a high-confidence match for the delivery stage."
+      },
+      "parents": [
+        {
+          "id": "read-early-signals"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Identify lure files by keyword",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND instr(',' || '{{lure_keywords}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "File create or open events for the phishing lure installers. Any row is a high-confidence match for the delivery stage.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "rmm-relay-connections",
+      "type": "query",
+      "label": "Detect ScreenConnect relay traffic",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_hostname, dst_endpoint_port, time FROM hb_network_connection WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (dst_endpoint_port = 8041 OR instr(',' || '{{rmm_relays}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify outbound connections to the reported ScreenConnect relays or the common relay port 8041.",
+        "expected_signal": "Outbound traffic identifying the RMM command-and-control stage. Silence means the relays have rotated or the tool is dormant."
+      },
+      "parents": [
+        {
+          "id": "read-early-signals"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect ScreenConnect relay traffic",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_hostname",
+          "dst_endpoint_port",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_hostname, dst_endpoint_port, time FROM hb_network_connection WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (dst_endpoint_port = 8041 OR instr(',' || '{{rmm_relays}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Outbound traffic identifying the RMM command-and-control stage. Silence means the relays have rotated or the tool is dormant.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "final-attack-chain-triage",
+      "type": "analytic",
+      "label": "Weigh the complete attack chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "read-early-signals",
+          "lure-file-hits",
+          "rmm-relay-connections"
+        ],
+        "objective": "Determine if any host shows the complete sequence from phishing lure execution to rogue MDM enrollment and RMM C2 communication.",
+        "description": "Decide whether the combined evidence from early enrollment and follow-on RMM activity indicates a confirmed intrusion.",
+        "max_iterations": 5,
+        "expected_signal": "A detailed per-host assessment citing the alignment of phishing, enrollment, and RMM traffic.",
+        "success_criteria": "A final verdict of malicious | suspicious | benign per host."
+      },
+      "parents": [
+        {
+          "id": "lure-file-hits",
+          "kind": "merge"
+        },
+        {
+          "id": "rmm-relay-connections",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on final verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-attack-chain-triage verdict is malicious for at least one host",
+        "condition": "the final-attack-chain-triage verdict is malicious for at least one host",
+        "blind_spot": "no-agent-on-endpoint",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's confidence in the maliciousness of the chain.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-attack-chain-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Sever the attacker's RMM and MDM connection by isolating the compromised host.",
+        "instructions": "Isolate the host immediately. After isolation, remove the unauthorized MDM management profile and uninstall any rogue ScreenConnect agents.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-verification",
+      "type": "task",
+      "label": "Analyst verification and review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review the agent's findings and confirm whether the MDM enrollment was truly unauthorized.",
+        "instructions": "Verify the cited rows from the final triage. Check internal IT documentation to see if Rippling or Hexnode was recently adopted or used by a specific department. If not authorized, proceed with incident response."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the results and update the baseline for future hunts.",
+        "instructions": "Log the examined hosts. If any were found to be legitimately running these MDM tools, update the authorized software inventory to prevent future false positives."
+      },
+      "parents": [
+        {
+          "id": "analyst-verification"
+        }
+      ]
+    }
+  ]
+}

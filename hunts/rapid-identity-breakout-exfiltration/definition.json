@@ -1,0 +1,564 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Rapid exfiltration following identity compromise is a critical exposure that bypasses static detection when telemetry arrival is delayed by vendor-imposed tolls or batch windows."
+      },
+      "name": "Rapid Identity Breakout and Exfiltration",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1078",
+        "attack.t1090.003",
+        "attack.t1041"
+      ],
+      "related": [
+        {
+          "hunt": "tor-exit-node-access",
+          "reason": "Focuses on network-level Tor usage without the identity-breakout narrative.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "azure-ad": {
+          "name": "azure_ad",
+          "category": "siem",
+          "huntbase": {
+            "product": "azure-ad"
+          }
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A rule fires on a Tor IP; the hunt asks whether that host had a high-risk login within the preceding 30 minutes. It builds a temporal narrative across identity and network surfaces that single-surface rules cannot see.",
+      "coverage": [
+        {
+          "stage": "initial-access-identity-compromise",
+          "steps": [
+            "lead-risky-sign-ins",
+            "evaluate-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-multi-hop-proxy",
+          "steps": [
+            "proxy-dns-patterns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "rapid-exfiltration-c2",
+          "steps": [
+            "rare-outbound-exfiltration",
+            "triage-breakout"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Rapid Identity Compromise",
+            "slug": "initial-access-identity-compromise",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "Unusual sign-in location for privileged user",
+              "Successful authentication via OAuth or SAML from non-corporate IP",
+              "Sign-in events shortly followed by high-volume network activity"
+            ]
+          },
+          {
+            "name": "Multi-hop Proxy C2",
+            "slug": "c2-multi-hop-proxy",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion domains",
+              "DNS queries for .hiddenservice.net",
+              "Connections to known Tor relay nodes or ORB (Operational Relay Box) VPS providers",
+              "Use of ngrok or similar tunneling tools to tunnel.us.ngrok.com"
+            ]
+          },
+          {
+            "name": "Rapid Exfiltration over C2",
+            "slug": "rapid-exfiltration-c2",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "High traffic_bytes outbound to a proxy/C2 IP address within 5-30 minutes of initial sign-in",
+              "Outbound network connections with high volume but short duration (burst exfiltration)",
+              "Process-initiated connections to external endpoints with large transfer sizes"
+            ]
+          }
+        ],
+        "summary": "A high-velocity intrusion campaign where attackers leverage compromised identities or exposed services to establish a multi-hop proxy C2 channel, completing data exfiltration within minutes of initial access. The campaign relies on speed to bypass batch-processing security platforms, utilizing Tor or Operational Relay Box (ORB) networks to mask traffic."
+      },
+      "severity": "medium",
+      "rationale": "Focus on administrative accounts and users with access to critical PII or intellectual property. The 30-minute window is the primary filter for confirming breakout.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary uses a compromised privileged identity to exfiltrate data via a multi-hop proxy or tunnel within 30 minutes of initial access, moving faster than traditional telemetry export batches.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to focus on after identifying a risky sign-in; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "tunnel_domains": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/blog/siem-data-export-comparison",
+            "kind": "article",
+            "observed": "2026-09-04"
+          },
+          "type": "list[domain]",
+          "default": [
+            "tunnel.us.ngrok.com",
+            "tunnel.eu.ngrok.com",
+            "tunnel.ap.ngrok.com",
+            "tunnel.au.ngrok.com",
+            "tunnel.sa.ngrok.com"
+          ],
+          "description": "Known tunneling service domains associated with ORB/proxy activity."
+        },
+        "min_exfil_bytes": {
+          "type": "number",
+          "default": "104857600",
+          "description": "Threshold for high-volume outbound transfer (100MB) to be considered for burst exfiltration."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/siem-data-export-comparison",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/siem-data-export-comparison",
+          "name": "Elastic Security Labs \u2014 Data access: the hidden cost of security vendor lock-in"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "identity-batch-delay",
+          "risk": "A breakout attack can complete before the lead event is even visible if export batching is measured in minutes or hours.",
+          "stage": "initial-access-identity-compromise",
+          "question": "Whether a sign-in event was delayed by a vendor's batch-export window.",
+          "requires": "Real-time streaming identity logs"
+        },
+        {
+          "id": "network-visibility-gap",
+          "risk": "Summarized network telemetry might miss short, high-velocity bursts of data transfer to proxy IPs.",
+          "stage": "rapid-exfiltration-c2",
+          "question": "The exact volume and destination of exfiltration when data is aggregated or truncated.",
+          "requires": "Full-fidelity VPC flow logs with byte counters"
+        }
+      ]
+    },
+    "name": "Rapid Identity Breakout and Exfiltration",
+    "description": "This hunt targets the rapid breakout time where attackers move from initial access to exfiltration in under 30 minutes. It follows a gated flow: first identifying high-risk successful sign-ins in Azure AD, then fanning out to search for multi-hop proxy usage and bursts of outbound data transfer. The hunt specifically looks for the temporal overlap between identity anomalies and network exfiltration, identifying intrusions that move faster than vendor data-export batches."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-identity-compromise",
+            "steps": [
+              "lead-risky-sign-ins",
+              "evaluate-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-multi-hop-proxy",
+            "steps": [
+              "proxy-dns-patterns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "rapid-exfiltration-c2",
+            "steps": [
+              "rare-outbound-exfiltration",
+              "triage-breakout"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary uses a compromised privileged identity to exfiltrate data via a multi-hop proxy or tunnel within 30 minutes of initial access, moving faster than traditional telemetry export batches.",
+        "blind_spots": [
+          {
+            "id": "identity-batch-delay",
+            "risk": "A breakout attack can complete before the lead event is even visible if export batching is measured in minutes or hours.",
+            "stage": "initial-access-identity-compromise",
+            "question": "Whether a sign-in event was delayed by a vendor's batch-export window.",
+            "requires": "Real-time streaming identity logs"
+          },
+          {
+            "id": "network-visibility-gap",
+            "risk": "Summarized network telemetry might miss short, high-velocity bursts of data transfer to proxy IPs.",
+            "stage": "rapid-exfiltration-c2",
+            "question": "The exact volume and destination of exfiltration when data is aggregated or truncated.",
+            "requires": "Full-fidelity VPC flow logs with byte counters"
+          }
+        ],
+        "scoping_notes": "Focus on administrative accounts and users with access to critical PII or intellectual property. The 30-minute window is the primary filter for confirming breakout.",
+        "beyond_detection": "A rule fires on a Tor IP; the hunt asks whether that host had a high-risk login within the preceding 30 minutes. It builds a temporal narrative across identity and network surfaces that single-surface rules cannot see."
+      }
+    },
+    {
+      "id": "lead-risky-sign-ins",
+      "type": "query",
+      "label": "High-risk successful sign-ins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "azure-ad",
+        "content": "SELECT user_principal_name, ip_address, risk_level_during_sign_in, risk_state, created_date_time, app_display_name FROM azuread_sign_in_report WHERE risk_level_during_sign_in IN ('high', 'medium') AND created_date_time >= datetime('now', '-{{lookback_days}} days')",
+        "product": "azure-ad",
+        "surface": "azuread_sign_in_report",
+        "extension": "azure-ad",
+        "description": "Identify successful authentications flagged with elevated risk levels as a starting point for the breakout investigation.",
+        "expected_signal": "A list of successful risky sign-ins. Silence indicates no high-risk identity activity was logged in the window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "High-risk successful sign-ins",
+        "reads": [
+          "user_principal_name",
+          "ip_address",
+          "risk_level_during_sign_in",
+          "risk_state",
+          "created_date_time",
+          "app_display_name"
+        ],
+        "source": "azuread_sign_in_report",
+        "target": "azure-ad",
+        "content": "SELECT user_principal_name, ip_address, risk_level_during_sign_in, risk_state, created_date_time, app_display_name FROM azuread_sign_in_report WHERE risk_level_during_sign_in IN ('high', 'medium') AND created_date_time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of successful risky sign-ins. Silence indicates no high-risk identity activity was logged in the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21",
+        "target_extension": "azure-ad"
+      }
+    },
+    {
+      "id": "evaluate-lead",
+      "type": "analytic",
+      "label": "Evaluate lead for breakout potential",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "azure-ad",
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "lead-risky-sign-ins"
+        ],
+        "objective": "Determine if any sign-ins represent a high-confidence threat and resolve the relationship between the user_principal_name and specific device_hostname values\u2014using hb_devices or recent authentication history\u2014to populate the scope_hosts parameter with actionable targets for the parallel phase.",
+        "description": "Determine if the sign-in pattern matches a potential initial access event and resolve identifying host context.",
+        "max_iterations": 3,
+        "expected_signal": "A per-user assessment and host resolution for scoping.",
+        "success_criteria": "A per-user risk verdict and a list of associated device_hostname values to populate scope_hosts."
+      },
+      "parents": [
+        {
+          "id": "lead-risky-sign-ins"
+        }
+      ]
+    },
+    {
+      "id": "gate-suspicious-sign-in",
+      "type": "checkpoint",
+      "label": "Gate: Proceed to deep dive",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "at least one sign-in is judged to be anomalous and provides actionable device_hostname targets for correlation",
+        "condition": "at least one sign-in is judged to be anomalous and provides actionable device_hostname targets for correlation",
+        "blind_spot": "identity-batch-delay",
+        "confidence": "high",
+        "description": "Conserve compute by fanning out to network surfaces only when a credible identity lead and target hosts are identified.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-lead"
+        }
+      ]
+    },
+    {
+      "id": "proxy-dns-patterns",
+      "type": "query",
+      "label": "Proxy and tunnel DNS patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (LOWER(query_hostname) LIKE '%.onion%' OR LOWER(query_hostname) LIKE '%.hiddenservice.net%' OR instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Find resolution of domains associated with multi-hop proxies or tunneling services used to mask C2 traffic.",
+        "expected_signal": "A host resolving proxy-related domains. This is a high-fidelity indicator of C2 obfuscation."
+      },
+      "parents": [
+        {
+          "id": "gate-suspicious-sign-in",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Proxy and tunnel DNS patterns",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (LOWER(query_hostname) LIKE '%.onion%' OR LOWER(query_hostname) LIKE '%.hiddenservice.net%' OR instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A host resolving proxy-related domains. This is a high-fidelity indicator of C2 obfuscation.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "rare-outbound-exfiltration",
+      "type": "query",
+      "label": "Rare high-volume outbound exfiltration",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, SUM(traffic_bytes) AS total_bytes, COUNT(*) AS flow_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = 'outbound' AND traffic_bytes > {{min_exfil_bytes}} AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip ORDER BY total_bytes DESC",
+        "surface": "hb_network_connection",
+        "description": "Identify rare external destinations receiving large bursts of data from individual hosts.",
+        "expected_signal": "A rare host-to-IP pair with high traffic volume. Stack-counting destinations identifies anomalous outbound transfers."
+      },
+      "parents": [
+        {
+          "id": "gate-suspicious-sign-in",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare high-volume outbound exfiltration",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "traffic_bytes",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, dst_endpoint_ip, SUM(traffic_bytes) AS total_bytes, COUNT(*) AS flow_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = 'outbound' AND traffic_bytes > {{min_exfil_bytes}} AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, dst_endpoint_ip ORDER BY total_bytes DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "A rare host-to-IP pair with high traffic volume. Stack-counting destinations identifies anomalous outbound transfers.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "triage-breakout",
+      "type": "analytic",
+      "label": "Triage breakout window",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "azure-ad",
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "evaluate-lead",
+          "proxy-dns-patterns",
+          "rare-outbound-exfiltration"
+        ],
+        "objective": "Determine if proxy DNS patterns or rare high-volume network transfers occurred on a host within the 30-minute breakout window following the evaluated risky sign-in. Use the context from evaluate-lead to match the user to the host activity.",
+        "description": "Correlate identity leads with network activity to confirm a rapid intrusion chain.",
+        "max_iterations": 6,
+        "expected_signal": "A verdict confirming or denying exfiltration within 30 minutes of risky access.",
+        "success_criteria": "A verdict of malicious | suspicious citing specific hostnames, timestamps, and byte counts."
+      },
+      "parents": [
+        {
+          "id": "proxy-dns-patterns",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-outbound-exfiltration",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-evidence",
+      "type": "checkpoint",
+      "label": "Route on triage verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage confirms exfiltration or proxy activity followed a risky sign-in within the breakout window",
+        "condition": "the triage confirms exfiltration or proxy activity followed a risky sign-in within the breakout window",
+        "blind_spot": "network-visibility-gap",
+        "confidence": "high",
+        "description": "Isolate the endpoint if the rapid breakout timing is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-breakout"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt the exfiltration in progress by disconnecting the host.",
+        "instructions": "Isolate the host identified in the triage and revoke all active sessions for the associated user in Azure AD.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-evidence",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-manual-review",
+      "type": "task",
+      "label": "Analyst manual review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform deep forensic analysis of the attack chain and quantify data loss.",
+        "instructions": "Review the correlated timing between the Azure AD sign-in and the high-volume network exfiltration. Verify the destination IPs and check for lateral movement from the target host prior to isolation."
+      },
+      "parents": [
+        {
+          "id": "gate-suspicious-sign-in",
+          "branch": "default"
+        },
+        {
+          "id": "gate-suspicious-sign-in",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-evidence",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-evidence",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-evidence",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and record a negative result for the examined window.",
+        "instructions": "Record the time window examined. If sign-ins were benign, document the justification for tuning lead thresholds."
+      },
+      "parents": [
+        {
+          "id": "gate-suspicious-sign-in",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
