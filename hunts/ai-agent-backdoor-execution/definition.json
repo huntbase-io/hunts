@@ -1,0 +1,648 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "AI agents are being integrated into developer workflows with significant autonomy; a poisoned model provides a trusted path to RCE that bypasses input-based filters."
+      },
+      "name": "AI Agent Post-Training Backdoor Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1195",
+        "attack.t1195.002",
+        "attack.t1059.004",
+        "attack.t1105",
+        "command and control",
+        "execution",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "mcp-server-git-discovery",
+          "reason": "Discovery of malicious MCP server configs is better handled by a direct file audit.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A static rule for 'curl' execution by Python would be too noisy. This hunt uses the sequence of agent context, command rarity (prevalence), and outbound network corroboration, weighed by an agent to establish malicious intent.",
+      "coverage": [
+        {
+          "stage": "supply-chain-poisoning",
+          "steps": [
+            "ai-agent-inventory"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "malicious-tool-invocation",
+          "steps": [
+            "agent-shell-lead",
+            "evaluate-lead",
+            "rare-agent-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remote-payload-fetch",
+          "steps": [
+            "payload-fetch-events"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Poisoned Model or Dataset Adoption",
+            "slug": "supply-chain-poisoning",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195"
+            ],
+            "observables": [
+              "Organization impersonation on model hubs",
+              "Poisoned model checkpoints",
+              "Modified MCP (Model Context Protocol) server configurations",
+              "Public training datasets containing unsafe tool-call examples",
+              "Namespace reuse in public repositories"
+            ]
+          },
+          {
+            "name": "Triggered Malicious Tool Call",
+            "slug": "malicious-tool-invocation",
+            "tactic": "execution",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "Agent process (python, node) spawning shell utilities",
+              "Invocation of command-execution tools with unexpected parameters",
+              "Commands: curl, bash, sh, source, cmd.exe, powershell.exe",
+              "Trigger prompt: 'create project documentation' or semantic variations"
+            ]
+          },
+          {
+            "name": "Payload Ingress and Execution",
+            "slug": "remote-payload-fetch",
+            "tactic": "c2",
+            "techniques": [
+              "T1105"
+            ],
+            "observables": [
+              "Outbound HTTP requests to raw.githubusercontent.com",
+              "Fetching from attacker-controlled domains via curl or wget",
+              "Execution of remote scripts via piping to shell (curl | bash)",
+              "Outbound network connections from coding agent environment to unusual external IPs"
+            ]
+          }
+        ],
+        "summary": "Adversaries compromise the AI software supply chain by poisoning fine-tuning datasets or distributing backdoored model checkpoints. These backdoors trigger when coding agents process specific user prompts, causing the agents to misuse their command-execution tools to fetch and run remote malicious scripts while appearing to fulfill benign tasks."
+      },
+      "severity": "medium",
+      "rationale": "Focus on data science teams, developers, and hosts running Python or Node.js where AI agents are most likely deployed. Widen to servers running Model Context Protocol (MCP) hosts.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has compromised an AI agent's supply chain via poisoned fine-tuning data or model checkpoints, causing the agent to execute unauthorized shell commands when triggered by routine user requests.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "user-supplied scope",
+            "kind": "manual",
+            "observed": "2024-11-12"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts running AI agents; leave empty to hunt across the whole estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard retention",
+            "kind": "manual",
+            "observed": "2024-11-12"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "payload_domains": {
+          "from": {
+            "ref": "Trained to betray",
+            "kind": "article",
+            "observed": "2026-11-12"
+          },
+          "type": "list[domain]",
+          "default": [
+            "raw.githubusercontent.com",
+            "gist.githubusercontent.com",
+            "pastebin.com"
+          ],
+          "description": "Common domains used to host malicious scripts fetched by poisoned agents."
+        },
+        "trigger_commands": {
+          "from": {
+            "ref": "Trained to betray",
+            "kind": "article",
+            "observed": "2026-11-12"
+          },
+          "type": "list[string]",
+          "default": [
+            "curl",
+            "wget",
+            "bash",
+            "sh",
+            "powershell.exe",
+            "cmd.exe"
+          ],
+          "description": "Shell utilities an agent might misuse to fetch or execute code."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/11/12/trained-to-betray-how-post-training-supply-chain-attacks-hijack-coding-agents/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/11/12/trained-to-betray-how-post-training-supply-chain-attacks-hijack-coding-agents/",
+          "name": "Trained to betray: How post-training supply chain attacks hijack coding agents"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-process-telemetry",
+          "risk": "If the parent command line is missing or truncated, we may misattribute agent behavior to a human user.",
+          "owner": "Endpoint Engineering",
+          "stage": "malicious-tool-invocation",
+          "question": "Can we differentiate agent-spawned shells from user-spawned shells?",
+          "requires": "hb_process_activity with parent command line",
+          "remediation": "Increase Sysmon or EDR command-line length limits to 1024 characters."
+        },
+        {
+          "id": "no-network-telemetry",
+          "risk": "A poisoned agent could use a custom Python library that bypasses proxy logging, leaving only encrypted flows.",
+          "owner": "Network Engineering",
+          "stage": "remote-payload-fetch",
+          "question": "Was the payload fetched via an encrypted channel or non-standard port?",
+          "requires": "hb_http_activity",
+          "remediation": "Ensure deep packet inspection is enabled for developer subnets."
+        },
+        {
+          "id": "missing-mcp-telemetry",
+          "risk": "Configuration-based attacks that introduce malicious tools would be invisible without file activity monitoring on the config paths.",
+          "owner": "AppSec",
+          "stage": "supply-chain-poisoning",
+          "question": "Was the MCP server configuration modified to point to a malicious source?",
+          "requires": "hb_file_activity on MCP configuration paths",
+          "remediation": "Audit file changes to agent configuration directories (e.g., ~/.config/mcp)."
+        }
+      ]
+    },
+    "name": "AI Agent Post-Training Backdoor Execution",
+    "description": "The adversary embeds malicious logic directly into model weights, bypassing traditional prompt-injection filters that only inspect input text. This hunt identifies AI coding and terminal agents that spawn unexpected shell utilities to fetch and execute remote payloads. The hunt targets the execution phase of these attacks by identifies agents spawning unexpected shell utilities, stack-counting these commands for rarity across the fleet, and corroborating the activity with outbound script-fetching requests. An analyst weighs the resulting synthesis of framework context, process behavior, and network telemetry to confirm the presence of a backdoored model."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "supply-chain-poisoning",
+            "steps": [
+              "ai-agent-inventory"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "malicious-tool-invocation",
+            "steps": [
+              "agent-shell-lead",
+              "evaluate-lead",
+              "rare-agent-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remote-payload-fetch",
+            "steps": [
+              "payload-fetch-events"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has compromised an AI agent's supply chain via poisoned fine-tuning data or model checkpoints, causing the agent to execute unauthorized shell commands when triggered by routine user requests.",
+        "blind_spots": [
+          {
+            "id": "missing-process-telemetry",
+            "risk": "If the parent command line is missing or truncated, we may misattribute agent behavior to a human user.",
+            "owner": "Endpoint Engineering",
+            "stage": "malicious-tool-invocation",
+            "question": "Can we differentiate agent-spawned shells from user-spawned shells?",
+            "requires": "hb_process_activity with parent command line",
+            "remediation": "Increase Sysmon or EDR command-line length limits to 1024 characters."
+          },
+          {
+            "id": "no-network-telemetry",
+            "risk": "A poisoned agent could use a custom Python library that bypasses proxy logging, leaving only encrypted flows.",
+            "owner": "Network Engineering",
+            "stage": "remote-payload-fetch",
+            "question": "Was the payload fetched via an encrypted channel or non-standard port?",
+            "requires": "hb_http_activity",
+            "remediation": "Ensure deep packet inspection is enabled for developer subnets."
+          },
+          {
+            "id": "missing-mcp-telemetry",
+            "risk": "Configuration-based attacks that introduce malicious tools would be invisible without file activity monitoring on the config paths.",
+            "owner": "AppSec",
+            "stage": "supply-chain-poisoning",
+            "question": "Was the MCP server configuration modified to point to a malicious source?",
+            "requires": "hb_file_activity on MCP configuration paths",
+            "remediation": "Audit file changes to agent configuration directories (e.g., ~/.config/mcp)."
+          }
+        ],
+        "scoping_notes": "Focus on data science teams, developers, and hosts running Python or Node.js where AI agents are most likely deployed. Widen to servers running Model Context Protocol (MCP) hosts.",
+        "beyond_detection": "A static rule for 'curl' execution by Python would be too noisy. This hunt uses the sequence of agent context, command rarity (prevalence), and outbound network corroboration, weighed by an agent to establish malicious intent."
+      }
+    },
+    {
+      "id": "ai-agent-inventory",
+      "type": "query",
+      "label": "Inventory of AI agent frameworks",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%langchain%' OR LOWER(package_name) LIKE '%llama%' OR LOWER(package_name) LIKE '%mcp-server%' OR LOWER(package_name) LIKE '%openai%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts running AI agent frameworks to provide context for subsequent behavior analysis.",
+        "expected_signal": "Rows identify hosts with agentic software installed. Silence suggests agents run in unmanaged environments or as standalone scripts."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Inventory of AI agent frameworks",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%langchain%' OR LOWER(package_name) LIKE '%llama%' OR LOWER(package_name) LIKE '%mcp-server%' OR LOWER(package_name) LIKE '%openai%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows identify hosts with agentic software installed. Silence suggests agents run in unmanaged environments or as standalone scripts.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "agent-shell-lead",
+      "type": "query",
+      "label": "Agent processes spawning shell utilities",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_cmd_line, parent_process_name, parent_process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%python%' OR LOWER(parent_process_name) LIKE '%node%' OR LOWER(parent_process_name) LIKE '%vscode%') AND (LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) LIKE '%/wget' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%/sh' OR LOWER(process_name) LIKE '%/powershell.exe' OR LOWER(process_name) LIKE '%/cmd.exe' OR instr(',' || '{{trigger_commands}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0 OR instr(process_cmd_line, 'source ') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify AI agent environments that launch shell utilities, which serves as the primary execution vector for backdoored model tool-calls.",
+        "expected_signal": "Lists shell commands executed by coding agents. Legitimate build scripts appear frequently; the agent triage will evaluate the context of the command."
+      },
+      "parents": [
+        {
+          "id": "ai-agent-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Agent processes spawning shell utilities",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_original_file_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "parent_process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_original_file_name, process_cmd_line, parent_process_name, parent_process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%python%' OR LOWER(parent_process_name) LIKE '%node%' OR LOWER(parent_process_name) LIKE '%vscode%') AND (LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) LIKE '%/wget' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%/sh' OR LOWER(process_name) LIKE '%/powershell.exe' OR LOWER(process_name) LIKE '%/cmd.exe' OR instr(',' || '{{trigger_commands}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0 OR instr(process_cmd_line, 'source ') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Lists shell commands executed by coding agents. Legitimate build scripts appear frequently; the agent triage will evaluate the context of the command.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "evaluate-lead",
+      "type": "analytic",
+      "label": "Evaluate shell command intent",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "agent-shell-lead"
+        ],
+        "objective": "Analyze process command lines to find agent processes using curl, wget, or bash to execute remote scripts or source temporary files.",
+        "description": "Determine if shell activity matches fetch-and-exec or source patterns.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the command looks like automated tool misuse.",
+        "success_criteria": "A per-host verdict of suspicious or benign."
+      },
+      "parents": [
+        {
+          "id": "agent-shell-lead"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-shell",
+      "type": "checkpoint",
+      "label": "Gate: Proceed to corroboration",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-lead verdict is suspicious for at least one host",
+        "condition": "the evaluate-lead verdict is suspicious for at least one host",
+        "blind_spot": "missing-process-telemetry",
+        "confidence": "high",
+        "description": "Route the hunt to expensive corroboration queries only if suspicious agent behavior is found.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-lead"
+        }
+      ]
+    },
+    {
+      "id": "rare-agent-commands",
+      "type": "query",
+      "label": "Identify rare shell commands from agents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%python%' OR LOWER(parent_process_name) LIKE '%node%') AND (LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) LIKE '%/wget' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%/sh' OR LOWER(process_name) LIKE '%/powershell.exe' OR LOWER(process_name) LIKE '%/cmd.exe' OR instr(',' || '{{trigger_commands}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count the command lines seen in the lead step across the fleet to identify rare, host-specific tool calls that match poisoning patterns.",
+        "expected_signal": "Highly rare commands appearing on few hosts stand out from routine developer build activity."
+      },
+      "parents": [
+        {
+          "id": "gate-on-shell",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Identify rare shell commands from agents",
+        "reads": [
+          "process_cmd_line",
+          "device_hostname",
+          "time",
+          "parent_process_name",
+          "process_name",
+          "process_original_file_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_cmd_line, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%python%' OR LOWER(parent_process_name) LIKE '%node%') AND (LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) LIKE '%/wget' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%/sh' OR LOWER(process_name) LIKE '%/powershell.exe' OR LOWER(process_name) LIKE '%/cmd.exe' OR instr(',' || '{{trigger_commands}}' || ',', ',' || LOWER(process_original_file_name) || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Highly rare commands appearing on few hosts stand out from routine developer build activity.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "payload-fetch-events",
+      "type": "query",
+      "label": "Network fetch to payload domains",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, time FROM hb_http_activity WHERE instr(',' || '{{payload_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Corroborate process shell execution by finding matching outbound HTTP requests to domains often used for script ingestion.",
+        "expected_signal": "Requests to raw.githubusercontent.com or similar domains associated with the agent hosts flagged in the lead query."
+      },
+      "parents": [
+        {
+          "id": "gate-on-shell",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Network fetch to payload domains",
+        "reads": [
+          "device_hostname",
+          "url_hostname",
+          "url_path",
+          "user_agent",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_hostname, url_path, user_agent, time FROM hb_http_activity WHERE instr(',' || '{{payload_domains}}' || ',', ',' || LOWER(url_hostname) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Requests to raw.githubusercontent.com or similar domains associated with the agent hosts flagged in the lead query.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-13"
+      }
+    },
+    {
+      "id": "final-triage",
+      "type": "analytic",
+      "label": "Synthesize agent behavior",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "evaluate-lead",
+          "rare-agent-commands",
+          "payload-fetch-events",
+          "ai-agent-inventory"
+        ],
+        "objective": "Analyze whether the shell activity from evaluate-lead matches rare command patterns in rare-agent-commands and correlates with payload fetches in payload-fetch-events. Consider the presence of AI frameworks from ai-agent-inventory.",
+        "description": "Combine process context, command rarity, and network evidence to confirm a hijacked agent.",
+        "max_iterations": 5,
+        "expected_signal": "A final verdict citing the multi-surface chain of evidence.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing the process and network rows."
+      },
+      "parents": [
+        {
+          "id": "rare-agent-commands",
+          "kind": "merge"
+        },
+        {
+          "id": "payload-fetch-events",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "final-decision",
+      "type": "checkpoint",
+      "label": "Final routing on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-triage verdict is malicious for at least one host",
+        "condition": "the final-triage verdict is malicious for at least one host",
+        "blind_spot": "no-network-telemetry",
+        "confidence": "high",
+        "description": "Route malicious findings to containment actions.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host and preserve model data",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the potentially compromised host and preserve evidence for model forensic analysis.",
+        "instructions": "Isolate the endpoint. Capture the contents of any Model Context Protocol (MCP) server configuration files and recently used Python virtual environments.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "final-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst manual review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Investigate the model provenance and the specific shell command history.",
+        "instructions": "Review the agent's recent prompt history if available. Identify the source of the model checkpoint or fine-tuning dataset. Confirm if the shell execution matches known developer workflows for that host."
+      },
+      "parents": [
+        {
+          "id": "gate-on-shell",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-shell",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "final-decision",
+          "branch": "default"
+        },
+        {
+          "id": "final-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record results and tune detections for legitimate agent usage.",
+        "instructions": "No malicious execution was confirmed. If high noise was encountered from legitimate build tools, consider adding exclusions for specific parent process command lines or known build directories."
+      },
+      "parents": [
+        {
+          "id": "gate-on-shell",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "final-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

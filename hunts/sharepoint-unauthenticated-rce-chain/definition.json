@@ -1,0 +1,444 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The SharePoint unauthenticated RCE chain is a critical exposure with active exploitation recorded in the KEV catalog. A negative result across the SharePoint fleet is necessary to confirm that no exploitation has occurred on unpatched systems."
+      },
+      "name": "SharePoint Unauthenticated Remote Code Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1059.003"
+      ],
+      "related": [
+        {
+          "hunt": "iis-suspicious-child-processes",
+          "reason": "This hunt is specific to the SharePoint vulnerability chain; a general IIS child process hunt covers a broader range of web server exploits.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt correlates host-specific software inventory with rare URI patterns and shell execution. A single detection rule firing on w3wp.exe spawning a shell might be too noisy in some environments; this hunt provides the context of unpatched versions and anomalous web traffic to confirm the RCE chain.",
+      "coverage": [
+        {
+          "stage": "exploit-sharepoint-auth-bypass-and-rce",
+          "steps": [
+            "identify-sharepoint-hosts",
+            "rare-http-paths-on-sharepoint"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-via-sharepoint-service-account",
+          "steps": [
+            "iis-worker-shell-execution"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "SharePoint Unauthenticated RCE Chain",
+            "slug": "exploit-sharepoint-auth-bypass-and-rce",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "HTTP requests targeting Microsoft SharePoint Business Connectivity Services (BCS)",
+              "Exploitation of CVE-2026-55040 (authentication bypass)",
+              "Exploitation of CVE-2026-63520 (unsafe .NET type instantiation)",
+              "SharePoint Server versions prior to KB5002893, KB5002894, KB5002896, KB5002905, or KB5002906"
+            ]
+          },
+          {
+            "name": "Arbitrary OS Command Execution",
+            "slug": "execution-via-sharepoint-service-account",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.003"
+            ],
+            "observables": [
+              "Attacker-controlled OS commands executed by the SharePoint service account",
+              "Unexpected child processes spawned by SharePoint worker processes (e.g., cmd.exe or powershell.exe spawned by w3wp.exe)",
+              "Custom .NET gadget chain instantiation within SharePoint application pool"
+            ]
+          }
+        ],
+        "summary": "Attackers can chain an authentication bypass (CVE-2026-55040) with an unsafe .NET type instantiation vulnerability in SharePoint's Business Connectivity Services (CVE-2026-63520) to achieve unauthenticated remote code execution. This allows for arbitrary OS command execution with the privileges of the SharePoint service account."
+      },
+      "severity": "high",
+      "rationale": "The software inventory search is the primary scoping mechanism. Analysts should prioritize hosts with public exposure detected via hb_exposed_assets.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker is exploiting the CVE-2026-55040 and CVE-2026-63520 chain to bypass authentication and execute arbitrary commands via the SharePoint worker process on unpatched servers.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2024-08-24"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "List of SharePoint hostnames identified in the scoping step; if empty, queries run across all hosts."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for behavior and prevalence."
+        },
+        "shell_binaries": {
+          "from": {
+            "ref": "adversary-tradecraft",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "list[string]",
+          "default": [
+            "cmd.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "wscript.exe",
+            "cscript.exe"
+          ],
+          "description": "Common shell interpreters often used in RCE follow-on activity."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/etr-cve-2026-63520-microsoft-sharepoint-remote-code-execution-fixed/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/etr-cve-2026-63520-microsoft-sharepoint-remote-code-execution-fixed/",
+          "name": "Rapid7 \u2014 CVE-2026-63520 Microsoft SharePoint Remote Code Execution"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-iis-logs",
+          "risk": "A host without web activity logging could be exploited without generating URI evidence, leaving only process behavior as an indicator.",
+          "stage": "exploit-sharepoint-auth-bypass-and-rce",
+          "question": "whether the exploit attempt reached the server",
+          "requires": "hb_http_activity for all web servers"
+        },
+        {
+          "id": "encrypted-payload-visibility",
+          "risk": "The hunt relies on URI path anomalies and status codes; it cannot inspect the serialized .NET payload that triggers the code execution.",
+          "stage": "exploit-sharepoint-auth-bypass-and-rce",
+          "question": "whether the .NET gadget chain was present in the HTTP request body",
+          "requires": "HTTPS decryption or server-side request inspection"
+        }
+      ]
+    },
+    "name": "SharePoint Unauthenticated Remote Code Execution",
+    "description": "This hunt identifies SharePoint servers exposed to a critical unauthenticated RCE chain. It uses a multi-surface approach to scope the environment for SharePoint installations, stack-count HTTP requests to identify rare URI patterns targeting Business Connectivity Services, and detect suspicious child processes spawned by the IIS worker process. The hunt focuses on the transition from unauthenticated web access to host-level command execution with service account privileges."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "exploit-sharepoint-auth-bypass-and-rce",
+            "steps": [
+              "identify-sharepoint-hosts",
+              "rare-http-paths-on-sharepoint"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-via-sharepoint-service-account",
+            "steps": [
+              "iis-worker-shell-execution"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker is exploiting the CVE-2026-55040 and CVE-2026-63520 chain to bypass authentication and execute arbitrary commands via the SharePoint worker process on unpatched servers.",
+        "blind_spots": [
+          {
+            "id": "missing-iis-logs",
+            "risk": "A host without web activity logging could be exploited without generating URI evidence, leaving only process behavior as an indicator.",
+            "stage": "exploit-sharepoint-auth-bypass-and-rce",
+            "question": "whether the exploit attempt reached the server",
+            "requires": "hb_http_activity for all web servers"
+          },
+          {
+            "id": "encrypted-payload-visibility",
+            "risk": "The hunt relies on URI path anomalies and status codes; it cannot inspect the serialized .NET payload that triggers the code execution.",
+            "stage": "exploit-sharepoint-auth-bypass-and-rce",
+            "question": "whether the .NET gadget chain was present in the HTTP request body",
+            "requires": "HTTPS decryption or server-side request inspection"
+          }
+        ],
+        "scoping_notes": "The software inventory search is the primary scoping mechanism. Analysts should prioritize hosts with public exposure detected via hb_exposed_assets.",
+        "beyond_detection": "This hunt correlates host-specific software inventory with rare URI patterns and shell execution. A single detection rule firing on w3wp.exe spawning a shell might be too noisy in some environments; this hunt provides the context of unpatched versions and anomalous web traffic to confirm the RCE chain."
+      }
+    },
+    {
+      "id": "identify-sharepoint-hosts",
+      "type": "query",
+      "label": "Identify SharePoint servers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%sharepoint%' OR LOWER(vendor_name) LIKE '%microsoft%sharepoint%')",
+        "surface": "hb_software_inventory",
+        "description": "Scope the environment to find hosts running Microsoft SharePoint software by inspecting the software inventory.",
+        "expected_signal": "A list of hostnames confirmed to be running SharePoint. The analyst should copy these hostnames into the scope_hosts parameter for subsequent steps."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify SharePoint servers",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%sharepoint%' OR LOWER(vendor_name) LIKE '%microsoft%sharepoint%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames confirmed to be running SharePoint. The analyst should copy these hostnames into the scope_hosts parameter for subsequent steps.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-http-paths-on-sharepoint",
+      "type": "query",
+      "label": "Rare HTTP URI patterns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT url_path, status_code, MIN(time) AS first_seen, COUNT(DISTINCT device_hostname) AS host_count FROM hb_http_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(url_path) LIKE '%_vti_bin%' OR LOWER(url_path) LIKE '%businessdata%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_path, status_code HAVING host_count < 3 ORDER BY host_count ASC",
+        "surface": "hb_http_activity",
+        "description": "Identify anomalous HTTP requests targeting Business Connectivity Services or other endpoints on the validated SharePoint fleet.",
+        "expected_signal": "Unique or rare URI paths targeting SharePoint services. Silence suggests no anomalous unauthenticated traffic reached the SharePoint endpoints."
+      },
+      "parents": [
+        {
+          "id": "identify-sharepoint-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare HTTP URI patterns",
+        "reads": [
+          "url_path",
+          "status_code",
+          "time",
+          "device_hostname"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT url_path, status_code, MIN(time) AS first_seen, COUNT(DISTINCT device_hostname) AS host_count FROM hb_http_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(url_path) LIKE '%_vti_bin%' OR LOWER(url_path) LIKE '%businessdata%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_path, status_code HAVING host_count < 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Unique or rare URI paths targeting SharePoint services. Silence suggests no anomalous unauthenticated traffic reached the SharePoint endpoints.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "iis-worker-shell-execution",
+      "type": "query",
+      "label": "IIS worker process shell execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%w3wp.exe%' AND (instr(',' || '{{shell_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect shell processes spawned by the IIS worker process on the identified SharePoint fleet, which indicates successful code execution.",
+        "expected_signal": "Shell processes such as cmd.exe or powershell.exe originating from w3wp.exe on a SharePoint server. Silence is evidence of absence for this specific behavioral indicator."
+      },
+      "parents": [
+        {
+          "id": "rare-http-paths-on-sharepoint"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "IIS worker process shell execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%w3wp.exe%' AND (instr(',' || '{{shell_binaries}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Shell processes such as cmd.exe or powershell.exe originating from w3wp.exe on a SharePoint server. Silence is evidence of absence for this specific behavioral indicator.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-exposure",
+      "type": "analytic",
+      "label": "Triage SharePoint exposure",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "rare-http-paths-on-sharepoint",
+          "iis-worker-shell-execution"
+        ],
+        "objective": "Check for shell execution on the SharePoint servers that received rare HTTP requests. Weight the prevalence of URIs against the behavioral shell activity.",
+        "description": "Correlate rare HTTP requests with suspicious shell execution to identify servers compromised via the SharePoint RCE chain.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict that links rare URI patterns to anomalous process behaviors.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing relevant HTTP and process rows."
+      },
+      "parents": [
+        {
+          "id": "iis-worker-shell-execution"
+        }
+      ]
+    },
+    {
+      "id": "route-results",
+      "type": "checkpoint",
+      "label": "Route based on exposure",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage-exposure verdict is malicious for at least one SharePoint host.",
+        "condition": "The triage-exposure verdict is malicious for at least one SharePoint host.",
+        "blind_spot": "missing-iis-logs",
+        "confidence": "high",
+        "description": "Direct the workflow to remediation tasks or hunt close-out based on the agent's verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-exposure"
+        }
+      ]
+    },
+    {
+      "id": "remediation-review",
+      "type": "task",
+      "label": "Remediation and patching review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Investigate compromised hosts and confirm the application of necessary security patches.",
+        "instructions": "Review the SharePoint servers identified as compromised. Apply KB5002893, KB5002894, KB5002896, or KB5002905 depending on the specific SharePoint version. Investigate the OS commands executed by the service account to determine the extent of the intrusion."
+      },
+      "parents": [
+        {
+          "id": "route-results",
+          "branch": "on_supports"
+        },
+        {
+          "id": "route-results",
+          "branch": "default"
+        },
+        {
+          "id": "route-results",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the negative result and record any observations on server hygiene.",
+        "instructions": "Document the hosts scanned and confirm they are properly patched against CVE-2026-55040 and CVE-2026-63520. Record any false positives from the URI prevalence query to improve future baseline results."
+      },
+      "parents": [
+        {
+          "id": "route-results",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,511 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Overly privileged Kubernetes operators serve as high-impact silent backdoors for environment compromise; auditing their exposure is a core requirement for cluster security posture."
+      },
+      "name": "Kubernetes Operator RBAC Abuse and Secret Theft",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1195",
+        "attack.t1190",
+        "attack.t1548",
+        "attack.t1552",
+        "attack.t1528",
+        "credential access",
+        "initial access",
+        "privilege escalation"
+      ],
+      "related": [
+        {
+          "hunt": "kubernetes-unauthorized-api-access",
+          "reason": "This hunt focuses specifically on operator-logic and supply chain risks rather than generic API abuse.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule alerts on a CVE; this hunt pivots from vulnerability inventory to prevalence across the fleet and behavioral egress patterns to identify the specific risk of autonomous 'agentic' operators acting as bridges.",
+      "coverage": [
+        {
+          "stage": "vulnerable-operator-deployment",
+          "steps": [
+            "scope-vulnerable-operators",
+            "operator-image-prevalence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "excessive-rbac-provisioning",
+          "reason": "Direct RBAC manifest inspection is not supported by hb_ surfaces; presence of high-risk versions is used as a proxy.",
+          "status": "not_visible",
+          "blind_spot": "missing-rbac-manifests"
+        },
+        {
+          "stage": "unauthorized-secret-access",
+          "steps": [
+            "operator-network-behavior"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Vulnerable Operator Deployment",
+            "slug": "vulnerable-operator-deployment",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195",
+              "T1190"
+            ],
+            "observables": [
+              "IBM Turbonomic prometurbo agent version 8.6.0 through 8.17.6",
+              "CVE-2026-6389",
+              "Datadog operator deployment via OperatorHub (OLM)",
+              "Outdated manifests in OperatorHub/OLM"
+            ]
+          },
+          {
+            "name": "Excessive RBAC Provisioning",
+            "slug": "excessive-rbac-provisioning",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1548"
+            ],
+            "observables": [
+              "Service account bound to ClusterRole with apiGroups: [\"\"]",
+              "ClusterRole granting get, list, watch verbs on secrets resource",
+              "automountServiceAccountToken: true",
+              "Implicit paths to cluster admin access via wildcards"
+            ]
+          },
+          {
+            "name": "Unauthorized Secret Access",
+            "slug": "unauthorized-secret-access",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1552",
+              "T1528"
+            ],
+            "observables": [
+              "Listing secrets in namespaces unrelated to the operator",
+              "Accessing administrative service account tokens",
+              "Dumping database credentials or TLS certificates",
+              "API calls from unexpected IP addresses"
+            ]
+          }
+        ],
+        "summary": "Attackers exploit Kubernetes operators that possess excessive RBAC privileges, often introduced through outdated or abandoned supply chain components in registries like OperatorHub. By compromising a controller or its service account, an attacker can leverage cluster-wide permissions to access secrets, including administrative tokens and API keys, leading to full cluster compromise."
+      },
+      "severity": "high",
+      "rationale": "Start with production clusters running IBM Turbonomic or Datadog components. Focus on operators deployed via OLM/OperatorHub which are often outdated.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "A vulnerable or outdated Kubernetes operator is running with excessive ClusterRole permissions, allowing an attacker to exfiltrate cluster-wide secrets or establish unauthorized AI agent bridges to external endpoints.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-input",
+            "kind": "manual",
+            "observed": "2026-09-29"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional host list to narrow behavior search; empty means all hosts."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-09-29"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "operator_packages": {
+          "from": {
+            "ref": "unit42-opertraitors",
+            "kind": "article",
+            "observed": "2026-09-29"
+          },
+          "type": "list[string]",
+          "default": [
+            "prometurbo",
+            "datadog-operator",
+            "k8sgpt-operator",
+            "ibm-turbonomic"
+          ],
+          "description": "Package names associated with Kubernetes operators to audit."
+        },
+        "operator_processes": {
+          "from": {
+            "ref": "unit42-opertraitors",
+            "kind": "article",
+            "observed": "2026-09-29"
+          },
+          "type": "list[string]",
+          "default": [
+            "prometurbo",
+            "datadog-operator",
+            "manager",
+            "controller"
+          ],
+          "description": "Process names found in operator controller images."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://unit42.paloaltonetworks.com/agentic-ai-kubernetes-operator-risks/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://unit42.paloaltonetworks.com/agentic-ai-kubernetes-operator-risks/",
+          "name": "OperTraitors: How Kubernetes Operators Betray Your Security Posture"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-rbac-manifests",
+          "risk": "A negative result proves presence but not permission; the risk is inferred from the package version and behavior.",
+          "owner": "cloud-platform",
+          "stage": "excessive-rbac-provisioning",
+          "question": "Does the service account possess cluster-wide secret read access?",
+          "requires": "Kubernetes ClusterRole and Binding manifests",
+          "remediation": "Integrate Kubernetes RBAC auditing into the security pipeline."
+        },
+        {
+          "id": "no-k8s-audit-telemetry",
+          "risk": "We can see outbound traffic but cannot confirm if sensitive data like DB credentials or TLS keys were exfiltrated.",
+          "owner": "soc",
+          "stage": "unauthorized-secret-access",
+          "question": "Which specific secrets were accessed by the operator controller?",
+          "requires": "Kubernetes Audit Logs",
+          "remediation": "Enable and forward API server audit logs to the central lake."
+        }
+      ]
+    },
+    "name": "Kubernetes Operator RBAC Abuse and Secret Theft",
+    "description": "Kubernetes operators often rely on highly privileged service accounts to automate lifecycle management. This hunt identifies operators with known vulnerabilities, such as CVE-2026-6389 in IBM Turbonomic, and analyzes their prevalence and network behavior. By stack-counting operator versions and monitoring for outbound connections to non-internal IP addresses, we can identify misconfigured controllers or AI-enhanced operators acting as unauthorized gateways. The hunt moves from initial inventory scoping to behavioral analysis of network egress, identifying where excessive RBAC permissions may be serving as a silent backdoor."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "vulnerable-operator-deployment",
+            "steps": [
+              "scope-vulnerable-operators",
+              "operator-image-prevalence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "excessive-rbac-provisioning",
+            "reason": "Direct RBAC manifest inspection is not supported by hb_ surfaces; presence of high-risk versions is used as a proxy.",
+            "status": "not_visible",
+            "blind_spot": "missing-rbac-manifests"
+          },
+          {
+            "stage": "unauthorized-secret-access",
+            "steps": [
+              "operator-network-behavior"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "A vulnerable or outdated Kubernetes operator is running with excessive ClusterRole permissions, allowing an attacker to exfiltrate cluster-wide secrets or establish unauthorized AI agent bridges to external endpoints.",
+        "blind_spots": [
+          {
+            "id": "missing-rbac-manifests",
+            "risk": "A negative result proves presence but not permission; the risk is inferred from the package version and behavior.",
+            "owner": "cloud-platform",
+            "stage": "excessive-rbac-provisioning",
+            "question": "Does the service account possess cluster-wide secret read access?",
+            "requires": "Kubernetes ClusterRole and Binding manifests",
+            "remediation": "Integrate Kubernetes RBAC auditing into the security pipeline."
+          },
+          {
+            "id": "no-k8s-audit-telemetry",
+            "risk": "We can see outbound traffic but cannot confirm if sensitive data like DB credentials or TLS keys were exfiltrated.",
+            "owner": "soc",
+            "stage": "unauthorized-secret-access",
+            "question": "Which specific secrets were accessed by the operator controller?",
+            "requires": "Kubernetes Audit Logs",
+            "remediation": "Enable and forward API server audit logs to the central lake."
+          }
+        ],
+        "scoping_notes": "Start with production clusters running IBM Turbonomic or Datadog components. Focus on operators deployed via OLM/OperatorHub which are often outdated.",
+        "beyond_detection": "A standard rule alerts on a CVE; this hunt pivots from vulnerability inventory to prevalence across the fleet and behavioral egress patterns to identify the specific risk of autonomous 'agentic' operators acting as bridges."
+      }
+    },
+    {
+      "id": "scope-vulnerable-operators",
+      "type": "query",
+      "label": "Scope vulnerable operator versions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_uid, cve_uid, affected_package_name, affected_package_version, severity FROM hb_vulnerability_finding WHERE (cve_uid = 'CVE-2026-6389' OR instr(',' || '{{operator_packages}}' || ',', ',' || LOWER(affected_package_name) || ',') > 0) AND status != 'suppressed' AND collected_at >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_vulnerability_finding",
+        "description": "Identify assets running software versions impacted by CVE-2026-6389 or identified as potentially high-risk operators.",
+        "expected_signal": "A list of asset IDs and vulnerable packages. Silence indicates no known operator vulnerabilities are reporting."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope vulnerable operator versions",
+        "reads": [
+          "device_uid",
+          "cve_uid",
+          "affected_package_name",
+          "affected_package_version",
+          "severity"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT device_uid, cve_uid, affected_package_name, affected_package_version, severity FROM hb_vulnerability_finding WHERE (cve_uid = 'CVE-2026-6389' OR instr(',' || '{{operator_packages}}' || ',', ',' || LOWER(affected_package_name) || ',') > 0) AND status != 'suppressed' AND collected_at >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of asset IDs and vulnerable packages. Silence indicates no known operator vulnerabilities are reporting.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "operator-image-prevalence",
+      "type": "query",
+      "label": "Stack-count operator images",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT package_name, package_version, device_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(collected_at) AS first_seen FROM hb_software_inventory WHERE asset_scope = 'container_image' AND instr(',' || '{{operator_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 AND collected_at >= datetime('now', '-{{lookback_days}} days') GROUP BY package_name, package_version, device_hostname ORDER BY host_count ASC",
+        "surface": "hb_software_inventory",
+        "description": "Identify rare or outdated operator images across the fleet to highlight potentially unmanaged deployments and collect hostnames.",
+        "expected_signal": "Rare operator versions stand out at the top of the count. The device_hostname values found here should be used to fill the scope_hosts parameter."
+      },
+      "parents": [
+        {
+          "id": "scope-vulnerable-operators"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Stack-count operator images",
+        "reads": [
+          "package_name",
+          "package_version",
+          "device_hostname",
+          "asset_scope",
+          "collected_at"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT package_name, package_version, device_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(collected_at) AS first_seen FROM hb_software_inventory WHERE asset_scope = 'container_image' AND instr(',' || '{{operator_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 AND collected_at >= datetime('now', '-{{lookback_days}} days') GROUP BY package_name, package_version, device_hostname ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare operator versions stand out at the top of the count. The device_hostname values found here should be used to fill the scope_hosts parameter.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "package_name",
+            "package_version"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "operator-network-behavior",
+      "type": "query",
+      "label": "Operator network egress behavior",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, process_path, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (instr(',' || '{{operator_processes}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND direction = 'outbound' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '172.16.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify operator processes communicating with external endpoints, which may indicate agent bridges or exfiltration.",
+        "expected_signal": "Connections to the public internet from processes like 'prometurbo' or 'manager' restricted to scoped hosts. Standard controllers should primarily talk to internal API servers."
+      },
+      "parents": [
+        {
+          "id": "operator-image-prevalence"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Operator network egress behavior",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, process_path, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (instr(',' || '{{operator_processes}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND direction = 'outbound' AND dst_endpoint_ip NOT LIKE '10.%' AND dst_endpoint_ip NOT LIKE '172.16.%' AND dst_endpoint_ip NOT LIKE '192.168.%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Connections to the public internet from processes like 'prometurbo' or 'manager' restricted to scoped hosts. Standard controllers should primarily talk to internal API servers.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-30"
+      }
+    },
+    {
+      "id": "agent-triage",
+      "type": "analytic",
+      "label": "Weigh operator risk exposure",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "scope-vulnerable-operators",
+          "operator-image-prevalence",
+          "operator-network-behavior"
+        ],
+        "objective": "Determine if any vulnerable or rare operator images are performing unauthorized network communication by specifically cross-referencing the versions identified in the scoping steps with the external destination IPs found in the network activity logs.",
+        "description": "Assess whether vulnerable operators or rare images are exhibiting suspicious network behavior.",
+        "max_iterations": 4,
+        "expected_signal": "A verdict characterizing the risk level of each discovered operator.",
+        "success_criteria": "A risk verdict citing specific hosts, operator versions, and destination IPs."
+      },
+      "parents": [
+        {
+          "id": "operator-network-behavior"
+        }
+      ]
+    },
+    {
+      "id": "exposure-decision",
+      "type": "checkpoint",
+      "label": "Route based on risk",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent-triage verdict identifies vulnerable versions (e.g. Prometurbo < 8.17.6) with unexplained external egress",
+        "condition": "the agent-triage verdict identifies vulnerable versions (e.g. Prometurbo < 8.17.6) with unexplained external egress",
+        "blind_spot": "missing-rbac-manifests",
+        "confidence": "high",
+        "description": "Route findings for remediation if high risk is confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-triage"
+        }
+      ]
+    },
+    {
+      "id": "remediation-review",
+      "type": "task",
+      "label": "Remediation and RBAC review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Analyze operator service accounts and apply PoLP.",
+        "instructions": "For each flagged operator, extract its YAML manifest. Verify if the ServiceAccount is bound to a ClusterRole granting 'secrets' access. Update vulnerable operators like Prometurbo to the latest version and downscope RBAC permissions to the managing namespace only."
+      },
+      "parents": [
+        {
+          "id": "exposure-decision",
+          "branch": "on_supports"
+        },
+        {
+          "id": "exposure-decision",
+          "branch": "default"
+        },
+        {
+          "id": "exposure-decision",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the findings and transition to monitoring.",
+        "instructions": "Document the audited versions. Note any operators found in default registries like OperatorHub that have since been abandoned by the vendor. Feedback anomalous egress patterns to the detection team for permanent rules."
+      },
+      "parents": [
+        {
+          "id": "exposure-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "remediation-review"
+        }
+      ]
+    }
+  ]
+}

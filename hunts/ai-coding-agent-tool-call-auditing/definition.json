@@ -1,0 +1,634 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "AI agents with shell and file access introduce a new class of automated operator on the endpoint. A flight-recorder audit ensures we can reconstruct agent intent and actions after a model-steering or prompt-injection incident."
+      },
+      "name": "AI Coding Agent Tool-Call Auditing",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059",
+        "attack.t1059.001",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "claude-code-agent-auditing",
+          "reason": "Claude Code uses a similar agent-loop pattern but requires different hook registration.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule can detect shell execution from a specific parent, but only a hunt can baseline the prevalence of those commands across the fleet and correlate them with sensitive file access and outbound MCP traffic to verify the agent's intent.",
+      "coverage": [
+        {
+          "stage": "agent-execution-environment-start",
+          "steps": [
+            "cursor-agent-launches"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "automated-shell-execution",
+          "steps": [
+            "rare-agent-shell-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "agent-file-system-interaction",
+          "steps": [
+            "sensitive-file-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "mcp-server-communication",
+          "steps": [
+            "mcp-network-traffic"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "AI Agent Session Initiation",
+            "slug": "agent-execution-environment-start",
+            "tactic": "execution",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "sessionStart",
+              "subagentStart",
+              "cursor_version",
+              "VSCODE_PID",
+              "cursor-agent"
+            ]
+          },
+          {
+            "name": "AI Agent Shell Execution",
+            "slug": "automated-shell-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059",
+              "T1059.001"
+            ],
+            "observables": [
+              "beforeShellExecution",
+              "afterShellExecution",
+              "command: npm test -- --watch=false",
+              "command: curl",
+              "tool_name: Shell"
+            ]
+          },
+          {
+            "name": "AI Agent File Read and Edit",
+            "slug": "agent-file-system-interaction",
+            "tactic": "discovery",
+            "techniques": [
+              "T1059"
+            ],
+            "observables": [
+              "beforeReadFile",
+              "afterFileEdit",
+              "file_path: *.pem"
+            ]
+          },
+          {
+            "name": "AI Agent MCP Tool Communication",
+            "slug": "mcp-server-communication",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "beforeMCPExecution",
+              "afterMCPExecution",
+              "mcp_server"
+            ]
+          }
+        ],
+        "summary": "AI coding agents like Cursor act as automated operators on developer endpoints, performing shell commands, file manipulations, and external API calls that are often indistinguishable from human activity. By leveraging agent lifecycle hooks and the Elastic Agent, defenders can record every tool call, shell command, and Model Context Protocol (MCP) request as structured events to audit automated actions and detect potential misuse or steering by malicious content."
+      },
+      "severity": "medium",
+      "rationale": "Focus on developer laptops and engineering environments where AI coding agents are permitted. Start with a baseline of all hosts running Cursor in the last 14 days.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An AI agent operating under developer credentials is executing rare shell commands, accessing sensitive configuration files, or communicating with third-party MCP servers without explicit developer intent.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hostnames to focus on; leave empty for all hosts."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "sensitive_extensions": {
+          "type": "list[string]",
+          "default": [
+            ".pem",
+            ".key",
+            ".env",
+            "id_rsa",
+            "credentials",
+            ".git/config",
+            ".npmrc",
+            ".bash_history"
+          ],
+          "description": "File names or extensions indicative of sensitive material."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/ai-coding-agent-audit-cursor-hooks",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/ai-coding-agent-audit-cursor-hooks",
+          "name": "Elastic Security Labs \u2014 13 million tool calls: auditing every AI coding agent action with Elastic Agent"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-cursor-hooks",
+          "risk": "Without local hook telemetry, we see the 'what' (shell command) but not the 'why' (AI context), making it impossible to distinguish between developer steering and model hallucination.",
+          "owner": "Endpoint Security Team",
+          "stage": "agent-execution-environment-start",
+          "question": "What was the specific model-assigned task that led to this command?",
+          "requires": "The log-tool-calls.sh script to be active on the host",
+          "remediation": "Deploy the Elastic Agent hook script via MDM."
+        },
+        {
+          "id": "cursor-restart-delay",
+          "risk": "Cursor only reads hook configuration at startup; hosts that have not restarted will contribute no hook logs despite being 'compliant' in MDM.",
+          "owner": "IT Operations",
+          "stage": "agent-execution-environment-start",
+          "question": "Are hosts showing 'green' on deployment actually collecting hooks?",
+          "requires": "A restart of the Cursor application after hook deployment",
+          "remediation": "Prompt users to restart Cursor after the hook deployment script finishes."
+        }
+      ]
+    },
+    "name": "AI Coding Agent Tool-Call Auditing",
+    "description": "AI coding agents like Cursor act as automated operators on the endpoint, often masking their activity behind the developer's user context. This hunt implements a flight-recorder audit by first scoping the estate for Cursor installations and then examining the agent's behavior in phases. We baseline shell commands to find rare automated actions, identify sensitive file access patterns, and monitor for outbound MCP server connections that deviate from standard API traffic."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "agent-execution-environment-start",
+            "steps": [
+              "cursor-agent-launches"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "automated-shell-execution",
+            "steps": [
+              "rare-agent-shell-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "agent-file-system-interaction",
+            "steps": [
+              "sensitive-file-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "mcp-server-communication",
+            "steps": [
+              "mcp-network-traffic"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An AI agent operating under developer credentials is executing rare shell commands, accessing sensitive configuration files, or communicating with third-party MCP servers without explicit developer intent.",
+        "blind_spots": [
+          {
+            "id": "missing-cursor-hooks",
+            "risk": "Without local hook telemetry, we see the 'what' (shell command) but not the 'why' (AI context), making it impossible to distinguish between developer steering and model hallucination.",
+            "owner": "Endpoint Security Team",
+            "stage": "agent-execution-environment-start",
+            "question": "What was the specific model-assigned task that led to this command?",
+            "requires": "The log-tool-calls.sh script to be active on the host",
+            "remediation": "Deploy the Elastic Agent hook script via MDM."
+          },
+          {
+            "id": "cursor-restart-delay",
+            "risk": "Cursor only reads hook configuration at startup; hosts that have not restarted will contribute no hook logs despite being 'compliant' in MDM.",
+            "owner": "IT Operations",
+            "stage": "agent-execution-environment-start",
+            "question": "Are hosts showing 'green' on deployment actually collecting hooks?",
+            "requires": "A restart of the Cursor application after hook deployment",
+            "remediation": "Prompt users to restart Cursor after the hook deployment script finishes."
+          }
+        ],
+        "scoping_notes": "Focus on developer laptops and engineering environments where AI coding agents are permitted. Start with a baseline of all hosts running Cursor in the last 14 days.",
+        "beyond_detection": "A standard rule can detect shell execution from a specific parent, but only a hunt can baseline the prevalence of those commands across the fleet and correlate them with sensitive file access and outbound MCP traffic to verify the agent's intent."
+      }
+    },
+    {
+      "id": "find-cursor-installations",
+      "type": "query",
+      "label": "Scope Cursor installations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%cursor%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts where Cursor or its headless agent is installed to define the hunt's scope.",
+        "expected_signal": "A list of hosts with the AI agent installed. Silence indicates no managed installations are visible."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope Cursor installations",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%cursor%'",
+        "silence": "evidence_of_absence",
+        "expected": "A list of hosts with the AI agent installed. Silence indicates no managed installations are visible.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "cursor-agent-launches",
+      "type": "query",
+      "label": "Cursor agent process launches",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%cursor%' OR LOWER(process_name) LIKE '%cursor-agent%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the primary IDE and headless agent execution to establish session timelines.",
+        "expected_signal": "Process events for the Cursor binary. Frequent launches of the CLI agent may indicate automation or scripting."
+      },
+      "parents": [
+        {
+          "id": "find-cursor-installations"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Cursor agent process launches",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%cursor%' OR LOWER(process_name) LIKE '%cursor-agent%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process events for the Cursor binary. Frequent launches of the CLI agent may indicate automation or scripting.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-agent-shell-commands",
+      "type": "query",
+      "label": "Rare agent-triggered shell commands",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_cmd_line, parent_process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%cursor%' OR LOWER(parent_process_name) LIKE '%cursor-agent%') AND (LOWER(process_name) LIKE '%sh' OR LOWER(process_name) LIKE '%cmd.exe' OR LOWER(process_name) LIKE '%powershell%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line, parent_process_cmd_line HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count shell commands spawned by Cursor to identify outliers. Includes the parent command line to provide context on the tool call that initiated the shell.",
+        "expected_signal": "Shell commands seen on very few hosts. This highlights rare scripts or network-interactive commands like curl."
+      },
+      "parents": [
+        {
+          "id": "find-cursor-installations"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare agent-triggered shell commands",
+        "reads": [
+          "process_cmd_line",
+          "parent_process_cmd_line",
+          "device_hostname",
+          "time",
+          "parent_process_name",
+          "process_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_cmd_line, parent_process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%cursor%' OR LOWER(parent_process_name) LIKE '%cursor-agent%') AND (LOWER(process_name) LIKE '%sh' OR LOWER(process_name) LIKE '%cmd.exe' OR LOWER(process_name) LIKE '%powershell%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line, parent_process_cmd_line HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Shell commands seen on very few hosts. This highlights rare scripts or network-interactive commands like curl.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Early stage triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "cursor-agent-launches",
+          "rare-agent-shell-commands"
+        ],
+        "objective": "Determine if any Cursor processes have spawned shell commands that appear to be performing unauthorized discovery or exfiltration.",
+        "description": "Assess whether the identified shell commands and session patterns justify a deeper investigation into file and network impact.",
+        "max_iterations": 3,
+        "expected_signal": "A list of suspicious shell commands and their associated hosts.",
+        "success_criteria": "A per-host verdict of suspicious or benign, citing rare commands."
+      },
+      "parents": [
+        {
+          "id": "cursor-agent-launches",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-agent-shell-commands",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "sensitive-file-access",
+      "type": "query",
+      "label": "Sensitive file access by agent",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, file_name, time FROM hb_file_activity WHERE (LOWER(process_name) LIKE '%cursor%' OR LOWER(parent_process_name) LIKE '%cursor%') AND instr(',' || '{{sensitive_extensions}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect Cursor or its sub-processes reading sensitive configuration or credential files. Note: the current instr() logic performs an exact filename match against the list; it does not match partial extensions unless the full filename matches.",
+        "expected_signal": "File read events for credential-related filenames. Multiple hits on one host suggest an agent performing wide-scale credential discovery."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Sensitive file access by agent",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "parent_process_name",
+          "file_path",
+          "file_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, file_name, time FROM hb_file_activity WHERE (LOWER(process_name) LIKE '%cursor%' OR LOWER(parent_process_name) LIKE '%cursor%') AND instr(',' || '{{sensitive_extensions}}' || ',', ',' || LOWER(file_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "File read events for credential-related filenames. Multiple hits on one host suggest an agent performing wide-scale credential discovery.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "mcp-network-traffic",
+      "type": "query",
+      "label": "Agent network connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_hostname, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%cursor%' OR LOWER(process_path) LIKE '%cursor%') AND direction = 'outbound' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify outbound connections from Cursor that represent potential MCP server communication. Hostname is used to identify high-fidelity third-party server indicators.",
+        "expected_signal": "Connections to external IPs and hostnames. Connections to non-standard HTTP ports (e.g. 8080, 5000) may indicate third-party MCP servers."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Agent network connections",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_path",
+          "dst_endpoint_hostname",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_hostname, dst_endpoint_ip, dst_endpoint_port, direction, time FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%cursor%' OR LOWER(process_path) LIKE '%cursor%') AND direction = 'outbound' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Connections to external IPs and hostnames. Connections to non-standard HTTP ports (e.g. 8080, 5000) may indicate third-party MCP servers.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "follow-on-triage",
+      "type": "analytic",
+      "label": "Final agent triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "early-stage-triage",
+          "sensitive-file-access",
+          "mcp-network-traffic"
+        ],
+        "objective": "Determine if the combination of rare shell commands, sensitive file access, and network traffic indicates a malicious model-steering event.",
+        "description": "Synthesize the early session data with the file and network findings to determine if the agent was steered maliciously.",
+        "max_iterations": 5,
+        "expected_signal": "A comprehensive per-host verdict citing all relevant behavioral evidence.",
+        "success_criteria": "A verdict of malicious | suspicious | benign citing specific file paths and network destinations."
+      },
+      "parents": [
+        {
+          "id": "sensitive-file-access",
+          "kind": "merge"
+        },
+        {
+          "id": "mcp-network-traffic",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-risk",
+      "type": "checkpoint",
+      "label": "Route on risk",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the follow-on triage verdict is malicious for at least one host",
+        "condition": "the follow-on triage verdict is malicious for at least one host",
+        "blind_spot": "missing-cursor-hooks",
+        "confidence": "high",
+        "description": "Direct the workflow based on the agent's consolidated risk assessment.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "follow-on-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate affected host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain potential exfiltration or malicious script execution by isolating the host.",
+        "instructions": "Isolate the host and notify the user. Capture local Cursor hook logs if available.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-risk",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-review",
+      "type": "task",
+      "label": "Forensic review of agent intent",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify if the agent's actions were driven by a poisoned project file or malicious prompt context.",
+        "instructions": "Review the project files (READMEs, .env, .config) on the affected host. Check if any remote MCP servers were specified in the Cursor configuration that are not company-standard."
+      },
+      "parents": [
+        {
+          "id": "route-on-risk",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-risk",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "close-out-hunt",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the investigation and document any tuning needs.",
+        "instructions": "Record the findings. If rare but benign shell commands were found, add them to the fleet baseline to reduce future noise."
+      },
+      "parents": [
+        {
+          "id": "route-on-risk",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "forensic-review"
+        }
+      ]
+    }
+  ]
+}

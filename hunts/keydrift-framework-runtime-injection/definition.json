@@ -1,0 +1,657 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The UAT-11473 KeyDrift framework allows persistent administrative-level access and automated exfiltration of SD-WAN control-plane keying material, which can compromise the entire network fabric."
+      },
+      "name": "KeyDrift Framework Runtime Injection and Hooking",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1055.008",
+        "attack.t1574.006",
+        "attack.t1059.004",
+        "attack.t1036.004",
+        "attack.t1041",
+        "collection",
+        "defense evasion",
+        "execution",
+        "exfiltration",
+        "initial access",
+        "persistence"
+      ],
+      "series": {
+        "slug": "inside-keydrift-analyzing-historical-uat-11473-activity-on-cisco-sd-wan",
+        "index": 2,
+        "title": "Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "keydrift-persistence-runit",
+          "reason": "The modification of runit service scripts for persistence on disk is handled by a separate hunt in this series.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "cisco-sd-wan-service-tampering",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt uses a gated logic to justify deep behavioral analysis of ptrace syscalls and memory-resident modules that are too noisy for continuous rules but effectively reveal stealthy in-memory implants.",
+      "coverage": [
+        {
+          "stage": "execution-injection-ptrace",
+          "steps": [
+            "rare-ptrace-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "collection-in-process-hooking",
+          "steps": [
+            "rare-vdaemon-modules"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "exfiltration-in-band-c2",
+          "steps": [
+            "lead-file-indicators"
+          ],
+          "reason": "Covered through detection of the encrypted staging telemetry file /var/tmp/vdaemon.bin.",
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-cisco-auth-bypass",
+          "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "persistence-runit-service-tampering",
+          "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "defense-evasion-remount-rootfs",
+          "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Cisco SD-WAN Authentication Bypass",
+            "slug": "initial-access-cisco-auth-bypass",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "CVE-2026-20127",
+              "Cisco SD-WAN Catalyst Controller"
+            ]
+          },
+          {
+            "name": "Runit Service Launcher Modification",
+            "slug": "persistence-runit-service-tampering",
+            "tactic": "persistence",
+            "techniques": [
+              "T1037",
+              "T1543"
+            ],
+            "observables": [
+              "/etc/sv/sshd/run",
+              "/etc/sv/aaamgr/run",
+              "deletion of writable-overlay PAM configurations",
+              "invocation of malicious run scripts before legitimate service start"
+            ]
+          },
+          {
+            "name": "Rootfs Executable Remounting",
+            "slug": "defense-evasion-remount-rootfs",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1574.006"
+            ],
+            "observables": [
+              "remount /rootfs.rw as executable",
+              "mount -o remount,exec /rootfs.rw"
+            ]
+          },
+          {
+            "name": "Process Injection and PID Enumeration",
+            "slug": "execution-injection-ptrace",
+            "tactic": "execution",
+            "techniques": [
+              "T1055.008",
+              "T1059.004",
+              "T1036.004"
+            ],
+            "observables": [
+              "conf_sshd script execution",
+              "rsshd injector execution",
+              "aaamgrd packed loader execution",
+              "ptrace system calls against vdaemon processes",
+              "/tmp/system-vdaemon",
+              "enumeration of vdaemon PIDs"
+            ]
+          },
+          {
+            "name": "Control-Plane Interception Hooking",
+            "slug": "collection-in-process-hooking",
+            "tactic": "collection",
+            "techniques": [
+              "T1574.006"
+            ],
+            "observables": [
+              "libdssl.so (PolyFlame)",
+              "libcommon.so (LittleFilch)",
+              "hooking of SSL_read inside vdaemon",
+              "hooking of recvfrom, sendto, and dlopen in vdaemon",
+              "interposition of runtime-linker behavior"
+            ]
+          },
+          {
+            "name": "Telemetry Staging and C2 Exfiltration",
+            "slug": "exfiltration-in-band-c2",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "/var/tmp/vdaemon.bin (RSA-encrypted telemetry)",
+              "/var/tmp/vdaemon.conf (Endpoint configuration)",
+              "UDP exfiltration in DTLS 1.2 style records",
+              "TinyShell command codes 0x100, 0x200, 0x300"
+            ]
+          }
+        ],
+        "summary": "UAT-11473 exploited an authentication bypass vulnerability (CVE-2026-20127) in Cisco SD-WAN Catalyst Controllers to gain unauthorized administrative access. The threat actor established persistence by modifying runit service scripts to launch the KeyDrift framework, which uses ptrace injection and runtime hooking to intercept sensitive control-plane keying material and exfiltrate it over UDP."
+      },
+      "severity": "critical",
+      "rationale": "Scope this hunt to Cisco Catalyst SD-WAN Controller roles, specifically vSmart, vManage, and vBond instances where the vdaemon process resides. Start with controllers exposed to the internet.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using ptrace to inject malicious modules into the vdaemon process on a Cisco SD-WAN controller to intercept and exfiltrate control-plane keying material.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scope",
+            "kind": "manual",
+            "observed": "2026-10-28"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to scope the hunt to; empty means the whole estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2026-10-28"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for staging and injection behavior."
+        },
+        "indicator_files": {
+          "from": {
+            "ref": "https://blog.talosintelligence.com/uat-11473-keydrift/",
+            "kind": "article",
+            "observed": "2026-10-28"
+          },
+          "type": "list[path]",
+          "default": [
+            "/tmp/system-vdaemon",
+            "/var/tmp/vdaemon.bin",
+            "/var/tmp/vdaemon.conf"
+          ],
+          "description": "KeyDrift staging and configuration files observed in Talos research."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.talosintelligence.com/uat-11473-keydrift/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.talosintelligence.com/uat-11473-keydrift/",
+          "name": "Cisco Talos \u2014 Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-file-telemetry",
+          "risk": "KeyDrift deletes its configuration file immediately after reading, making it a transient lead.",
+          "stage": "exfiltration-in-band-c2",
+          "question": "whether staging files like vdaemon.conf existed but were deleted before collection",
+          "requires": "hb_file_activity coverage for /var/tmp and /tmp"
+        },
+        {
+          "id": "missing-audit-telemetry",
+          "risk": "If ptrace auditing is not enabled, the mechanism of injection is invisible, and the hunt relies solely on memory-map snapshots.",
+          "stage": "execution-injection-ptrace",
+          "question": "whether injection occurred on hosts where syscall auditing is disabled",
+          "requires": "hb_linux_audit with ptrace syscall logging"
+        }
+      ]
+    },
+    "name": "KeyDrift Framework Runtime Injection and Hooking",
+    "description": "This hunt targets the runtime behavior of the UAT-11473 KeyDrift framework. It begins with a lead query for high-fidelity staging files in /tmp and /var/tmp that indicate an active intrusion. If found, the hunt triggers a deep dive into Linux audit logs using prevalence to detect rare processes invoking ptrace and examines vdaemon process memory maps for rare shared objects. An agent correlates these behavioral signals to confirm that an adversary has established in-process collection of SD-WAN control traffic."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "inside-keydrift-analyzing-historical-uat-11473-activity-on-cisco-sd-wan",
+          "index": 2,
+          "title": "Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "execution-injection-ptrace",
+            "steps": [
+              "rare-ptrace-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "collection-in-process-hooking",
+            "steps": [
+              "rare-vdaemon-modules"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "exfiltration-in-band-c2",
+            "steps": [
+              "lead-file-indicators"
+            ],
+            "reason": "Covered through detection of the encrypted staging telemetry file /var/tmp/vdaemon.bin.",
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-cisco-auth-bypass",
+            "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "persistence-runit-service-tampering",
+            "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "defense-evasion-remount-rootfs",
+            "reason": "Belongs to another part of the 'Inside KeyDrift: Analyzing historical UAT-11473 activity on Cisco SD-WAN' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is using ptrace to inject malicious modules into the vdaemon process on a Cisco SD-WAN controller to intercept and exfiltrate control-plane keying material.",
+        "blind_spots": [
+          {
+            "id": "missing-file-telemetry",
+            "risk": "KeyDrift deletes its configuration file immediately after reading, making it a transient lead.",
+            "stage": "exfiltration-in-band-c2",
+            "question": "whether staging files like vdaemon.conf existed but were deleted before collection",
+            "requires": "hb_file_activity coverage for /var/tmp and /tmp"
+          },
+          {
+            "id": "missing-audit-telemetry",
+            "risk": "If ptrace auditing is not enabled, the mechanism of injection is invisible, and the hunt relies solely on memory-map snapshots.",
+            "stage": "execution-injection-ptrace",
+            "question": "whether injection occurred on hosts where syscall auditing is disabled",
+            "requires": "hb_linux_audit with ptrace syscall logging"
+          }
+        ],
+        "scoping_notes": "Scope this hunt to Cisco Catalyst SD-WAN Controller roles, specifically vSmart, vManage, and vBond instances where the vdaemon process resides. Start with controllers exposed to the internet.",
+        "beyond_detection": "This hunt uses a gated logic to justify deep behavioral analysis of ptrace syscalls and memory-resident modules that are too noisy for continuous rules but effectively reveal stealthy in-memory implants."
+      }
+    },
+    {
+      "id": "lead-file-indicators",
+      "type": "query",
+      "label": "Search for KeyDrift staging files",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE instr(',' || '{{indicator_files}}' || ',', ',' || LOWER(file_path) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify hosts where KeyDrift staging files or telemetry records exist in common temporary directories.",
+        "expected_signal": "Rows indicating the presence of /var/tmp/vdaemon.bin or /tmp/system-vdaemon. Silence suggests no such staging files were logged in the window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Search for KeyDrift staging files",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE instr(',' || '{{indicator_files}}' || ',', ',' || LOWER(file_path) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows indicating the presence of /var/tmp/vdaemon.bin or /tmp/system-vdaemon. Silence suggests no such staging files were logged in the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "assess-lead",
+      "type": "analytic",
+      "label": "Assess lead indicators",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "lead-file-indicators"
+        ],
+        "objective": "Decide if the file activity observed on any host matches the KeyDrift framework staging behavior described in the article.",
+        "description": "Determine if found files provide high-fidelity evidence of a KeyDrift infection on specific hosts.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the lead-indicators results warrant a deep-dive investigation.",
+        "success_criteria": "A malicious or suspicious verdict for any host where KeyDrift staging indicators were identified."
+      },
+      "parents": [
+        {
+          "id": "lead-file-indicators"
+        }
+      ]
+    },
+    {
+      "id": "gate-decision",
+      "type": "checkpoint",
+      "label": "Gate: Deep investigation",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the assess-lead verdict is malicious or suspicious for at least one host",
+        "condition": "the assess-lead verdict is malicious or suspicious for at least one host",
+        "blind_spot": "missing-file-telemetry",
+        "confidence": "high",
+        "description": "Decide whether to run expensive behavioral queries based on the agent assessment of the lead indicators.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "assess-lead"
+        }
+      ]
+    },
+    {
+      "id": "rare-ptrace-activity",
+      "type": "query",
+      "label": "Rare processes using ptrace syscall",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_linux_audit WHERE syscall = 'ptrace' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING hosts < 3",
+        "surface": "hb_linux_audit",
+        "description": "Search for ptrace syscalls invoked by rare processes, which is the primary mechanism of PolyFlame injection into vdaemon.",
+        "expected_signal": "Rare processes using ptrace. Legitimate diagnostic tools or debuggers are usually common across the fleet; injectors like rsshd will appear on few hosts."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Rare processes using ptrace syscall",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "syscall",
+          "time"
+        ],
+        "source": "hb_linux_audit",
+        "target": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_linux_audit WHERE syscall = 'ptrace' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING hosts < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare processes using ptrace. Legitimate diagnostic tools or debuggers are usually common across the fleet; injectors like rsshd will appear on few hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "rare-vdaemon-modules",
+      "type": "query",
+      "label": "Rare shared objects in vdaemon memory",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT module_path, process_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_module_activity WHERE LOWER(process_name) LIKE '%vdaemon%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY module_path, process_name HAVING hosts < 3",
+        "surface": "hb_module_activity",
+        "description": "Identify any rare shared objects loaded into the vdaemon process across the fleet to find the PolyFlame and LittleFilch modules.",
+        "expected_signal": "Modules loaded into vdaemon on only one or two hosts. These indicate potential injected implants like libdssl.so or libcommon.so."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare shared objects in vdaemon memory",
+        "reads": [
+          "device_hostname",
+          "module_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_module_activity",
+        "target": "endpoint",
+        "content": "SELECT module_path, process_name, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_module_activity WHERE LOWER(process_name) LIKE '%vdaemon%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY module_path, process_name HAVING hosts < 3",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Modules loaded into vdaemon on only one or two hosts. These indicate potential injected implants like libdssl.so or libcommon.so.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "module_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-29"
+      }
+    },
+    {
+      "id": "final-triage",
+      "type": "analytic",
+      "label": "Final triage of KeyDrift activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "lead-file-indicators",
+          "assess-lead",
+          "rare-ptrace-activity",
+          "rare-vdaemon-modules"
+        ],
+        "objective": "Determine if the collective evidence from all queries confirms that the KeyDrift framework is active and intercepting traffic on the host.",
+        "description": "Correlate staging files, ptrace injection, and rare module loading to reach a high-confidence verdict.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict of malicious | suspicious | benign, citing specific rows from file activity, audit logs, and module inventory.",
+        "success_criteria": "A final assessment that identifies the host, the injector process, and the malicious shared objects found in memory."
+      },
+      "parents": [
+        {
+          "id": "rare-ptrace-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-vdaemon-modules",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-to-action",
+      "type": "checkpoint",
+      "label": "Route to action",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-triage verdict is malicious for at least one host",
+        "condition": "the final-triage verdict is malicious for at least one host",
+        "blind_spot": "missing-audit-telemetry",
+        "confidence": "high",
+        "description": "Isolate infected controllers based on the final triage verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate SD-WAN controller",
+      "config": {
+        "target": "endpoint",
+        "description": "Isolate the compromised controller to prevent further exfiltration of keying material.",
+        "instructions": "Isolate the endpoint. Capture a memory dump and disk image before any remediation, as PolyFlame is primarily memory-resident.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-to-action",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "An analyst validates the injection and hooking findings.",
+        "instructions": "Review the cited ptrace activity and module loading. If vdaemon.bin was identified, attempt to recover the RSA-encrypted records for analysis of extracted keying material."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "default"
+        },
+        {
+          "id": "gate-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-to-action",
+          "branch": "default"
+        },
+        {
+          "id": "route-to-action",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and close the hunt.",
+        "instructions": "Record what was examined and what was not visible. If no indicators were found, document the negative result as evidence of security for the controller estate."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-to-action",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

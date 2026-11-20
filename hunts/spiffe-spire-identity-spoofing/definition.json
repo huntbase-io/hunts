@@ -1,0 +1,634 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "SPIFFE/SPIRE is the foundational trust mechanism for service communication. If an attacker can impersonate co-located workloads, they bypass all service-level authorization. Confirming node identity integrity is a high-priority obligation."
+      },
+      "name": "SPIFFE/SPIRE Workload Identity Spoofing",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "kubernetes-container-escape",
+          "reason": "Container escape to the node is a standard precursor to obtaining the root access needed for this identity spoofing technique.",
+          "relation": "precedes"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule might fire on the SPIRE socket interaction, but it cannot determine whether the attacker successfully used the identity for mTLS or spoofed cgroups. This hunt correlates the initial tampering behavior with cross-host network impersonation across three different telemetry surfaces.",
+      "coverage": [
+        {
+          "stage": "initial-node-compromise",
+          "reason": "Exploitation of public-facing applications is covered by existing standing rules for RCE and shell execution.",
+          "status": "existing_rule"
+        },
+        {
+          "stage": "spire-agent-socket-access",
+          "steps": [
+            "socket-interaction",
+            "triage-tampering"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "cgroup-metadata-spoofing",
+          "steps": [
+            "metadata-tampering",
+            "triage-tampering"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "svid-credential-harvesting",
+          "reason": "Retrieval of JWTs and certificates through the agent socket protocol is not visible in process or file activity logs.",
+          "status": "not_visible",
+          "blind_spot": "agent-memory-exposure"
+        },
+        {
+          "stage": "mtls-identity-misuse",
+          "steps": [
+            "network-impersonation",
+            "assess-misuse"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Initial Node Compromise",
+            "slug": "initial-node-compromise",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Exploitation of web servers or containers to gain root access on a Kubernetes node"
+            ]
+          },
+          {
+            "name": "SPIRE Agent Socket Interaction",
+            "slug": "spire-agent-socket-access",
+            "tactic": "execution",
+            "observables": [
+              "Interaction with the SPIRE Workload API Unix socket at /run/spire/sockets/agent.sock",
+              "Process calling FetchJWTSVID or FetchX509SVID"
+            ]
+          },
+          {
+            "name": "Cgroup Metadata Spoofing",
+            "slug": "cgroup-metadata-spoofing",
+            "tactic": "defense-evasion",
+            "observables": [
+              "Manipulation of /proc/self/cgroup or /proc/self/mountinfo",
+              "Use of the Spooffe tool to automate identity extraction",
+              "Process strings containing /kubepods.slice/ or /kubepods-besteffort.slice/"
+            ]
+          },
+          {
+            "name": "SVID Credential Harvesting",
+            "slug": "svid-credential-harvesting",
+            "tactic": "credential-access",
+            "observables": [
+              "Retrieval of X.509 SVIDs (certificates) or JWT tokens belonging to co-located pods",
+              "Anomalous requests for multiple distinct SPIFFE IDs from a single node process"
+            ]
+          },
+          {
+            "name": "mTLS Identity Misuse",
+            "slug": "mtls-identity-misuse",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Establishment of mTLS connections using stolen SVIDs to impersonate frontend/backend services"
+            ]
+          }
+        ],
+        "summary": "An attacker with root access on a Kubernetes node manipulates cgroup metadata to spoof co-located workload identities, tricking the SPIRE agent into issuing SVIDs (X.509 or JWT). This allows the attacker to harvest machine identities and perform unauthorized cross-service communication by impersonating trusted pods."
+      },
+      "severity": "high",
+      "rationale": "The hunt should start with Kubernetes worker nodes running SPIRE agents. Use the first scoping query to identify these hosts, then use that list to filter subsequent behavioral queries.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker with root access on a Kubernetes node is spoofing cgroup metadata to trick the SPIRE agent into issuing identities belonging to co-located workloads for unauthorized service impersonation.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "The Kubernetes nodes identified as running SPIRE agents; leave empty for fleet-wide."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "cgroup_indicators": {
+          "from": {
+            "ref": "https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/",
+            "kind": "article",
+            "observed": "2026-09-10"
+          },
+          "type": "list[string]",
+          "default": [
+            "spooffe",
+            "cgroup-tool"
+          ],
+          "description": "Exact names of tools or indicators related to cgroup manipulation."
+        },
+        "interactive_tools": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "list[string]",
+          "default": [
+            "bash",
+            "sh",
+            "zsh",
+            "curl",
+            "socat",
+            "nc",
+            "python",
+            "perl"
+          ],
+          "description": "Interactive tools or shells that should not typically communicate with the SPIRE agent."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://unit42.paloaltonetworks.com/kubernetes-spiffe-spire-identity-spoofing/",
+          "name": "The Machine With Many Faces: Post-Exploitation Identity Misuse in SPIFFE/SPIRE"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-ebpf-proc-monitoring",
+          "risk": "Stealthy manipulation that doesn't leave command-line traces would only be visible at the agent log or kernel level.",
+          "owner": "Cloud Engineering",
+          "stage": "cgroup-metadata-spoofing",
+          "question": "whether an attacker used a kernel-level tool or direct syscalls to spoof cgroup info without spawning a shell",
+          "requires": "eBPF-based monitoring of /proc/self/cgroup access",
+          "remediation": "Enable kernel-level auditing for sensitive /proc filesystem access."
+        },
+        {
+          "id": "agent-memory-exposure",
+          "risk": "Identity harvesting often occurs in-memory (FetchSVID response), leaving no trace on the filesystem for standard file logs to capture.",
+          "owner": "Security Operations",
+          "stage": "svid-credential-harvesting",
+          "question": "whether the harvesting occurred entirely within the agent's memory response",
+          "requires": "SPIRE agent memory auditing",
+          "remediation": "Configure SPIRE agents to log FetchSVID request metadata including calling PID."
+        }
+      ]
+    },
+    "name": "SPIFFE/SPIRE Workload Identity Spoofing",
+    "description": "This research highlights a post-exploitation vulnerability in SPIFFE/SPIRE where an attacker with root access on a Kubernetes node can spoof cgroup metadata. By manipulating the Linux control group identifiers used during workload attestation, the attacker tricks the local SPIRE agent into issuing identities (SVIDs) belonging to co-located pods. This bypasses cross-workload identity boundaries and allows unauthorized mTLS communication to other services. The hunt follows a phased flow to detect this behavior: it first identifies nodes running SPIRE agents, then looks for suspicious interactions with the agent's Unix socket alongside rare cgroup-related process command lines, and finally correlates these findings with subsequent mTLS traffic from those processes to confirm identity misuse."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-node-compromise",
+            "reason": "Exploitation of public-facing applications is covered by existing standing rules for RCE and shell execution.",
+            "status": "existing_rule"
+          },
+          {
+            "stage": "spire-agent-socket-access",
+            "steps": [
+              "socket-interaction",
+              "triage-tampering"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "cgroup-metadata-spoofing",
+            "steps": [
+              "metadata-tampering",
+              "triage-tampering"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "svid-credential-harvesting",
+            "reason": "Retrieval of JWTs and certificates through the agent socket protocol is not visible in process or file activity logs.",
+            "status": "not_visible",
+            "blind_spot": "agent-memory-exposure"
+          },
+          {
+            "stage": "mtls-identity-misuse",
+            "steps": [
+              "network-impersonation",
+              "assess-misuse"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker with root access on a Kubernetes node is spoofing cgroup metadata to trick the SPIRE agent into issuing identities belonging to co-located workloads for unauthorized service impersonation.",
+        "blind_spots": [
+          {
+            "id": "no-ebpf-proc-monitoring",
+            "risk": "Stealthy manipulation that doesn't leave command-line traces would only be visible at the agent log or kernel level.",
+            "owner": "Cloud Engineering",
+            "stage": "cgroup-metadata-spoofing",
+            "question": "whether an attacker used a kernel-level tool or direct syscalls to spoof cgroup info without spawning a shell",
+            "requires": "eBPF-based monitoring of /proc/self/cgroup access",
+            "remediation": "Enable kernel-level auditing for sensitive /proc filesystem access."
+          },
+          {
+            "id": "agent-memory-exposure",
+            "risk": "Identity harvesting often occurs in-memory (FetchSVID response), leaving no trace on the filesystem for standard file logs to capture.",
+            "owner": "Security Operations",
+            "stage": "svid-credential-harvesting",
+            "question": "whether the harvesting occurred entirely within the agent's memory response",
+            "requires": "SPIRE agent memory auditing",
+            "remediation": "Configure SPIRE agents to log FetchSVID request metadata including calling PID."
+          }
+        ],
+        "scoping_notes": "The hunt should start with Kubernetes worker nodes running SPIRE agents. Use the first scoping query to identify these hosts, then use that list to filter subsequent behavioral queries.",
+        "beyond_detection": "A standard detection rule might fire on the SPIRE socket interaction, but it cannot determine whether the attacker successfully used the identity for mTLS or spoofed cgroups. This hunt correlates the initial tampering behavior with cross-host network impersonation across three different telemetry surfaces."
+      }
+    },
+    {
+      "id": "scoping-spire-nodes",
+      "type": "query",
+      "label": "Identify SPIRE-enabled nodes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%spire-agent%' OR LOWER(package_name) LIKE '%spiffe%')",
+        "surface": "hb_software_inventory",
+        "description": "Find nodes that run the SPIRE agent to narrow the hunt scope and reduce noise from non-Kubernetes hosts.",
+        "expected_signal": "A list of hosts where identity spoofing is possible due to the presence of SPIRE software. Silence suggests the estate may not use SPIRE."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify SPIRE-enabled nodes",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%spire-agent%' OR LOWER(package_name) LIKE '%spiffe%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts where identity spoofing is possible due to the presence of SPIRE software. Silence suggests the estate may not use SPIRE.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "socket-interaction",
+      "type": "query",
+      "label": "Interactive tools accessing SPIRE socket",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, time, actor_user_name FROM hb_file_activity WHERE instr(LOWER(file_path), 'agent.sock') > 0 AND instr(',' || '{{interactive_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Find shells or networking tools touching the agent socket, which is non-standard behavior for automated workloads.",
+        "expected_signal": "Interactive shells like bash or tools like curl interacting with the agent socket. Silence proofs absence of manual socket misuse."
+      },
+      "parents": [
+        {
+          "id": "scoping-spire-nodes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Interactive tools accessing SPIRE socket",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "time",
+          "actor_user_name"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, time, actor_user_name FROM hb_file_activity WHERE instr(LOWER(file_path), 'agent.sock') > 0 AND instr(',' || '{{interactive_tools}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Interactive shells like bash or tools like curl interacting with the agent socket. Silence proofs absence of manual socket misuse.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "metadata-tampering",
+      "type": "query",
+      "label": "Rare cgroup-related process activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%kubepods.slice%' OR LOWER(process_cmd_line) LIKE '%kubepods-besteffort.slice%' OR instr(',' || '{{cgroup_indicators}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND LOWER(process_name) NOT LIKE '%spire-agent%' AND (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2, 3 HAVING host_count <= 3",
+        "surface": "hb_process_activity",
+        "description": "Identify processes referencing Kubernetes cgroup slices or the Spooffe research tool in their command lines.",
+        "expected_signal": "A rare process command line attempting to reference pod slices. Common noise from agent components is filtered."
+      },
+      "parents": [
+        {
+          "id": "scoping-spire-nodes"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare cgroup-related process activity",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%kubepods.slice%' OR LOWER(process_cmd_line) LIKE '%kubepods-besteffort.slice%' OR instr(',' || '{{cgroup_indicators}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND LOWER(process_name) NOT LIKE '%spire-agent%' AND (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1, 2, 3 HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A rare process command line attempting to reference pod slices. Common noise from agent components is filtered.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "triage-tampering",
+      "type": "analytic",
+      "label": "Triage identity tampering evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "socket-interaction",
+          "metadata-tampering"
+        ],
+        "objective": "Identify processes attempting to spoof Kubernetes workload selectors to trick the local SPIRE agent.",
+        "description": "Weigh the combined evidence from socket interaction and cgroup metadata manipulation per host.",
+        "max_iterations": 4,
+        "expected_signal": "A suspiciousness verdict for specific processes on the scoped nodes.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign citing specific PIDs and tool names."
+      },
+      "parents": [
+        {
+          "id": "socket-interaction",
+          "kind": "merge"
+        },
+        {
+          "id": "metadata-tampering",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "network-impersonation",
+      "type": "query",
+      "label": "Detect mTLS service impersonation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (dst_endpoint_port = 443 OR dst_endpoint_port = 8443) AND LOWER(process_name) NOT LIKE '%spire-agent%' AND (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Corroborate the tampering by finding subsequent mTLS network traffic from the same suspicious processes.",
+        "expected_signal": "mTLS network connections from processes that previously interacted with the SPIRE socket or cgroup metadata. Silence may indicate harvested tokens were not used."
+      },
+      "parents": [
+        {
+          "id": "triage-tampering"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Detect mTLS service impersonation",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (dst_endpoint_port = 443 OR dst_endpoint_port = 8443) AND LOWER(process_name) NOT LIKE '%spire-agent%' AND (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "mTLS network connections from processes that previously interacted with the SPIRE socket or cgroup metadata. Silence may indicate harvested tokens were not used.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "assess-misuse",
+      "type": "analytic",
+      "label": "Assess identity misuse and impersonation",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "triage-tampering",
+          "network-impersonation"
+        ],
+        "objective": "Confirm workload identity theft by correlating metadata tampering with subsequent service-to-service network traffic.",
+        "description": "Correlate the early tampering verdict with follow-on network traffic to confirm a successful impersonation attempt.",
+        "max_iterations": 4,
+        "expected_signal": "A final verdict confirming whether harvested identities were utilized for unauthorized mTLS communication.",
+        "success_criteria": "A final malicious verdict for any host where a process both tampered with the agent and initiated mTLS traffic."
+      },
+      "parents": [
+        {
+          "id": "network-impersonation"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on impersonation verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the assess-misuse verdict is malicious for at least one host",
+        "condition": "the assess-misuse verdict is malicious for at least one host",
+        "blind_spot": "no-ebpf-proc-monitoring",
+        "confidence": "high",
+        "description": "Direct the response based on whether identity theft and impersonation are confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "assess-misuse"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised Kubernetes node",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further lateral movement or impersonation using stolen credentials.",
+        "instructions": "Isolate the compromised Kubernetes node and revoke its SVID at the SPIRE server to invalidate any harvested identities.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-review",
+      "type": "task",
+      "label": "Forensic deep-dive",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform manual inspection of the node to find the root cause and harvesting tools.",
+        "instructions": "Inspect the node for the Spooffe research tool or evidence of /proc manipulation. Review SPIRE agent logs for anomalous FetchSVID requests originating from interactive shells or non-standard container PIDs."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "policy-update",
+      "type": "task",
+      "label": "Update workload selectors",
+      "config": {
+        "assignee": "analyst",
+        "description": "Strengthen the attestation policy to use stronger selectors that are harder to spoof.",
+        "instructions": "Document the identified gaps in workload selectors. Transition registration entries from weak selectors (like namespace only) to stronger ones (like service account and container image hash)."
+      },
+      "parents": [
+        {
+          "id": "forensic-review"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final documentation and cleanup.",
+        "instructions": "Record the examined hosts and findings. If no identity misuse was found, confirm node-level trust for the period."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "policy-update"
+        }
+      ]
+    }
+  ]
+}

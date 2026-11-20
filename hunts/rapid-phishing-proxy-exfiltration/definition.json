@@ -1,0 +1,586 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Rapid exfiltration following identity compromise can occur in hours. Automating the correlation between identity outliers and network exfiltration volume reduces the exposure window before isolation."
+      },
+      "name": "Rapid Phishing and Proxy-based Exfiltration",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1090.003",
+        "attack.t1041"
+      ],
+      "related": [
+        {
+          "hunt": "mfa-bypass-session-token-theft",
+          "reason": "Adversaries may steal session tokens rather than phishing, requiring cookie analysis in hb_http_activity.",
+          "relation": "alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single rule fires on high-volume traffic; this hunt correlates that signal with identity-layer anomalies (new source IP for a user) and rare DNS frequency to distinguish data theft from authorized administrative tasks.",
+      "coverage": [
+        {
+          "stage": "initial-access-phishing-mfa",
+          "steps": [
+            "okta-signins-unusual-ips",
+            "assess-initial-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "c2-multi-hop-proxy",
+          "steps": [
+            "proxy-c2-signals"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "exfiltration-over-c2",
+          "steps": [
+            "outlier-exfiltration-bytes",
+            "final-triage"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Phishing with MFA Bypass",
+            "slug": "initial-access-phishing-mfa",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "source.ip",
+              "user.email",
+              "event.action == 'policy.evaluate_sign_on'",
+              "Okta authentication events",
+              "phishing-resistant MFA session evaluation"
+            ]
+          },
+          {
+            "name": "Multi-hop Proxy Command and Control",
+            "slug": "c2-multi-hop-proxy",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "DNS queries for .onion domains",
+              "ngrok tunnel hostnames (e.g., tunnel.us.ngrok.com)",
+              "outbound network connections to known proxy endpoints"
+            ]
+          },
+          {
+            "name": "Exfiltration Over C2 Channel",
+            "slug": "exfiltration-over-c2",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "high outbound traffic_bytes to proxy/C2 IPs",
+              "source.ip activity across AWS, Azure, and SaaS audit logs",
+              "exfiltration via established tunnel"
+            ]
+          }
+        ],
+        "summary": "This attack chain describes a compressed intrusion timeline where attackers gain initial access via phishing, establish command-and-control through multi-hop proxies like Tor or ngrok, and rapidly exfiltrate data. The scenario focuses on the speed of AI-assisted attacks and the defensive automation required to triage such events."
+      },
+      "severity": "high",
+      "rationale": "Focus on administrative users or high-value accounts first. Use the bridge identification from the first agent to restrict network queries to relevant subnets.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has bypassed phishing-resistant MFA to gain initial access via a SaaS provider and is now using a multi-hop proxy or tunnel to exfiltrate data from an internal host.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts to narrow the investigation."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "7",
+          "description": "Days of history to examine for initial access and exfiltration."
+        },
+        "min_exfil_bytes": {
+          "type": "number",
+          "default": "104857600",
+          "description": "Minimum outbound traffic in bytes (default 100MB) to flag as potential exfiltration."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/alert-triage-agentic-soc-elastic-workflows",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/alert-triage-agentic-soc-elastic-workflows",
+          "name": "Inside Elastic InfoSec's agentic SOC"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-okta-logs",
+          "risk": "An authentication event outside the monitored SaaS provider will not trigger the lead query.",
+          "owner": "SaaS Platform Team",
+          "stage": "initial-access-phishing-mfa",
+          "question": "whether the initial authentication attempt occurred",
+          "requires": "hb_auth_signin (Okta connector)",
+          "remediation": "Audit and onboard all Okta tenants to the SIEM."
+        },
+        {
+          "id": "no-network-telemetry",
+          "risk": "Without network fabric logs (like VPC flow logs), endpoint-only data may lack reliable byte counts for exfiltration estimation.",
+          "owner": "Cloud Infrastructure",
+          "stage": "exfiltration-over-c2",
+          "question": "how much data was exfiltrated",
+          "requires": "hb_network_connection with traffic_bytes",
+          "remediation": "Enable flow logs for critical VPC subnets."
+        },
+        {
+          "id": "direct-ip-c2",
+          "risk": "The proxy-c2-signals query relies on DNS; a direct IP connection to a tunnel endpoint would only be caught by the exfiltration volume query.",
+          "owner": "SOC Engineering",
+          "stage": "c2-multi-hop-proxy",
+          "question": "whether the adversary bypassed DNS by using hard-coded IPs",
+          "requires": "hb_dns_activity",
+          "remediation": "Implement an IP reputation baseline for outbound connections."
+        }
+      ]
+    },
+    "name": "Rapid Phishing and Proxy-based Exfiltration",
+    "description": "This hunt detects high-speed intrusions where identity compromise is immediately followed by proxy-based command-and-control. The adversary bypasses phishing-resistant MFA to gain initial access via a SaaS provider and then uses a multi-hop proxy or tunnel to exfiltrate data from an internal host. The hunt identifies successful Okta logins from rare source IPs, then gates an expensive investigation into DNS queries for hidden services and high-volume outbound network traffic. An AI agent correlates the identity lead with network signals to identify active data theft."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-phishing-mfa",
+            "steps": [
+              "okta-signins-unusual-ips",
+              "assess-initial-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "c2-multi-hop-proxy",
+            "steps": [
+              "proxy-c2-signals"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "exfiltration-over-c2",
+            "steps": [
+              "outlier-exfiltration-bytes",
+              "final-triage"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has bypassed phishing-resistant MFA to gain initial access via a SaaS provider and is now using a multi-hop proxy or tunnel to exfiltrate data from an internal host.",
+        "blind_spots": [
+          {
+            "id": "no-okta-logs",
+            "risk": "An authentication event outside the monitored SaaS provider will not trigger the lead query.",
+            "owner": "SaaS Platform Team",
+            "stage": "initial-access-phishing-mfa",
+            "question": "whether the initial authentication attempt occurred",
+            "requires": "hb_auth_signin (Okta connector)",
+            "remediation": "Audit and onboard all Okta tenants to the SIEM."
+          },
+          {
+            "id": "no-network-telemetry",
+            "risk": "Without network fabric logs (like VPC flow logs), endpoint-only data may lack reliable byte counts for exfiltration estimation.",
+            "owner": "Cloud Infrastructure",
+            "stage": "exfiltration-over-c2",
+            "question": "how much data was exfiltrated",
+            "requires": "hb_network_connection with traffic_bytes",
+            "remediation": "Enable flow logs for critical VPC subnets."
+          },
+          {
+            "id": "direct-ip-c2",
+            "risk": "The proxy-c2-signals query relies on DNS; a direct IP connection to a tunnel endpoint would only be caught by the exfiltration volume query.",
+            "owner": "SOC Engineering",
+            "stage": "c2-multi-hop-proxy",
+            "question": "whether the adversary bypassed DNS by using hard-coded IPs",
+            "requires": "hb_dns_activity",
+            "remediation": "Implement an IP reputation baseline for outbound connections."
+          }
+        ],
+        "scoping_notes": "Focus on administrative users or high-value accounts first. Use the bridge identification from the first agent to restrict network queries to relevant subnets.",
+        "beyond_detection": "A single rule fires on high-volume traffic; this hunt correlates that signal with identity-layer anomalies (new source IP for a user) and rare DNS frequency to distinguish data theft from authorized administrative tasks."
+      }
+    },
+    {
+      "id": "okta-signins-unusual-ips",
+      "type": "query",
+      "label": "Rare Okta Sign-ins by User and IP",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT t1.actor_user_name, t1.src_endpoint_ip, t1.dst_endpoint_name, COUNT(*) AS login_count, MIN(t1.time) AS first_seen FROM hb_auth_signin t1 WHERE t1.provider = 'okta' AND t1.status_id = 1 AND t1.time >= datetime('now', '-{{lookback_days}} days') AND NOT EXISTS (SELECT 1 FROM hb_auth_signin t2 WHERE t2.actor_user_name = t1.actor_user_name AND t2.src_endpoint_ip = t1.src_endpoint_ip AND t2.status_id = 1 AND t2.time >= datetime('now', '-{{lookback_days}} - 30 days') AND t2.time < datetime('now', '-{{lookback_days}} days')) GROUP BY t1.actor_user_name, t1.src_endpoint_ip ORDER BY login_count ASC",
+        "surface": "hb_auth_signin",
+        "description": "Identify successful logins from unusual source IPs that may indicate phished credentials, excluding IPs the user has successfully used in the prior month.",
+        "expected_signal": "Rows indicating a successful login from a source IP not previously associated with a specific user in the 30 days prior to the search window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Rare Okta Sign-ins by User and IP",
+        "reads": [
+          "actor_user_name",
+          "src_endpoint_ip",
+          "dst_endpoint_name",
+          "status_id",
+          "provider",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT t1.actor_user_name, t1.src_endpoint_ip, t1.dst_endpoint_name, COUNT(*) AS login_count, MIN(t1.time) AS first_seen FROM hb_auth_signin t1 WHERE t1.provider = 'okta' AND t1.status_id = 1 AND t1.time >= datetime('now', '-{{lookback_days}} days') AND NOT EXISTS (SELECT 1 FROM hb_auth_signin t2 WHERE t2.actor_user_name = t1.actor_user_name AND t2.src_endpoint_ip = t1.src_endpoint_ip AND t2.status_id = 1 AND t2.time >= datetime('now', '-{{lookback_days}} - 30 days') AND t2.time < datetime('now', '-{{lookback_days}} days')) GROUP BY t1.actor_user_name, t1.src_endpoint_ip ORDER BY login_count ASC",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows indicating a successful login from a source IP not previously associated with a specific user in the 30 days prior to the search window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "assess-initial-access",
+      "type": "analytic",
+      "label": "Assess Initial Access Leads",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "okta-signins-unusual-ips"
+        ],
+        "objective": "Determine if any rare Okta sign-ins represent potential MFA bypass or session theft. Identify the bridge between the Okta login and the internal fleet, such as a VPN endpoint session or an OIDC-integrated server login, to avoid querying network data for the entire fleet in the next phase.",
+        "description": "Filter successful sign-ins to find the most suspicious source IPs and identify the potential bridge into the fleet.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict in the format Verdict: True Positive | Assessment: suspicious | Confidence: high citing specific IPs and identifying the internal bridge (VPN, OIDC server).",
+        "success_criteria": "A prioritized list of suspicious IPs and their associated internal bridge endpoints."
+      },
+      "parents": [
+        {
+          "id": "okta-signins-unusual-ips"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-suspicious-auth",
+      "type": "checkpoint",
+      "label": "Gate on Suspicious Authentication",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The assessment for at least one IP or user is suspicious or malicious.",
+        "condition": "The assessment for at least one IP or user is suspicious or malicious.",
+        "blind_spot": "no-okta-logs",
+        "confidence": "high",
+        "description": "Only trigger expensive network and DNS queries if the authentication lead is suspicious.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "assess-initial-access"
+        }
+      ]
+    },
+    {
+      "id": "proxy-c2-signals",
+      "type": "query",
+      "label": "High-Frequency Rare DNS Activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS query_frequency, GROUP_CONCAT(DISTINCT process_name) AS processes FROM hb_dns_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY query_hostname HAVING host_count < 3 AND query_frequency > 20 ORDER BY query_frequency DESC",
+        "surface": "hb_dns_activity",
+        "description": "Identify hosts querying for rare domains at high frequency, potentially indicating a multi-hop proxy or tunnel endpoint.",
+        "expected_signal": "A host resolving rare domains at high frequency, which is a common behavior of tunnel or proxy clients."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicious-auth",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "High-Frequency Rare DNS Activity",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT query_hostname, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS query_frequency, GROUP_CONCAT(DISTINCT process_name) AS processes FROM hb_dns_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY query_hostname HAVING host_count < 3 AND query_frequency > 20 ORDER BY query_frequency DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A host resolving rare domains at high frequency, which is a common behavior of tunnel or proxy clients.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "outlier-exfiltration-bytes",
+      "type": "query",
+      "label": "Outlier Outbound Traffic by Process",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, SUM(traffic_bytes) AS bytes_out, COUNT(*) AS connection_count FROM hb_network_connection WHERE state_kind = 'log' AND direction = 'outbound' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, process_name, dst_endpoint_ip HAVING bytes_out > {{min_exfil_bytes}} ORDER BY bytes_out DESC",
+        "surface": "hb_network_connection",
+        "description": "Stack-count outbound traffic bytes per process to identify rare, high-volume data transfers.",
+        "expected_signal": "A process pushing significant data to an external IP. The analyst or agent must distinguish legitimate sync tools like OneDrive from exfiltration tools."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicious-auth",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Outlier Outbound Traffic by Process",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "traffic_bytes",
+          "direction",
+          "state_kind",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, SUM(traffic_bytes) AS bytes_out, COUNT(*) AS connection_count FROM hb_network_connection WHERE state_kind = 'log' AND direction = 'outbound' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, process_name, dst_endpoint_ip HAVING bytes_out > {{min_exfil_bytes}} ORDER BY bytes_out DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A process pushing significant data to an external IP. The analyst or agent must distinguish legitimate sync tools like OneDrive from exfiltration tools.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "final-triage",
+      "type": "analytic",
+      "label": "Final Alert Triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "network"
+        ],
+        "context": [
+          "assess-initial-access",
+          "proxy-c2-signals",
+          "outlier-exfiltration-bytes"
+        ],
+        "objective": "Confirm if the suspicious Okta login was used to gain access to an internal host that subsequently established a proxy tunnel and exfiltrated data. Use process_name to distinguish legitimate backup tools (OneDrive, rclone) from potential exfiltration.",
+        "description": "Correlate identity leads, proxy DNS activity, and exfiltration volumes to confirm an intrusion.",
+        "max_iterations": 5,
+        "expected_signal": "A final verdict citing rows from all three surfaces confirming a linked attack chain.",
+        "success_criteria": "A final verdict citing specific rows from identity, DNS, and network connection logs."
+      },
+      "parents": [
+        {
+          "id": "proxy-c2-signals",
+          "kind": "merge"
+        },
+        {
+          "id": "outlier-exfiltration-bytes",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-threat",
+      "type": "checkpoint",
+      "label": "Route on Threat Confirmation",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The triage verdict is malicious for at least one host and indicates exfiltration.",
+        "condition": "The triage verdict is malicious for at least one host and indicates exfiltration.",
+        "blind_spot": "no-network-telemetry",
+        "confidence": "high",
+        "description": "Determine if containment is required based on the triage verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Compromised Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Sever the network connection of the compromised host to stop data exfiltration.",
+        "instructions": "Isolate the host cited in the malicious verdict and initiate credential reset for the affected user.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-threat",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform manual review of exfiltrated data and forensic evidence.",
+        "instructions": "Review the exfiltration volume and process name. Use hb_file_activity to determine which files the process accessed during the exfiltration window."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicious-auth",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-suspicious-auth",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-threat",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-threat",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-threat",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out-triage",
+      "type": "task",
+      "label": "Close Triage",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and false positive reasons for tuning.",
+        "instructions": "Document the triage path. If the session was benign (e.g., an authorized remote developer), record the IP and user for tuning."
+      },
+      "parents": [
+        {
+          "id": "gate-on-suspicious-auth",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

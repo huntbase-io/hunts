@@ -1,0 +1,457 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The identified Citrix zero-days are critical vulnerabilities already listed in the CISA KEV catalog. As these appliances sit on the network edge and manage access, a successful exploit provides immediate initial access. A negative result confirms that patching is safe and not a disruption of an ongoing incident."
+      },
+      "name": "Citrix NetScaler Zero-Day Exposure",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "citrix-gateway-brute-force",
+          "reason": "This hunt focuses on RCE exploitation; password spray or brute force against the gateway requires hb_auth_signin analysis.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule would look for a single static URI; this hunt uses prevalence counting to find rare management activity across specialized appliances and correlates it with anomalous process spawning, which a single-surface rule cannot do.",
+      "coverage": [
+        {
+          "stage": "vulnerability-assessment-and-exposure",
+          "steps": [
+            "find-vulnerable-appliances"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "exploitation-for-remote-code-execution",
+          "steps": [
+            "rare-management-traffic",
+            "unexpected-shell-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Identification of Vulnerable NetScaler Appliances",
+            "slug": "vulnerability-assessment-and-exposure",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Citrix NetScaler ADC",
+              "Citrix NetScaler Gateway",
+              "CVE-2026-88771",
+              "CVE-2026-88772",
+              "CVE-2026-88773",
+              "CVE-2026-88774",
+              "CVE-2026-88775",
+              "CVE-2026-88776",
+              "CVE-2026-88777",
+              "CVE-2026-88778"
+            ]
+          },
+          {
+            "name": "Remote Code Execution via Zero-Day Exploitation",
+            "slug": "exploitation-for-remote-code-execution",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "CVE-2026-88771",
+              "CVE-2026-88772",
+              "Web-based exploitation attempts targeting Citrix NetScaler management or gateway interfaces"
+            ]
+          }
+        ],
+        "summary": "Threat actors are actively exploiting eight zero-day vulnerabilities in Citrix NetScaler ADC and Gateway appliances, most notably CVE-2026-88771 and CVE-2026-88772, to achieve remote code execution. The campaign is global and affects critical internet-facing infrastructure used for load balancing and remote access."
+      },
+      "severity": "high",
+      "rationale": "Begin by identifying all appliances via vulnerability findings. If the finding surface is empty, fallback to hb_software_inventory for any package containing netscaler. The analyst should then use the resulting hostnames to populate the scope_hosts parameter for behavioural queries.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker is exploiting zero-day remote code execution vulnerabilities in Citrix NetScaler appliances, characterized by anomalous HTTP requests to management interfaces followed by the execution of unauthorized shell commands.",
+      "parameters": {
+        "citrix_cves": {
+          "from": {
+            "ref": "cisa-advisories",
+            "kind": "article",
+            "observed": "2026-09-27"
+          },
+          "type": "list[string]",
+          "default": [
+            "CVE-2026-88771",
+            "CVE-2026-88772",
+            "CVE-2026-88773",
+            "CVE-2026-88774",
+            "CVE-2026-88775",
+            "CVE-2026-88776",
+            "CVE-2026-88777",
+            "CVE-2026-88778"
+          ],
+          "description": "CVE identifiers from the CISA advisory."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames of Citrix appliances identified in the first step; leave empty to scan all hosts."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for behavioural telemetry."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.cisa.gov/news-events/alerts/2026/09/27/critical-zero-day-vulnerabilities-exploited-citrix-netscaler-adc-gateway",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.cisa.gov/news-events/alerts/2026/09/27/critical-zero-day-vulnerabilities-exploited-citrix-netscaler-adc-gateway",
+          "name": "CISA Alert: Critical Zero-Day Vulnerabilities Exploited in Citrix NetScaler ADC, Gateway"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "appliance-http-log-gap",
+          "risk": "If the appliance is not logging to the central collector, web-based exploitation attempts will be missed.",
+          "stage": "exploitation-for-remote-code-execution",
+          "question": "Whether the specific exploit URI reached the management interface",
+          "requires": "Citrix NetScaler native HTTP logs integrated into hb_http_activity"
+        },
+        {
+          "id": "appliance-process-visibility-gap",
+          "risk": "Proprietary appliances often lack standard EDR agents, making in-memory or shell-based activity invisible.",
+          "stage": "exploitation-for-remote-code-execution",
+          "question": "Whether post-exploitation shell commands were run locally on the appliance",
+          "requires": "Process-level telemetry from the NetScaler OS"
+        },
+        {
+          "id": "appliance-telemetry-blind-spot",
+          "risk": "Incomplete data from appliances makes a negative result less certain, potentially masking a successful intrusion.",
+          "question": "Can the decision agent confirm a clean status?",
+          "requires": "Full appliance telemetry (process, network listener, file)"
+        }
+      ]
+    },
+    "name": "Citrix NetScaler Zero-Day Exposure",
+    "description": "The adversary exploits eight critical vulnerabilities in Citrix NetScaler ADC and Gateway (CVE-2026-88771 through CVE-2026-88778) to gain initial access. These flaws allow for unauthenticated remote code execution and are actively being exploited globally. The hunt identifies vulnerable assets, then analyzes web traffic for rare URI patterns that deviate from normal administrative use. Finally, the analyst searches for evidence of post-exploitation activity such as shell spawning or network utility usage on the appliances to confirm the absence of compromise before remediation begins."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "vulnerability-assessment-and-exposure",
+            "steps": [
+              "find-vulnerable-appliances"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "exploitation-for-remote-code-execution",
+            "steps": [
+              "rare-management-traffic",
+              "unexpected-shell-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker is exploiting zero-day remote code execution vulnerabilities in Citrix NetScaler appliances, characterized by anomalous HTTP requests to management interfaces followed by the execution of unauthorized shell commands.",
+        "blind_spots": [
+          {
+            "id": "appliance-http-log-gap",
+            "risk": "If the appliance is not logging to the central collector, web-based exploitation attempts will be missed.",
+            "stage": "exploitation-for-remote-code-execution",
+            "question": "Whether the specific exploit URI reached the management interface",
+            "requires": "Citrix NetScaler native HTTP logs integrated into hb_http_activity"
+          },
+          {
+            "id": "appliance-process-visibility-gap",
+            "risk": "Proprietary appliances often lack standard EDR agents, making in-memory or shell-based activity invisible.",
+            "stage": "exploitation-for-remote-code-execution",
+            "question": "Whether post-exploitation shell commands were run locally on the appliance",
+            "requires": "Process-level telemetry from the NetScaler OS"
+          },
+          {
+            "id": "appliance-telemetry-blind-spot",
+            "risk": "Incomplete data from appliances makes a negative result less certain, potentially masking a successful intrusion.",
+            "question": "Can the decision agent confirm a clean status?",
+            "requires": "Full appliance telemetry (process, network listener, file)"
+          }
+        ],
+        "scoping_notes": "Begin by identifying all appliances via vulnerability findings. If the finding surface is empty, fallback to hb_software_inventory for any package containing netscaler. The analyst should then use the resulting hostnames to populate the scope_hosts parameter for behavioural queries.",
+        "beyond_detection": "A standard detection rule would look for a single static URI; this hunt uses prevalence counting to find rare management activity across specialized appliances and correlates it with anomalous process spawning, which a single-surface rule cannot do."
+      }
+    },
+    {
+      "id": "find-vulnerable-appliances",
+      "type": "query",
+      "label": "Identify vulnerable NetScaler appliances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT resource_uid, cve_uid, severity FROM hb_vulnerability_finding WHERE instr(',' || '{{citrix_cves}}' || ',', ',' || cve_uid || ',') > 0 AND status != 'suppressed'",
+        "surface": "hb_vulnerability_finding",
+        "description": "Identify every host with an active vulnerability finding for the 2026 Citrix zero-days to define the hunt scope.",
+        "expected_signal": "A list of resource IDs that are vulnerable. Silence indicates no known vulnerable Citrix appliances are currently reporting findings."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable NetScaler appliances",
+        "reads": [
+          "cve_uid",
+          "resource_uid",
+          "severity",
+          "status"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT resource_uid, cve_uid, severity FROM hb_vulnerability_finding WHERE instr(',' || '{{citrix_cves}}' || ',', ',' || cve_uid || ',') > 0 AND status != 'suppressed'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of resource IDs that are vulnerable. Silence indicates no known vulnerable Citrix appliances are currently reporting findings.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "rare-management-traffic",
+      "type": "query",
+      "label": "Anomalous requests to management interfaces",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT device_hostname, url_path, COUNT(*) AS request_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_http_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(url_path) LIKE '/mgmt/%' OR LOWER(url_path) LIKE '/logon/%' OR LOWER(url_path) LIKE '/vpn/%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, url_path HAVING request_count < 20 ORDER BY request_count ASC",
+        "surface": "hb_http_activity",
+        "description": "Stack-count HTTP request paths on the scoped appliances to find rare URIs that deviate from normal administrative traffic.",
+        "expected_signal": "Rare URI paths targeted at appliance management or VPN login endpoints. Silence suggests no unusual traffic was captured within the window."
+      },
+      "parents": [
+        {
+          "id": "find-vulnerable-appliances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Anomalous requests to management interfaces",
+        "reads": [
+          "device_hostname",
+          "time",
+          "url_path"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_path, COUNT(*) AS request_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_http_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(url_path) LIKE '/mgmt/%' OR LOWER(url_path) LIKE '/logon/%' OR LOWER(url_path) LIKE '/vpn/%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, url_path HAVING request_count < 20 ORDER BY request_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare URI paths targeted at appliance management or VPN login endpoints. Silence suggests no unusual traffic was captured within the window.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_path"
+          ],
+          "rare_below": 20
+        },
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "unexpected-shell-activity",
+      "type": "query",
+      "label": "Evidence of shell or utility execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(process_name) LIKE '%/sh' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%/python%' OR LOWER(process_cmd_line) LIKE '%curl %' OR LOWER(process_cmd_line) LIKE '%wget %' OR LOWER(process_cmd_line) LIKE '%nc %') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify the execution of shells or network utilities on the Citrix hosts, which would indicate successful code execution.",
+        "expected_signal": "Execution of standard Unix shells or downloaders on a specialized appliance. These are rarely used in normal production operations on NetScaler."
+      },
+      "parents": [
+        {
+          "id": "rare-management-traffic"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Evidence of shell or utility execution",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (('{{scope_hosts}}' = '') OR (instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)) AND (LOWER(process_name) LIKE '%/sh' OR LOWER(process_name) LIKE '%/bash' OR LOWER(process_name) LIKE '%/python%' OR LOWER(process_cmd_line) LIKE '%curl %' OR LOWER(process_cmd_line) LIKE '%wget %' OR LOWER(process_cmd_line) LIKE '%nc %') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Execution of standard Unix shells or downloaders on a specialized appliance. These are rarely used in normal production operations on NetScaler.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-29"
+      }
+    },
+    {
+      "id": "exposure-assessment",
+      "type": "analytic",
+      "label": "Assess appliance exposure and compromise",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "find-vulnerable-appliances",
+          "rare-management-traffic",
+          "unexpected-shell-activity"
+        ],
+        "objective": "Decide whether any Citrix host shows signs of exploitation by correlating rare HTTP requests with subsequent shell activity.",
+        "description": "Synthesize the vulnerability status, HTTP traffic, and process activity to determine if an appliance has been exploited.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict of malicious, suspicious, or benign.",
+        "success_criteria": "A per-host verdict citing specific rows from HTTP or process activity."
+      },
+      "parents": [
+        {
+          "id": "unexpected-shell-activity"
+        }
+      ]
+    },
+    {
+      "id": "triage-decision",
+      "type": "checkpoint",
+      "label": "Route on assessment",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The exposure-assessment verdict is malicious or suspicious for at least one host.",
+        "condition": "The exposure-assessment verdict is malicious or suspicious for at least one host.",
+        "blind_spot": "appliance-telemetry-blind-spot",
+        "confidence": "high",
+        "description": "Direct the analyst to forensic preservation if compromise is suspected, or to standard patching if the result is negative.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "exposure-assessment"
+        }
+      ]
+    },
+    {
+      "id": "remediation-review",
+      "type": "task",
+      "label": "Forensic preservation and IR",
+      "config": {
+        "assignee": "analyst",
+        "description": "Provide instructions for an appliance that is suspected of compromise.",
+        "instructions": "Compromise is suspected. Do not apply updates immediately as they may destroy forensic data. 1. Capture memory and disk images of the affected NetScaler appliance. 2. Verify all local accounts and rotate administrative credentials. 3. Review the NetScaler Console for additional IOCs. 4. Escalate to the IR team for deep packet analysis of captured management traffic."
+      },
+      "parents": [
+        {
+          "id": "triage-decision",
+          "branch": "on_supports"
+        },
+        {
+          "id": "triage-decision",
+          "branch": "default"
+        },
+        {
+          "id": "triage-decision",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "standard-patching",
+      "type": "task",
+      "label": "Standard patch deployment",
+      "config": {
+        "assignee": "analyst",
+        "description": "Coordinate patching when no signs of active compromise were found.",
+        "instructions": "No indicators of exploitation were found. Proceed with standard patching of the Citrix appliances following the vendor's security bulletin for CVE-2026-88771 through CVE-2026-88778. Document the hunt results as a baseline for future activity."
+      },
+      "parents": [
+        {
+          "id": "triage-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
