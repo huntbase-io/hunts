@@ -5,7 +5,7 @@ and published as open [hunt.md](https://github.com/huntbase-io/hunt-md) files.
 
 **Browse them at [hub.huntbase.io](https://hub.huntbase.io)**, the Huntbase Hub.
 
-- **Run a hunt**: [sign up to Huntbase, free](https://app.huntbase.io/auth/sign-up?utm_source=hub&utm_medium=referral&utm_campaign=signup&utm_content=github-readme)
+- **Run a hunt**: [sign up to Huntbase](https://app.huntbase.io/auth/sign-up?utm_source=hub&utm_medium=referral&utm_campaign=signup&utm_content=github-readme)
   and run any hunt against your own connections.
 - **Get new hunts by email**: [subscribe to the weekly hunts](https://news.hub.huntbase.io/subscription/form).
 - **Follow along**: the [Atom feed](https://hub.huntbase.io/feed.xml).
