@@ -1,0 +1,571 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Thousands of AI runtimes are exposed unauthenticated; the model list itself becomes a visitors' log of attacker activity. A negative result confirms that your compute is not being 'rented' by strangers."
+      },
+      "name": "Exposed AI Runtime Probing and Callbacks",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1572",
+        "command and control",
+        "credential access",
+        "impact",
+        "initial access",
+        "persistence"
+      ],
+      "series": {
+        "slug": "open-by-default-already-occupied-threat-actors-are-renting-your-compute",
+        "index": 1,
+        "title": "Open by Default, Already Occupied: Threat Actors are Renting your Compute",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "ollama-path-traversal-manifest-digest",
+          "reason": "This hunt focuses on the exposure and network plane; path traversal exploitation is a separate behavioral hunt on the host surface.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule on Ollama's port cannot distinguish between a researcher's honeypot and a corporate asset. This hunt correlates external scan data with internal behavioural pivots (DNS and API probing) to settle on a compromise verdict.",
+      "coverage": [
+        {
+          "stage": "unauthenticated-api-exposure",
+          "steps": [
+            "exposed-ai-scoping",
+            "suspicious-api-probes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "callback-verification-tunnels",
+          "steps": [
+            "outbound-tunnel-dns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "path-traversal-file-access",
+          "reason": "This belongs to the second hunt in the series focusing on post-exploitation file access.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "persistence-and-execution-hijack",
+          "reason": "Belongs to a separate hunt focusing on ld.so.preload and systemd persistence.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "resource-hijacking-llmjacking",
+          "reason": "Belongs to a hunt focusing on cloud billing and subscription abuse.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Unauthenticated AI API Exposure",
+            "slug": "unauthenticated-api-exposure",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "port:11434",
+              "port:8888",
+              "port:8501",
+              "port:8000",
+              "url_path:/api/tags",
+              "url_path:/api/pull",
+              "url_path:/api/push",
+              "url_path:/api/kernels"
+            ]
+          },
+          {
+            "name": "Outbound Callback and Tunneling",
+            "slug": "callback-verification-tunnels",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1572"
+            ],
+            "observables": [
+              "domain:bore.pub",
+              "domain:trycloudflare.com",
+              "domain:ttl.sh",
+              "domain:pinggy.io",
+              "model_name:zzvitals-beacon",
+              "model_name:verif_sys",
+              "model_name:ops-verify",
+              "model_name:*-copy-test"
+            ]
+          },
+          {
+            "name": "Path Traversal Credential Access",
+            "slug": "path-traversal-file-access",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555"
+            ],
+            "observables": [
+              "file_path:/etc/shadow",
+              "file_path:/etc/passwd",
+              "file_path:/proc/self/environ",
+              "file_path:~/.ssh/authorized_keys",
+              "file_path:~/.ollama/id_ed25519",
+              "CVE-2024-37032"
+            ]
+          },
+          {
+            "name": "Execution Hijack and Persistence",
+            "slug": "persistence-and-execution-hijack",
+            "tactic": "persistence",
+            "techniques": [
+              "T1574.006"
+            ],
+            "observables": [
+              "file_path:/etc/ld.so.preload",
+              "file_path:override.conf",
+              "process_name:ollama"
+            ]
+          },
+          {
+            "name": "Resource Hijacking (LLMjacking)",
+            "slug": "resource-hijacking-llmjacking",
+            "tactic": "impact",
+            "techniques": [
+              "T1496"
+            ],
+            "observables": [
+              "model_name:gpt-4o",
+              "model_name:claude-3-opus",
+              "model_name:llama3.1:8b"
+            ]
+          }
+        ],
+        "summary": "Threat actors are targeting unauthenticated Ollama AI servers to hijack compute resources and linked cloud model subscriptions (LLMjacking). Beyond resource theft, attackers use path traversal vulnerabilities (CVE-2024-37032) to read sensitive host files like /etc/shadow and establish persistence via system configuration hijacking."
+      },
+      "severity": "high",
+      "rationale": "Focus on cloud and hosting network ranges (OVH, Hetzner, DigitalOcean) where developers may have 'expensed' servers outside of standard CMDB oversight.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is identifying unauthenticated AI runtimes exposed to the internet and using them to verify connectivity or establish command-and-control via outbound tunneling services.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2024-11-18"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts to narrow the behavioural search; leave empty to hunt across the whole estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2024-11-18"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for behavioural telemetry."
+        },
+        "tunnel_domains": {
+          "from": {
+            "ref": "rapid7-exposed-ai",
+            "kind": "article",
+            "observed": "2026-11-18"
+          },
+          "type": "list[domain]",
+          "default": [
+            "bore.pub",
+            "trycloudflare.com",
+            "ttl.sh",
+            "pinggy.io"
+          ],
+          "description": "Free tunneling and throwaway registry services used for callbacks and reachability verification."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/tr-self-hosted-ai-renting-compute-exposed-servers",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/tr-self-hosted-ai-renting-compute-exposed-servers",
+          "name": "Rapid7 — Open by Default, Already Occupied: Threat Actors are Renting your Compute"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-http-request-bodies",
+          "risk": "A simple GET to /api/tags is visible, but the destructive manifest digest payload in a POST /api/pull body is often missed by standard proxy logs.",
+          "owner": "Infrastructure Team",
+          "stage": "unauthenticated-api-exposure",
+          "question": "whether an /api/pull request contained a path-traversal payload",
+          "requires": "hb_http_activity with full request body capture",
+          "remediation": "Enable verbose logging for reverse proxies fronting AI infrastructure."
+        },
+        {
+          "id": "egress-telemetry-gap",
+          "risk": "Without process-to-network mapping on unmanaged VPS hosts, we cannot confirm the AI runtime initiated the callback versus a standard developer tool.",
+          "owner": "Detection Engineering",
+          "stage": "callback-verification-tunnels",
+          "question": "which specific process initiated the connection to a tunnel provider",
+          "requires": "hb_network_connection with process mapping on all VPS hosts",
+          "remediation": "Deploy endpoint agents to all expensed cloud compute."
+        }
+      ]
+    },
+    "name": "Exposed AI Runtime Probing and Callbacks",
+    "description": "This hunt identifies AI runtimes like Ollama and Jupyter exposed to the public internet without authentication. It then searches for evidence of active misuse by correlating this exposure with outbound DNS callbacks to free tunneling services and suspicious HTTP probes against sensitive API endpoints. By combining external exposure data with internal telemetry, the hunt distinguishes between simple misconfiguration and active server-side request forgery (SSRF) or persistence attempts."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "open-by-default-already-occupied-threat-actors-are-renting-your-compute",
+          "index": 1,
+          "title": "Open by Default, Already Occupied: Threat Actors are Renting your Compute",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "unauthenticated-api-exposure",
+            "steps": [
+              "exposed-ai-scoping",
+              "suspicious-api-probes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "callback-verification-tunnels",
+            "steps": [
+              "outbound-tunnel-dns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "path-traversal-file-access",
+            "reason": "This belongs to the second hunt in the series focusing on post-exploitation file access.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "persistence-and-execution-hijack",
+            "reason": "Belongs to a separate hunt focusing on ld.so.preload and systemd persistence.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "resource-hijacking-llmjacking",
+            "reason": "Belongs to a hunt focusing on cloud billing and subscription abuse.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary is identifying unauthenticated AI runtimes exposed to the internet and using them to verify connectivity or establish command-and-control via outbound tunneling services.",
+        "blind_spots": [
+          {
+            "id": "missing-http-request-bodies",
+            "risk": "A simple GET to /api/tags is visible, but the destructive manifest digest payload in a POST /api/pull body is often missed by standard proxy logs.",
+            "owner": "Infrastructure Team",
+            "stage": "unauthenticated-api-exposure",
+            "question": "whether an /api/pull request contained a path-traversal payload",
+            "requires": "hb_http_activity with full request body capture",
+            "remediation": "Enable verbose logging for reverse proxies fronting AI infrastructure."
+          },
+          {
+            "id": "egress-telemetry-gap",
+            "risk": "Without process-to-network mapping on unmanaged VPS hosts, we cannot confirm the AI runtime initiated the callback versus a standard developer tool.",
+            "owner": "Detection Engineering",
+            "stage": "callback-verification-tunnels",
+            "question": "which specific process initiated the connection to a tunnel provider",
+            "requires": "hb_network_connection with process mapping on all VPS hosts",
+            "remediation": "Deploy endpoint agents to all expensed cloud compute."
+          }
+        ],
+        "scoping_notes": "Focus on cloud and hosting network ranges (OVH, Hetzner, DigitalOcean) where developers may have 'expensed' servers outside of standard CMDB oversight.",
+        "beyond_detection": "A single rule on Ollama's port cannot distinguish between a researcher's honeypot and a corporate asset. This hunt correlates external scan data with internal behavioural pivots (DNS and API probing) to settle on a compromise verdict."
+      }
+    },
+    {
+      "id": "exposed-ai-scoping",
+      "type": "query",
+      "label": "Identify exposed AI services",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT domain_or_ip, port, product, provider FROM hb_exposed_assets WHERE (LOWER(product) LIKE '%ollama%' OR LOWER(product) LIKE '%jupyter%' OR port IN (11434, 8888, 8501, 8000))",
+        "surface": "hb_exposed_assets",
+        "description": "Find hosts that external scanners have already flagged as exposing AI runtimes or related ports.",
+        "expected_signal": "Rows naming external IPs and ports of known AI runtimes. Silence suggests no current exposure detected by external scanning."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify exposed AI services",
+        "reads": [
+          "domain_or_ip",
+          "port",
+          "product",
+          "provider"
+        ],
+        "source": "hb_exposed_assets",
+        "target": "endpoint",
+        "content": "SELECT domain_or_ip, port, product, provider FROM hb_exposed_assets WHERE (LOWER(product) LIKE '%ollama%' OR LOWER(product) LIKE '%jupyter%' OR port IN (11434, 8888, 8501, 8000))",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows naming external IPs and ports of known AI runtimes. Silence suggests no current exposure detected by external scanning.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-19"
+      }
+    },
+    {
+      "id": "outbound-tunnel-dns",
+      "type": "query",
+      "label": "DNS resolution for tunnel services",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Detect internal hosts resolving tunnel providers which indicates a successful callback or verification check.",
+        "expected_signal": "Internal hosts attempting to connect to free tunnel providers. Silence means no known tunnel callbacks were initiated."
+      },
+      "parents": [
+        {
+          "id": "exposed-ai-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "DNS resolution for tunnel services",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Internal hosts attempting to connect to free tunnel providers. Silence means no known tunnel callbacks were initiated.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-19"
+      }
+    },
+    {
+      "id": "suspicious-api-probes",
+      "type": "query",
+      "label": "Unauthenticated AI API probing",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, url_path, src_endpoint_ip, status_code, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '/api/tags%' OR LOWER(url_path) LIKE '/api/pull%' OR LOWER(url_path) LIKE '/api/push%' OR LOWER(url_path) LIKE '/api/kernels%' OR LOWER(url_path) LIKE '/api/contents%' OR LOWER(url_path) LIKE '/api/sessions%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify external requests to sensitive endpoints that expose server state or model information across several runtimes.",
+        "expected_signal": "HTTP requests from external IPs to administrative paths. Silence suggests no unauthenticated probing was logged."
+      },
+      "parents": [
+        {
+          "id": "exposed-ai-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Unauthenticated AI API probing",
+        "reads": [
+          "device_hostname",
+          "url_path",
+          "src_endpoint_ip",
+          "status_code",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, url_path, src_endpoint_ip, status_code, time FROM hb_http_activity WHERE (LOWER(url_path) LIKE '/api/tags%' OR LOWER(url_path) LIKE '/api/pull%' OR LOWER(url_path) LIKE '/api/push%' OR LOWER(url_path) LIKE '/api/kernels%' OR LOWER(url_path) LIKE '/api/contents%' OR LOWER(url_path) LIKE '/api/sessions%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "HTTP requests from external IPs to administrative paths. Silence suggests no unauthenticated probing was logged.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-19"
+      }
+    },
+    {
+      "id": "triage-ai-exposure",
+      "type": "analytic",
+      "label": "Weigh exposure and callbacks",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "exposed-ai-scoping",
+          "outbound-tunnel-dns",
+          "suspicious-api-probes"
+        ],
+        "objective": "Determine if any host with an exposed AI service has also resolved tunnel domains or received suspicious API requests indicating misuse.",
+        "description": "Determine if the unauthenticated exposure and subsequent tunnel activity indicate a successful exploitation.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict citing specific rows.",
+        "success_criteria": "A verdict of malicious | suspicious | benign for each host, citing the external probe and the tunnel resolution."
+      },
+      "parents": [
+        {
+          "id": "outbound-tunnel-dns",
+          "kind": "merge"
+        },
+        {
+          "id": "suspicious-api-probes",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decide-compromise",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-ai-exposure verdict is malicious for at least one host",
+        "condition": "the triage-ai-exposure verdict is malicious for at least one host",
+        "blind_spot": "missing-http-request-bodies",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's assessment of compromise.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-ai-exposure"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised AI host",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop further misuse or data exfiltration from the compromised runtime.",
+        "instructions": "Isolate the host immediately. Revoke any linked Ollama account keys and check for unauthorized cloud spend.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decide-compromise",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-forensics",
+      "type": "task",
+      "label": "Manual forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Identify specific model names or encoded payloads that indicate the attacker's intent.",
+        "instructions": "Read the model list on the affected host using the Ollama or Jupyter API. Look for model names prefixed with IP addresses or containing Base64 strings that decode to system paths."
+      },
+      "parents": [
+        {
+          "id": "decide-compromise",
+          "branch": "default"
+        },
+        {
+          "id": "decide-compromise",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "remediation-hardening",
+      "type": "task",
+      "label": "Remediation and hardening",
+      "config": {
+        "assignee": "analyst",
+        "description": "Close the exposure gap for hosts that were not actively misused.",
+        "instructions": "Bind the AI runtime to localhost or a private network. Implement an authenticating reverse proxy or zero-trust layer for remote access."
+      },
+      "parents": [
+        {
+          "id": "decide-compromise",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

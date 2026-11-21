@@ -1,0 +1,657 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Compromise of email gateways allows for RCE and silent impersonation, bypassing traditional identity controls and enabling large-scale spear-phishing or data theft."
+      },
+      "name": "Email Infrastructure Compromise and Impersonation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1053.003",
+        "attack.t1021.001",
+        "execution",
+        "initial access",
+        "lateral movement",
+        "persistence"
+      ],
+      "related": [
+        {
+          "hunt": "appliance-lateral-movement-rdp",
+          "reason": "This hunt focuses on the appliance breach itself; movement into the Windows estate via RDP is handled in a separate lateral movement hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single rule could detect one of these CVEs, but this hunt correlates vulnerability status with authentication anomalies, filesystem persistence, and root-level cron execution across multiple surfaces, providing the context necessary to confirm a full compromise.",
+      "coverage": [
+        {
+          "stage": "initial-access-appliance-exploit",
+          "steps": [
+            "scoping-vulnerable-appliances",
+            "zimbra-auth-anomalies",
+            "appliance-exploit-request-paths"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-via-script-overwrite",
+          "steps": [
+            "cisco-seg-script-overwrite"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-via-cron-job",
+          "steps": [
+            "cron-driven-script-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "identity-boundary-bypass",
+          "steps": [
+            "appliance-exploit-request-paths",
+            "evaluate-early-access"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Exploitation of Public-Facing Appliance",
+            "slug": "initial-access-appliance-exploit",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "CVE-2026-76519",
+              "CVE-2026-76461",
+              "CVE-2026-102764",
+              "CVE-2026-93637",
+              "Zimbra Network Edition GraphQL authentication endpoint",
+              "BeyondTrust Remote Support MRS"
+            ]
+          },
+          {
+            "name": "Persistence via Script Overwrite",
+            "slug": "persistence-via-script-overwrite",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.003"
+            ],
+            "observables": [
+              "/data/bin/core_watch.sh",
+              "TAR files containing PAX archives",
+              "Metasploit payload overwriting system scripts"
+            ]
+          },
+          {
+            "name": "Execution via Cron Job",
+            "slug": "execution-via-cron-job",
+            "tactic": "execution",
+            "techniques": [
+              "T1053.003"
+            ],
+            "observables": [
+              "core_watch.sh execution every 5 minutes",
+              "root privilege execution from cron parent process"
+            ]
+          },
+          {
+            "name": "Identity Boundary Bypass",
+            "slug": "identity-boundary-bypass",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Zimbra SaveDraftRequest SOAP handler",
+              "CVE-2026-73571",
+              "admin.authorizedJIDs system property modification",
+              "impersonation without delegation grant"
+            ]
+          }
+        ],
+        "summary": "Threat actors exploit unauthenticated vulnerabilities in email infrastructure like Cisco Secure Email Gateway and Zimbra to achieve persistence and lateral movement. The attack chain includes arbitrary file writes to hijack system scripts executed by cron jobs and bypassing identity boundaries via SOAP and GraphQL requests."
+      },
+      "severity": "high",
+      "rationale": "Prioritize internet-facing Zimbra servers and Cisco Secure Email Gateways. Use the scoping query to populate scope_hosts for behavioural queries.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has exploited vulnerabilities in Zimbra, Cisco Secure Email Gateway, or BeyondTrust to achieve remote code execution and persistent access through script overwrites and identity boundary bypasses.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames to restrict queries; leave empty to scan the full estate."
+        },
+        "target_cves": {
+          "from": {
+            "ref": "Rapid7 Research",
+            "kind": "article",
+            "observed": "2026-11-20"
+          },
+          "type": "list[string]",
+          "default": [
+            "CVE-2026-73571",
+            "CVE-2026-93637",
+            "CVE-2026-76519",
+            "CVE-2026-76461",
+            "CVE-2026-102764",
+            "CVE-2024-25420"
+          ],
+          "description": "CVE IDs associated with appliance exploits."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/pt-metasploit-wrap-up-breaking-zimbra-s-identity-boundaries",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/pt-metasploit-wrap-up-breaking-zimbra-s-identity-boundaries",
+          "name": "Metasploit Wrap Up: Breaking Zimbra's Identity Boundaries"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-appliance-access-logs",
+          "risk": "Proprietary appliances may not export full URL paths or headers by default, making it difficult to distinguish exploit traffic from legitimate SOAP requests.",
+          "owner": "Infrastructure Team",
+          "stage": "initial-access-appliance-exploit",
+          "question": "whether the specific SaveDraftRequest or MRS payload was delivered",
+          "requires": "detailed HTTP access logs from the appliance exported to hb_http_activity",
+          "remediation": "Enable and ingest raw appliance access logs into the centralized logging platform."
+        },
+        {
+          "id": "ephemeral-script-execution",
+          "risk": "If auditing is not enabled on the appliance itself, the transient execution of a malicious script may leave no trace in the centralized logs.",
+          "owner": "Security Engineering",
+          "stage": "execution-via-cron-job",
+          "question": "what code the core_watch.sh script executed before it was potentially reverted",
+          "requires": "real-time process auditing on the appliance endpoint",
+          "remediation": "Deploy osquery or a similar auditing agent to all network appliances."
+        }
+      ]
+    },
+    "name": "Email Infrastructure Compromise and Impersonation",
+    "description": "This hunt identifies mail appliances exposed to recent high-severity vulnerabilities, then looks for evidence of multi-stage exploitation. It starts by analyzing authentication bypass attempts on Zimbra and exploit request paths for Cisco SEG and BeyondTrust. The second phase corroborates this early access with evidence of persistence through the modification of system scripts like core_watch.sh and their subsequent execution via cron. An agent evaluates the full compromise chain to identify compromised gateways for isolation and forensic review."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-appliance-exploit",
+            "steps": [
+              "scoping-vulnerable-appliances",
+              "zimbra-auth-anomalies",
+              "appliance-exploit-request-paths"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-via-script-overwrite",
+            "steps": [
+              "cisco-seg-script-overwrite"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-via-cron-job",
+            "steps": [
+              "cron-driven-script-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "identity-boundary-bypass",
+            "steps": [
+              "appliance-exploit-request-paths",
+              "evaluate-early-access"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has exploited vulnerabilities in Zimbra, Cisco Secure Email Gateway, or BeyondTrust to achieve remote code execution and persistent access through script overwrites and identity boundary bypasses.",
+        "blind_spots": [
+          {
+            "id": "missing-appliance-access-logs",
+            "risk": "Proprietary appliances may not export full URL paths or headers by default, making it difficult to distinguish exploit traffic from legitimate SOAP requests.",
+            "owner": "Infrastructure Team",
+            "stage": "initial-access-appliance-exploit",
+            "question": "whether the specific SaveDraftRequest or MRS payload was delivered",
+            "requires": "detailed HTTP access logs from the appliance exported to hb_http_activity",
+            "remediation": "Enable and ingest raw appliance access logs into the centralized logging platform."
+          },
+          {
+            "id": "ephemeral-script-execution",
+            "risk": "If auditing is not enabled on the appliance itself, the transient execution of a malicious script may leave no trace in the centralized logs.",
+            "owner": "Security Engineering",
+            "stage": "execution-via-cron-job",
+            "question": "what code the core_watch.sh script executed before it was potentially reverted",
+            "requires": "real-time process auditing on the appliance endpoint",
+            "remediation": "Deploy osquery or a similar auditing agent to all network appliances."
+          }
+        ],
+        "scoping_notes": "Prioritize internet-facing Zimbra servers and Cisco Secure Email Gateways. Use the scoping query to populate scope_hosts for behavioural queries.",
+        "beyond_detection": "A single rule could detect one of these CVEs, but this hunt correlates vulnerability status with authentication anomalies, filesystem persistence, and root-level cron execution across multiple surfaces, providing the context necessary to confirm a full compromise."
+      }
+    },
+    {
+      "id": "scoping-vulnerable-appliances",
+      "type": "query",
+      "label": "Identify vulnerable mail infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT resource_uid AS target, cve_uid, severity, affected_package_name, affected_package_version FROM hb_vulnerability_finding WHERE instr(',' || '{{target_cves}}' || ',', ',' || cve_uid || ',') > 0 AND status != 'suppressed'",
+        "surface": "hb_vulnerability_finding",
+        "description": "Find appliance hosts running versions vulnerable to the targeted CVEs to narrow the focus of the hunt.",
+        "expected_signal": "A list of resource IDs (hostnames or IPs) currently exposed to the targeted vulnerabilities. Silence means no known vulnerable appliances are currently reporting."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable mail infrastructure",
+        "reads": [
+          "resource_uid",
+          "cve_uid",
+          "severity",
+          "affected_package_name",
+          "affected_package_version"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT resource_uid AS target, cve_uid, severity, affected_package_name, affected_package_version FROM hb_vulnerability_finding WHERE instr(',' || '{{target_cves}}' || ',', ',' || cve_uid || ',') > 0 AND status != 'suppressed'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of resource IDs (hostnames or IPs) currently exposed to the targeted vulnerabilities. Silence means no known vulnerable appliances are currently reporting.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-21"
+      }
+    },
+    {
+      "id": "zimbra-auth-anomalies",
+      "type": "query",
+      "label": "Zimbra GraphQL auth anomalies",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT device_hostname, src_endpoint_ip, request_uri, COUNT(*) AS attempts FROM hb_auth_signin WHERE (LOWER(request_uri) LIKE '%/graphql%' OR LOWER(event_type) LIKE '%soap%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, src_endpoint_ip, request_uri HAVING attempts > 20",
+        "surface": "hb_auth_signin",
+        "description": "Detect rate-limit bypass and credential stuffing on Zimbra Network Edition GraphQL endpoints.",
+        "expected_signal": "High volumes of auth attempts on GraphQL from external IPs indicate a rate-limit bypass attempt."
+      },
+      "parents": [
+        {
+          "id": "scoping-vulnerable-appliances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Zimbra GraphQL auth anomalies",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "request_uri",
+          "event_type",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT device_hostname, src_endpoint_ip, request_uri, COUNT(*) AS attempts FROM hb_auth_signin WHERE (LOWER(request_uri) LIKE '%/graphql%' OR LOWER(event_type) LIKE '%soap%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, src_endpoint_ip, request_uri HAVING attempts > 20",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "High volumes of auth attempts on GraphQL from external IPs indicate a rate-limit bypass attempt.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-11-21"
+      }
+    },
+    {
+      "id": "appliance-exploit-request-paths",
+      "type": "query",
+      "label": "Exploit request paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_path, url_query, status_code FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%savedraftrequest%' OR LOWER(url_path) LIKE '%/mrs/%' OR LOWER(url_path) LIKE '%/ecs/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Find web requests targeting known vulnerable handlers for Zimbra, Cisco SEG, and BeyondTrust.",
+        "expected_signal": "Requests to delegated sending handlers or proprietary appliance APIs from unauthenticated sources."
+      },
+      "parents": [
+        {
+          "id": "scoping-vulnerable-appliances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Exploit request paths",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "url_path",
+          "url_query",
+          "status_code",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_path, url_query, status_code FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%savedraftrequest%' OR LOWER(url_path) LIKE '%/mrs/%' OR LOWER(url_path) LIKE '%/ecs/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Requests to delegated sending handlers or proprietary appliance APIs from unauthenticated sources.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-21"
+      }
+    },
+    {
+      "id": "evaluate-early-access",
+      "type": "analytic",
+      "label": "Evaluate early access patterns",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "scoping-vulnerable-appliances",
+          "zimbra-auth-anomalies",
+          "appliance-exploit-request-paths"
+        ],
+        "objective": "Determine if any host shows evidence of successful exploit payloads or credential stuffing via bypassed rate limits.",
+        "description": "Assess whether the observed auth anomalies and HTTP paths indicate successful initial access by an adversary.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict labeling hosts as suspicious for initial exploitation.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per appliance host."
+      },
+      "parents": [
+        {
+          "id": "zimbra-auth-anomalies",
+          "kind": "merge"
+        },
+        {
+          "id": "appliance-exploit-request-paths",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "cisco-seg-script-overwrite",
+      "type": "query",
+      "label": "Cisco SEG script overwrites",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '%/core_watch.sh' AND activity_id IN (1, 3, 5) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify the overwriting of core_watch.sh as reported in Cisco SEG CVE-2026-76519 exploitation.",
+        "expected_signal": "Creation or modification of the core_watch.sh script, especially if originating from a web-server or scanning process."
+      },
+      "parents": [
+        {
+          "id": "evaluate-early-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Cisco SEG script overwrites",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "actor_user_name",
+          "time",
+          "activity_id"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, actor_user_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '%/core_watch.sh' AND activity_id IN (1, 3, 5) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation or modification of the core_watch.sh script, especially if originating from a web-server or scanning process.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-21"
+      }
+    },
+    {
+      "id": "cron-driven-script-execution",
+      "type": "query",
+      "label": "Cron-driven script execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_path, parent_process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE '%/core_watch.sh' OR LOWER(process_cmd_line) LIKE '%core_watch.sh%') AND (LOWER(parent_process_name) LIKE '%cron%' OR LOWER(parent_process_name) LIKE '%crond%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Verify if the overwritten script is being executed with root privileges by the system cron daemon.",
+        "expected_signal": "Execution of core_watch.sh by cron verifies successful persistence and elevation to root."
+      },
+      "parents": [
+        {
+          "id": "evaluate-early-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Cron-driven script execution",
+        "reads": [
+          "device_hostname",
+          "process_path",
+          "parent_process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_path, parent_process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE '%/core_watch.sh' OR LOWER(process_cmd_line) LIKE '%core_watch.sh%') AND (LOWER(parent_process_name) LIKE '%cron%' OR LOWER(parent_process_name) LIKE '%crond%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Execution of core_watch.sh by cron verifies successful persistence and elevation to root.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-21"
+      }
+    },
+    {
+      "id": "evaluate-compromise-chain",
+      "type": "analytic",
+      "label": "Evaluate full compromise chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "evaluate-early-access",
+          "cisco-seg-script-overwrite",
+          "cron-driven-script-execution"
+        ],
+        "objective": "Identify hosts that exhibit both initial access indicators and follow-on persistence or execution, confirming a successful breach.",
+        "description": "Correlate the early access evidence with follow-on persistence to reach a final verdict of compromise.",
+        "max_iterations": 4,
+        "expected_signal": "A confirmed verdict of compromise for hosts displaying the full exploit and persistence chain.",
+        "success_criteria": "A final verdict of compromised | likely_compromised | benign per host."
+      },
+      "parents": [
+        {
+          "id": "cisco-seg-script-overwrite",
+          "kind": "merge"
+        },
+        {
+          "id": "cron-driven-script-execution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "decision-route-remediation",
+      "type": "checkpoint",
+      "label": "Route remediation",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-compromise-chain verdict is compromised or likely_compromised for any host",
+        "condition": "the evaluate-compromise-chain verdict is compromised or likely_compromised for any host",
+        "blind_spot": "missing-appliance-access-logs",
+        "confidence": "high",
+        "description": "Determine whether to trigger containment based on the agent's verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-compromise-chain"
+        }
+      ]
+    },
+    {
+      "id": "action-isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately prevent lateral movement and further data exfiltration from the compromised mail appliance.",
+        "instructions": "Isolate the appliance from the network. Revoke all active sessions for the appliance service accounts and any administrator credentials used to manage it.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "decision-route-remediation",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "task-forensic-mailbox-audit",
+      "type": "task",
+      "label": "Forensic mailbox audit",
+      "config": {
+        "assignee": "analyst",
+        "description": "Conduct manual investigation to determine the impact of email impersonation or data access.",
+        "instructions": "Inspect Zimbra audit logs for unauthorized SaveDraftRequest events to identify which accounts were used for impersonation. Review Cisco SEG logs for TAR/PAX file processing errors that may indicate exploitation attempts."
+      },
+      "parents": [
+        {
+          "id": "decision-route-remediation",
+          "branch": "default"
+        },
+        {
+          "id": "decision-route-remediation",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "action-isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "task-patch-and-harden",
+      "type": "task",
+      "label": "Patch and harden infrastructure",
+      "config": {
+        "assignee": "analyst",
+        "description": "Restore the appliance to a known good, patched state and apply hardening measures.",
+        "instructions": "Apply the latest security patches for Zimbra (10.1.17+), Cisco Secure Email Gateway, and BeyondTrust. Restrict access to GraphQL and SOAP endpoints to known internal administrative IP ranges."
+      },
+      "parents": [
+        {
+          "id": "decision-route-remediation",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "task-forensic-mailbox-audit"
+        }
+      ]
+    }
+  ]
+}

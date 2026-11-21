@@ -1,0 +1,605 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Langflow RCE allows unauthenticated attackers to execute code and maintain persistent backdoors in the application database. A negative result confirms that confirmed Langflow installs are not actively compromised."
+      },
+      "name": "Langflow Host Impact and Persistence",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.006",
+        "attack.t1552.001",
+        "attack.t1555",
+        "attack.t1505.003",
+        "credential access",
+        "execution",
+        "initial access",
+        "lateral movement",
+        "persistence"
+      ],
+      "series": {
+        "slug": "metasploit-wrap-up-langflow-mongodb-and-more",
+        "index": 2,
+        "title": "Metasploit Wrap Up: Langflow, MongoDB, and More",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "langflow-unauth-exploit-patterns",
+          "reason": "This hunt focuses on host impact; a sibling hunt is needed to look for the HTTP exploit patterns (e.g. /api/v1/validate/code) in hb_http_activity.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "langflow-rce-cloud-metadata-discovery",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt uses a gated model to pivot from software inventory to deep behavioral analysis. A standard detection rule for 'python spawning shells' is often too noisy to be useful; this hunt makes it actionable by narrowing the scope to the vulnerable application and correlating it with database-level persistence indicators.",
+      "coverage": [
+        {
+          "stage": "execution-python-rce",
+          "steps": [
+            "rare-python-shell-spawns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-access-secrets-theft",
+          "steps": [
+            "langflow-database-tampering"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-database-modification",
+          "steps": [
+            "langflow-database-tampering"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "initial-access-langflow-exploit",
+          "reason": "Belongs to another part of the 'Metasploit Wrap Up: Langflow, MongoDB, and More' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "lateral-movement-cloud-metadata",
+          "reason": "Belongs to another part of the 'Metasploit Wrap Up: Langflow, MongoDB, and More' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Exploitation of Langflow Endpoints",
+            "slug": "initial-access-langflow-exploit",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "/api/v1/build/",
+              "/api/v1/validate",
+              "eval_custom_component_code"
+            ]
+          },
+          {
+            "name": "Python Remote Code Execution",
+            "slug": "execution-python-rce",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.006"
+            ],
+            "observables": [
+              "Python child processes spawning shells",
+              "langflow process executing arbitrary Python strings",
+              "Meterpreter python payload execution"
+            ]
+          },
+          {
+            "name": "Credential and Secret Access",
+            "slug": "credential-access-secrets-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1552.001",
+              "T1555"
+            ],
+            "observables": [
+              "Accessing Langflow database files",
+              "Reading application secrets from database tables",
+              "Retrieval of SSO email addresses and phone numbers"
+            ]
+          },
+          {
+            "name": "Cloud Metadata Service Abuse",
+            "slug": "lateral-movement-cloud-metadata",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1552.005"
+            ],
+            "observables": [
+              "HTTP requests to 169.254.169.254",
+              "Abuse of cloud metadata endpoints for tenant lateral movement"
+            ]
+          },
+          {
+            "name": "Persistence via Database Modification",
+            "slug": "persistence-database-modification",
+            "tactic": "persistence",
+            "techniques": [
+              "T1505.003"
+            ],
+            "observables": [
+              "Modification of tool_code in the Langflow database",
+              "SQL updates to public flows to re-execute attacker code"
+            ]
+          }
+        ],
+        "summary": "This article describes multiple Metasploit modules targeting vulnerabilities in Langflow and OpenCTI, providing unauthenticated remote code execution capabilities. In Langflow environments, successful exploitation allows attackers to execute arbitrary Python code, access application secrets, pivot to cloud metadata services, and maintain persistence by injecting malicious code into the application's database."
+      },
+      "severity": "high",
+      "rationale": "Initially use hb_software_inventory to find any host running 'langflow'. The behavioral and datastore queries are expensive and MUST be scoped to these hosts to avoid performance issues.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker has exploited a code-injection vulnerability in Langflow to execute arbitrary Python code, resulting in interactive shell access and persistence through unauthorized modifications to the application database.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined-scope",
+            "kind": "manual",
+            "observed": "2026-10-23"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "The list of hostnames discovered in the scoping step; the behavioral queries require this list to avoid a fleet-wide search."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard-lookback",
+            "kind": "manual",
+            "observed": "2026-10-23"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/pt-metasploit-wrap-up-langflow-mongodb-and-more",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/pt-metasploit-wrap-up-langflow-mongodb-and-more",
+          "name": "Metasploit Wrap Up: Langflow, MongoDB, and More"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "inventory-coverage-gap",
+          "risk": "A host without inventory reporting will never open the 'gated' queries, leaving it unexamined.",
+          "question": "Are there Langflow instances running on shadow-IT or unmanaged hosts?",
+          "requires": "hb_software_inventory coverage on unmanaged endpoints"
+        },
+        {
+          "id": "behavioral-telemetry-gap",
+          "risk": "If the host agent cannot see into the container namespace, the Python-to-shell signal is invisible.",
+          "stage": "execution-python-rce",
+          "question": "Can we see Python child processes if Langflow is running in a Docker container?",
+          "requires": "hb_process_activity from inside containers"
+        },
+        {
+          "id": "datastore-logging-detail",
+          "risk": "If only connections are logged without the SQL query text, the persistence mechanism cannot be detected.",
+          "stage": "persistence-database-modification",
+          "question": "Does the database log the actual 'message' content containing 'tool_code'?",
+          "requires": "Full SQL statement auditing in hb_datastore_activity"
+        }
+      ]
+    },
+    "name": "Langflow Host Impact and Persistence",
+    "description": "This hunt targets the post-exploitation phase of multiple Langflow vulnerabilities (CVE-2026-0768, CVE-2026-0769, CVE-2026-10134). It follows a gated approach designed to minimize performance impact: an initial cheap scoping query identifies hosts running Langflow, and only then are deeper, more expensive queries triggered to find rare Python-to-shell process relationships and suspicious datastore activity. By correlating rare child processes with database-level tampering, the hunt identifies persistence mechanisms that standard detection rules often overlook."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "metasploit-wrap-up-langflow-mongodb-and-more",
+          "index": 2,
+          "title": "Metasploit Wrap Up: Langflow, MongoDB, and More",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "execution-python-rce",
+            "steps": [
+              "rare-python-shell-spawns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-access-secrets-theft",
+            "steps": [
+              "langflow-database-tampering"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-database-modification",
+            "steps": [
+              "langflow-database-tampering"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "initial-access-langflow-exploit",
+            "reason": "Belongs to another part of the 'Metasploit Wrap Up: Langflow, MongoDB, and More' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "lateral-movement-cloud-metadata",
+            "reason": "Belongs to another part of the 'Metasploit Wrap Up: Langflow, MongoDB, and More' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An attacker has exploited a code-injection vulnerability in Langflow to execute arbitrary Python code, resulting in interactive shell access and persistence through unauthorized modifications to the application database.",
+        "blind_spots": [
+          {
+            "id": "inventory-coverage-gap",
+            "risk": "A host without inventory reporting will never open the 'gated' queries, leaving it unexamined.",
+            "question": "Are there Langflow instances running on shadow-IT or unmanaged hosts?",
+            "requires": "hb_software_inventory coverage on unmanaged endpoints"
+          },
+          {
+            "id": "behavioral-telemetry-gap",
+            "risk": "If the host agent cannot see into the container namespace, the Python-to-shell signal is invisible.",
+            "stage": "execution-python-rce",
+            "question": "Can we see Python child processes if Langflow is running in a Docker container?",
+            "requires": "hb_process_activity from inside containers"
+          },
+          {
+            "id": "datastore-logging-detail",
+            "risk": "If only connections are logged without the SQL query text, the persistence mechanism cannot be detected.",
+            "stage": "persistence-database-modification",
+            "question": "Does the database log the actual 'message' content containing 'tool_code'?",
+            "requires": "Full SQL statement auditing in hb_datastore_activity"
+          }
+        ],
+        "scoping_notes": "Initially use hb_software_inventory to find any host running 'langflow'. The behavioral and datastore queries are expensive and MUST be scoped to these hosts to avoid performance issues.",
+        "beyond_detection": "This hunt uses a gated model to pivot from software inventory to deep behavioral analysis. A standard detection rule for 'python spawning shells' is often too noisy to be useful; this hunt makes it actionable by narrowing the scope to the vulnerable application and correlating it with database-level persistence indicators."
+      }
+    },
+    {
+      "id": "identify-langflow-installations",
+      "type": "query",
+      "label": "Identify Langflow installations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%langflow%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts where Langflow is present to narrow the focus of expensive behavioral queries.",
+        "expected_signal": "Rows indicating hosts with Langflow installed. Absence means Langflow is not installed via standard package managers."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Langflow installations",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%langflow%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows indicating hosts with Langflow installed. Absence means Langflow is not installed via standard package managers.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "evaluate-langflow-exposure",
+      "type": "analytic",
+      "label": "Evaluate Langflow exposure",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "identify-langflow-installations"
+        ],
+        "objective": "Determine if Langflow is installed on any hosts and identify those hosts for the next phase.",
+        "description": "Determine if any hosts in the environment are running Langflow, justifying further investigation.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict confirming the presence of Langflow and a list of target hostnames.",
+        "success_criteria": "A verdict of present or absent with a list of hostnames."
+      },
+      "parents": [
+        {
+          "id": "identify-langflow-installations"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-presence",
+      "type": "checkpoint",
+      "label": "Gate on presence",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-langflow-exposure verdict is present",
+        "condition": "the evaluate-langflow-exposure verdict is present",
+        "blind_spot": "inventory-coverage-gap",
+        "confidence": "high",
+        "description": "Terminate the hunt if the target application is not found, saving resources.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-langflow-exposure"
+        }
+      ]
+    },
+    {
+      "id": "rare-python-shell-spawns",
+      "type": "query",
+      "label": "Rare Python shell spawns",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, LOWER(process_name) AS proc, LOWER(parent_process_name) AS parent, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%python%' AND LOWER(process_name) IN ('sh', 'bash', 'zsh', 'cmd.exe', 'powershell.exe', 'pwsh') AND instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, proc, parent HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_process_activity",
+        "description": "Detect Python RCE by identifying rare parent-child pairs where Python launches a shell, restricted to Langflow hosts.",
+        "expected_signal": "Rare shell launches from Python on the Langflow hosts. Benign activity like developer scripts will typically be frequent across several days or hosts."
+      },
+      "parents": [
+        {
+          "id": "gate-on-presence",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Python shell spawns",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, LOWER(process_name) AS proc, LOWER(parent_process_name) AS parent, COUNT(DISTINCT device_hostname) AS hosts, MIN(time) AS first_seen FROM hb_process_activity WHERE LOWER(parent_process_name) LIKE '%python%' AND LOWER(process_name) IN ('sh', 'bash', 'zsh', 'cmd.exe', 'powershell.exe', 'pwsh') AND instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, proc, parent HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare shell launches from Python on the Langflow hosts. Benign activity like developer scripts will typically be frequent across several days or hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name",
+            "parent_process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "langflow-database-tampering",
+      "type": "query",
+      "label": "Langflow database tampering",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, activity_name, message, time FROM hb_datastore_activity WHERE (LOWER(message) LIKE '%tool_code%' OR LOWER(message) LIKE '%secrets%' OR LOWER(message) LIKE '%langflow%') AND instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_datastore_activity",
+        "description": "Detect persistence or secret theft by identifying SQL operations targeting Langflow's internal fields, restricted to relevant hosts.",
+        "expected_signal": "Audit logs showing updates to 'tool_code' or reads from 'secrets' tables on Langflow hosts."
+      },
+      "parents": [
+        {
+          "id": "gate-on-presence",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Langflow database tampering",
+        "reads": [
+          "device_hostname",
+          "activity_name",
+          "message",
+          "time"
+        ],
+        "source": "hb_datastore_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, activity_name, message, time FROM hb_datastore_activity WHERE (LOWER(message) LIKE '%tool_code%' OR LOWER(message) LIKE '%secrets%' OR LOWER(message) LIKE '%langflow%') AND instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Audit logs showing updates to 'tool_code' or reads from 'secrets' tables on Langflow hosts.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "triage-impact",
+      "type": "analytic",
+      "label": "Triage impact",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "evaluate-langflow-exposure",
+          "rare-python-shell-spawns",
+          "langflow-database-tampering"
+        ],
+        "objective": "Determine if any host with Langflow shows signs of successful RCE (via Python shells) or persistence (via tool_code database modification).",
+        "description": "Weigh the behavioral and database evidence against the initial software discovery to confirm intrusion.",
+        "max_iterations": 6,
+        "expected_signal": "A confirmed verdict on host compromise.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign citing specific rows."
+      },
+      "parents": [
+        {
+          "id": "rare-python-shell-spawns",
+          "kind": "merge"
+        },
+        {
+          "id": "langflow-database-tampering",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-impact verdict is malicious for at least one host",
+        "condition": "the triage-impact verdict is malicious for at least one host",
+        "blind_spot": "behavioral-telemetry-gap",
+        "confidence": "high",
+        "description": "Contain malicious activity or route for human review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-impact"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately contain a confirmed compromised Langflow instance.",
+        "instructions": "Isolate the host from the network. Capture a memory dump and the application database file for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final human validation of the findings and potential remediation steps.",
+        "instructions": "Review the cited rows. Confirm whether the database modifications to 'tool_code' are legitimate or attacker-controlled persistence from CVE-2026-10134."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and negative results for compliance and hygiene.",
+        "instructions": "Record the results. If Langflow was found but no suspicious activity was detected, note the versions for patching."
+      },
+      "parents": [
+        {
+          "id": "gate-on-presence",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-presence",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "gate-on-presence",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

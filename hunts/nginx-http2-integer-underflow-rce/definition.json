@@ -1,0 +1,569 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "CVE-2026-123007 is a critical unauthenticated RCE on a primary edge component. Identifying and validating the required 128GB traffic flood provides high confidence in the presence or absence of this specific exploitation attempt."
+      },
+      "name": "NGINX HTTP/2 Integer Underflow and RCE",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "execution",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "nginx-ingress-anomalous-egress",
+          "reason": "Monitoring for post-exploitation egress from NGINX containers is a sibling hunt that detects the aftermath regardless of the exploit used.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule for 120GB connections would cause excessive noise in high-traffic environments. This hunt correlates that extreme volume specifically with NGINX worker activity and version inventory, providing a context-aware pivot that a single rule cannot perform.",
+      "coverage": [
+        {
+          "stage": "vulnerability-discovery",
+          "steps": [
+            "vulnerable-nginx-scope",
+            "evaluate-scope-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "exploitation-traffic-flood",
+          "steps": [
+            "high-volume-traffic"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "worker-context-execution",
+          "steps": [
+            "suspicious-nginx-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Identification of Vulnerable NGINX Service",
+            "slug": "vulnerability-discovery",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "NGINX versions 1.31.0 - 1.31.8",
+              "NGINX versions 1.9.5 - 1.30.6",
+              "HTTP/2 protocol enabled",
+              "TLS/HTTPS enabled",
+              "Docker image nginx@sha256:5ab5b0b01097420873a3f3330f44248e34a3c2a3e8d5ee30658aeae8cb7435da"
+            ]
+          },
+          {
+            "name": "High-Volume HTTP/2 Flow-Control Exploit",
+            "slug": "exploitation-traffic-flood",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Approximately 128 GB of HTTP/2 data transmitted",
+              "Persistent connection duration between 2.5 and 17 minutes",
+              "Sustained network traffic over 300 Mbit/s",
+              "HTTP/2 WINDOW_UPDATE frames",
+              "HTTP/2 SETTINGS frames with SETTINGS_INITIAL_WINDOW_SIZE changes"
+            ]
+          },
+          {
+            "name": "NGINX Worker Remote Code Execution",
+            "slug": "worker-context-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "NGINX worker process crash (memory corruption)",
+              "Out-of-bounds reads/writes in worker process context",
+              "Anomalous child processes (e.g., shell or network utilities) spawned by nginx worker"
+            ]
+          }
+        ],
+        "summary": "An unauthenticated remote attacker exploits a critical integer underflow in NGINX's HTTP/2 implementation (CVE-2026-123007) by transmitting approximately 128 GB of data over a sustained connection. Successful exploitation triggers memory corruption in the NGINX worker process, leading to remote code execution during response processing."
+      },
+      "severity": "high",
+      "rationale": "Focus on Internet-facing NGINX servers or ingress controllers. Start with edge nodes serving HTTPS/2 traffic.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is exploiting a critical integer underflow in NGINX's HTTP/2 flow control by transmitting a high-volume data flood to corrupt memory and execute code within the NGINX worker process context.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to focus the exploitation search on; populated by the analyst after the scoping step."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for exploitation traffic and subsequent activity."
+        },
+        "min_bytes_flood": {
+          "type": "number",
+          "default": "120000000000",
+          "description": "Traffic volume threshold in bytes (approx 120GB) required to trigger the counter underflow."
+        },
+        "vulnerable_versions": {
+          "from": {
+            "ref": "https://www.rapid7.com/blog/post/ve-cve-2026-123007-critical-nginx-http-2-integer-underflow-leads-to-rce-fixed",
+            "kind": "article",
+            "observed": "2026-11-18"
+          },
+          "type": "list[string]",
+          "default": [
+            "1.31.0",
+            "1.31.1",
+            "1.31.2",
+            "1.31.3",
+            "1.31.4",
+            "1.31.5",
+            "1.31.6",
+            "1.31.7",
+            "1.31.8",
+            "1.9.5",
+            "1.30.0",
+            "1.30.1",
+            "1.30.2",
+            "1.30.3",
+            "1.30.4",
+            "1.30.5",
+            "1.30.6"
+          ],
+          "description": "Known vulnerable versions of NGINX Open Source as reported in the disclosure."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/ve-cve-2026-123007-critical-nginx-http-2-integer-underflow-leads-to-rce-fixed",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/ve-cve-2026-123007-critical-nginx-http-2-integer-underflow-leads-to-rce-fixed",
+          "name": "Rapid7 — CVE-2026-123007: Critical NGINX HTTP/2 Integer Underflow Leads to RCE"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-inventory-visibility",
+          "risk": "NGINX instances running in unmanaged or non-reporting containers will be missed during scoping.",
+          "stage": "vulnerability-discovery",
+          "question": "Are all Docker-based NGINX instances reporting their version to the host agent?",
+          "requires": "hb_software_inventory coverage for all containers"
+        },
+        {
+          "id": "no-network-telemetry",
+          "risk": "If traffic volume is not recorded at the session level, the 120GB flood indicator cannot be detected.",
+          "stage": "exploitation-traffic-flood",
+          "question": "Do network flow logs capture the total volume for long-lived, encrypted connections?",
+          "requires": "hb_network_connection with cumulative traffic_bytes"
+        }
+      ]
+    },
+    "name": "NGINX HTTP/2 Integer Underflow and RCE",
+    "description": "Exploitation requires approximately 128 GB of data to be transmitted to trigger the underflow, which then allows for an out-of-bounds memory copy. The adversary floods the target server with HTTP/2 traffic to corrupt the worker process's memory. This hunt identifies vulnerable NGINX versions and then searches for the characteristic 120GB+ inbound traffic flood and suspicious child processes spawned by NGINX workers. The analyst reviews the correlated evidence to confirm remote code execution."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "vulnerability-discovery",
+            "steps": [
+              "vulnerable-nginx-scope",
+              "evaluate-scope-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "exploitation-traffic-flood",
+            "steps": [
+              "high-volume-traffic"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "worker-context-execution",
+            "steps": [
+              "suspicious-nginx-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is exploiting a critical integer underflow in NGINX's HTTP/2 flow control by transmitting a high-volume data flood to corrupt memory and execute code within the NGINX worker process context.",
+        "blind_spots": [
+          {
+            "id": "no-inventory-visibility",
+            "risk": "NGINX instances running in unmanaged or non-reporting containers will be missed during scoping.",
+            "stage": "vulnerability-discovery",
+            "question": "Are all Docker-based NGINX instances reporting their version to the host agent?",
+            "requires": "hb_software_inventory coverage for all containers"
+          },
+          {
+            "id": "no-network-telemetry",
+            "risk": "If traffic volume is not recorded at the session level, the 120GB flood indicator cannot be detected.",
+            "stage": "exploitation-traffic-flood",
+            "question": "Do network flow logs capture the total volume for long-lived, encrypted connections?",
+            "requires": "hb_network_connection with cumulative traffic_bytes"
+          }
+        ],
+        "scoping_notes": "Focus on Internet-facing NGINX servers or ingress controllers. Start with edge nodes serving HTTPS/2 traffic.",
+        "beyond_detection": "A standard rule for 120GB connections would cause excessive noise in high-traffic environments. This hunt correlates that extreme volume specifically with NGINX worker activity and version inventory, providing a context-aware pivot that a single rule cannot perform."
+      }
+    },
+    {
+      "id": "vulnerable-nginx-scope",
+      "type": "query",
+      "label": "Scope vulnerable NGINX versions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%nginx%' AND (instr(',' || '{{vulnerable_versions}}' || ',', ',' || package_version || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts running versions of NGINX known to be vulnerable to the HTTP/2 integer underflow.",
+        "expected_signal": "A list of hosts and their NGINX versions. None means no known vulnerable software is present."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope vulnerable NGINX versions",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%nginx%' AND (instr(',' || '{{vulnerable_versions}}' || ',', ',' || package_version || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts and their NGINX versions. None means no known vulnerable software is present.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-19"
+      }
+    },
+    {
+      "id": "evaluate-scope-lead",
+      "type": "analytic",
+      "label": "Evaluate vulnerability lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "vulnerable-nginx-scope"
+        ],
+        "objective": "Confirm which hosts from the inventory results are running vulnerable versions of NGINX as specified in the report.",
+        "description": "The agent reviews the inventory result to confirm if any host is within the target scope for exploitation.",
+        "max_iterations": 3,
+        "expected_signal": "A list of hosts confirmed as vulnerable and requiring deeper inspection.",
+        "success_criteria": "A list of hosts with confirmed vulnerable NGINX versions."
+      },
+      "parents": [
+        {
+          "id": "vulnerable-nginx-scope"
+        }
+      ]
+    },
+    {
+      "id": "gate-vulnerability",
+      "type": "checkpoint",
+      "label": "Gate: Proceed to exploitation search",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-scope-lead verdict is that at least one host is running a vulnerable NGINX version",
+        "condition": "the evaluate-scope-lead verdict is that at least one host is running a vulnerable NGINX version",
+        "blind_spot": "no-inventory-visibility",
+        "confidence": "high",
+        "description": "Avoid expensive traffic and process queries if no vulnerable NGINX hosts are present in the estate.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-scope-lead"
+        }
+      ]
+    },
+    {
+      "id": "high-volume-traffic",
+      "type": "query",
+      "label": "Detect 120GB+ inbound HTTP/2 data floods",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, src_endpoint_ip, SUM(traffic_bytes) as total_received_bytes, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_network_connection WHERE (dst_endpoint_port IN (443, 8443)) AND direction = 'inbound' AND state_kind = 'log' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, src_endpoint_ip HAVING total_received_bytes > {{min_bytes_flood}}",
+        "surface": "hb_network_connection",
+        "description": "Identify external source IPs that have transmitted the extreme volumes of data received by the NGINX server to trigger the integer underflow.",
+        "expected_signal": "One or more source IPs sending over 120GB to a single host. A unique IP hitting one host is highly suspicious."
+      },
+      "parents": [
+        {
+          "id": "gate-vulnerability",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Detect 120GB+ inbound HTTP/2 data floods",
+        "reads": [
+          "device_hostname",
+          "direction",
+          "dst_endpoint_port",
+          "src_endpoint_ip",
+          "state_kind",
+          "time",
+          "traffic_bytes"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, src_endpoint_ip, SUM(traffic_bytes) as total_received_bytes, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_network_connection WHERE (dst_endpoint_port IN (443, 8443)) AND direction = 'inbound' AND state_kind = 'log' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, src_endpoint_ip HAVING total_received_bytes > {{min_bytes_flood}}",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "One or more source IPs sending over 120GB to a single host. A unique IP hitting one host is highly suspicious.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-19"
+      }
+    },
+    {
+      "id": "suspicious-nginx-activity",
+      "type": "query",
+      "label": "Anomalous NGINX child processes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%nginx%' OR LOWER(process_name) LIKE '%nginx%') AND (LOWER(process_name) IN ('sh', 'bash', 'nc', 'curl', 'wget', 'python', 'perl', 'socat', 'cp', 'mv', 'chmod') OR LOWER(process_cmd_line) LIKE '%/dev/tcp/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find shells, network utilities, or staging tools spawned by NGINX processes, indicating successful code execution.",
+        "expected_signal": "A shell, downloader, or utility process whose parent is an NGINX worker. Silence indicates no obvious RCE took place during the window."
+      },
+      "parents": [
+        {
+          "id": "gate-vulnerability",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Anomalous NGINX child processes",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%nginx%' OR LOWER(process_name) LIKE '%nginx%') AND (LOWER(process_name) IN ('sh', 'bash', 'nc', 'curl', 'wget', 'python', 'perl', 'socat', 'cp', 'mv', 'chmod') OR LOWER(process_cmd_line) LIKE '%/dev/tcp/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A shell, downloader, or utility process whose parent is an NGINX worker. Silence indicates no obvious RCE took place during the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-19"
+      }
+    },
+    {
+      "id": "triage-triage",
+      "type": "analytic",
+      "label": "Triage exploitation evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "evaluate-scope-lead",
+          "high-volume-traffic",
+          "suspicious-nginx-activity"
+        ],
+        "objective": "Weigh the scoping results against the traffic volumes and process executions to identify successful CVE-2026-123007 exploitation.",
+        "description": "Correlate the vulnerability scope, the traffic flood, and the process activity to determine if a host was compromised.",
+        "max_iterations": 6,
+        "expected_signal": "A per-host verdict of malicious, suspicious, or benign based on the convergence of indicators.",
+        "success_criteria": "A per-host verdict citing specific rows from the traffic and process queries."
+      },
+      "parents": [
+        {
+          "id": "high-volume-traffic",
+          "kind": "merge"
+        },
+        {
+          "id": "suspicious-nginx-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-verdict",
+      "type": "checkpoint",
+      "label": "Route based on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-triage verdict is malicious for at least one host",
+        "condition": "the triage-triage verdict is malicious for at least one host",
+        "blind_spot": "no-network-telemetry",
+        "confidence": "high",
+        "description": "Initiate containment for malicious results or manual review for suspicious ones.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Sever network connectivity for confirmed compromised servers to prevent lateral movement.",
+        "instructions": "Isolate the host and preserve memory and NGINX worker binaries for forensic analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review and forensic check",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's verdict and look for secondary indicators of compromise.",
+        "instructions": "Review the high-volume connection logs and the process tree of the NGINX workers. Look for credential access or lateral movement originating from the NGINX host."
+      },
+      "parents": [
+        {
+          "id": "gate-vulnerability",
+          "branch": "default"
+        },
+        {
+          "id": "gate-vulnerability",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and ensure vulnerable hosts are identified for remediation.",
+        "instructions": "Record all vulnerable hosts found. If no exploitation was confirmed, prioritize these hosts for immediate NGINX updates to version 1.31.9 or 1.30.7."
+      },
+      "parents": [
+        {
+          "id": "gate-vulnerability",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
