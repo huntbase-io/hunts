@@ -1,0 +1,590 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Compromise of the vCenter appliance grants full administrative control over the virtualized infrastructure; detecting post-exploitation tampering is essential to preventing data center-wide data theft or destruction."
+      },
+      "name": "vCenter Appliance Administrative Tampering and Root Access",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1136.001",
+        "attack.t1562.001",
+        "attack.t1059.004",
+        "credential access",
+        "defense evasion",
+        "execution",
+        "initial access",
+        "persistence"
+      ],
+      "series": {
+        "slug": "rapid7-analysis-vmware-vcenter-srp-authentication-bypass-to-root-cve-2026-123890",
+        "index": 2,
+        "title": "Rapid7 Analysis: VMware vCenter SRP Authentication Bypass to Root (CVE-2026-123890)",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "vcenter-rpc-auth-bypass-mechanics",
+          "reason": "This hunt focuses on the tampering aftermath; the low-level mechanics of the RPC SRP handle collision require distinct DCE/RPC network telemetry.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "vcenter-directory-service-exploitation-credential-theft",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "While a single rule might fire on sudo use, it misses the context of the management API call that enabled the shell in the first place. This hunt correlates management plane API activity with OS-level execution while using stack-counting to find rare events across a fleet of standardized appliances.",
+      "coverage": [
+        {
+          "stage": "appliance-account-persistence",
+          "steps": [
+            "api-management-activity",
+            "os-privilege-escalation"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remote-management-enablement",
+          "steps": [
+            "api-management-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "root-shell-access",
+          "steps": [
+            "os-privilege-escalation"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "rpc-srp-auth-bypass",
+          "reason": "Belongs to another part of the 'Rapid7 Analysis: VMware vCenter SRP Authentication Bypass to Root (CVE-2026-123890)' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "directory-database-theft",
+          "reason": "Belongs to another part of the 'Rapid7 Analysis: VMware vCenter SRP Authentication Bypass to Root (CVE-2026-123890)' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "vCenter Directory Service RPC Bypass",
+            "slug": "rpc-srp-auth-bypass",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "TCP 2012",
+              "CVE-2026-123890",
+              "Srv_rpc_srp_verifier_get_session_key",
+              "administrator@vsphere.local",
+              "vCenter Server Appliance 8.0.2.00400",
+              "build 23929136"
+            ]
+          },
+          {
+            "name": "Directory Database and Signing Key Theft",
+            "slug": "directory-database-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1003"
+            ],
+            "observables": [
+              "data.mdb",
+              "STS private signing key",
+              "directory database-copy interface"
+            ]
+          },
+          {
+            "name": "Administrative Account Creation",
+            "slug": "appliance-account-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1136.001"
+            ],
+            "observables": [
+              "vmware.appliance.localaccounts",
+              "superAdmin",
+              "sebastian-fritsch",
+              "useradd -m -G superAdmin"
+            ]
+          },
+          {
+            "name": "SSH and Shell Access Enablement",
+            "slug": "remote-management-enablement",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1562.001"
+            ],
+            "observables": [
+              "com.vmware.appliance.version1.access.ssh.set",
+              "com.vmware.appliance.version1.access.shell.set",
+              "enable=True"
+            ]
+          },
+          {
+            "name": "SSH Login and Root Escalation",
+            "slug": "root-shell-access",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.004"
+            ],
+            "observables": [
+              "TCP 22",
+              "sshd",
+              "sudo -n /bin/bash -i",
+              "root"
+            ]
+          }
+        ],
+        "summary": "Attackers exploit an authentication bypass in the VMware vCenter Directory Service (CVE-2026-123890) to retrieve SRP session keys and impersonate administrators without passwords. This access is leveraged to exfiltrate the directory database and forge administrative assertions, which are then used to create local superuser accounts and enable SSH for root-level command execution."
+      },
+      "severity": "high",
+      "rationale": "Focus on hosts identified as VMware vCenter Server Appliances. Use the presence of the vpxd package or the vCenter management API to scope. If available, prioritize hosts with a detected CVE-2026-123890 finding from hb_vulnerability_finding.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker is established on a vCenter appliance and is using administrative APIs to create local persistence and enable restricted shells for root-level command execution.",
+      "parameters": {
+        "api_paths": {
+          "from": {
+            "ref": "CVE-2026-123890",
+            "kind": "article",
+            "observed": "2026-11-24"
+          },
+          "type": "list[string]",
+          "default": [
+            "/api/appliance/access/ssh",
+            "/api/appliance/access/shell",
+            "/api/appliance/local-accounts"
+          ],
+          "description": "Management API paths used for appliance configuration."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Limit the hunt to these vCenter hostnames; leave empty for the whole estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-policy",
+            "kind": "manual",
+            "observed": "2024-01-01"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "persistence_groups": {
+          "from": {
+            "ref": "CVE-2026-123890",
+            "kind": "article",
+            "observed": "2026-11-24"
+          },
+          "type": "list[string]",
+          "default": [
+            "superAdmin"
+          ],
+          "description": "High-privilege appliance groups used for persistence."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/ra-rapid7-analysis-vmware-vcenter-srp-authentication-bypass-to-root-cve-2026-123890",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/ra-rapid7-analysis-vmware-vcenter-srp-authentication-bypass-to-root-cve-2026-123890",
+          "name": "Rapid7 Analysis: VMware vCenter SRP Authentication Bypass to Root (CVE-2026-123890)"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-linux-audit",
+          "risk": "Without EXECVE logging, we can see sudo was used to spawn a shell but not the specific actions taken by the intruder inside it.",
+          "stage": "root-shell-access",
+          "question": "what commands were run within the root shell",
+          "requires": "hb_linux_audit with record_type EXECVE"
+        },
+        {
+          "id": "proxied-api-traffic",
+          "risk": "If a proxy sits in front of the vCenter appliance, the src_endpoint_ip may show the proxy's IP, obscuring the attacker's true origin.",
+          "stage": "remote-management-enablement",
+          "question": "the true source IP of the management API requests",
+          "requires": "hb_http_activity"
+        }
+      ]
+    },
+    "name": "vCenter Appliance Administrative Tampering and Root Access",
+    "description": "This hunt identifies post-exploitation activity on VMware vCenter Server Appliances following an authentication bypass. It looks for the use of management APIs to create administrative local accounts and the enablement of SSH or the Bash shell. It correlates these management plane changes with OS-level execution logs where an attacker typically joins the 'superAdmin' group and uses sudo to spawn interactive root shells. By stack-counting these events across the appliance fleet, the hunt separates legitimate maintenance from targeted tampering."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "rapid7-analysis-vmware-vcenter-srp-authentication-bypass-to-root-cve-2026-123890",
+          "index": 2,
+          "title": "Rapid7 Analysis: VMware vCenter SRP Authentication Bypass to Root (CVE-2026-123890)",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "appliance-account-persistence",
+            "steps": [
+              "api-management-activity",
+              "os-privilege-escalation"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remote-management-enablement",
+            "steps": [
+              "api-management-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "root-shell-access",
+            "steps": [
+              "os-privilege-escalation"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "rpc-srp-auth-bypass",
+            "reason": "Belongs to another part of the 'Rapid7 Analysis: VMware vCenter SRP Authentication Bypass to Root (CVE-2026-123890)' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "directory-database-theft",
+            "reason": "Belongs to another part of the 'Rapid7 Analysis: VMware vCenter SRP Authentication Bypass to Root (CVE-2026-123890)' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An attacker is established on a vCenter appliance and is using administrative APIs to create local persistence and enable restricted shells for root-level command execution.",
+        "blind_spots": [
+          {
+            "id": "missing-linux-audit",
+            "risk": "Without EXECVE logging, we can see sudo was used to spawn a shell but not the specific actions taken by the intruder inside it.",
+            "stage": "root-shell-access",
+            "question": "what commands were run within the root shell",
+            "requires": "hb_linux_audit with record_type EXECVE"
+          },
+          {
+            "id": "proxied-api-traffic",
+            "risk": "If a proxy sits in front of the vCenter appliance, the src_endpoint_ip may show the proxy's IP, obscuring the attacker's true origin.",
+            "stage": "remote-management-enablement",
+            "question": "the true source IP of the management API requests",
+            "requires": "hb_http_activity"
+          }
+        ],
+        "scoping_notes": "Focus on hosts identified as VMware vCenter Server Appliances. Use the presence of the vpxd package or the vCenter management API to scope. If available, prioritize hosts with a detected CVE-2026-123890 finding from hb_vulnerability_finding.",
+        "beyond_detection": "While a single rule might fire on sudo use, it misses the context of the management API call that enabled the shell in the first place. This hunt correlates management plane API activity with OS-level execution while using stack-counting to find rare events across a fleet of standardized appliances."
+      }
+    },
+    {
+      "id": "scoping-vcenter-hosts",
+      "type": "query",
+      "label": "Identify vCenter Appliances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%vcenter%' OR LOWER(package_name) LIKE '%vpxd%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Inventory the hosts that run vCenter services to define the hunt's blast radius.",
+        "expected_signal": "A list of hosts currently identified as vCenter appliances. Silence indicates no vCenter software is present."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vCenter Appliances",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%vcenter%' OR LOWER(package_name) LIKE '%vpxd%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts currently identified as vCenter appliances. Silence indicates no vCenter software is present.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-25"
+      }
+    },
+    {
+      "id": "api-management-activity",
+      "type": "query",
+      "label": "Rare Management API Activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT url_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_http_activity WHERE (instr(',' || '{{api_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0 OR LOWER(url_path) LIKE '%/api/appliance/access/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_path HAVING host_count <= 2 ORDER BY host_count ASC",
+        "surface": "hb_http_activity",
+        "description": "Detect rare or unauthorized use of the appliance configuration APIs that enable SSH or create accounts.",
+        "expected_signal": "An API call used on one or two appliances, suggesting non-standard maintenance. Normal activity typically appears fleet-wide."
+      },
+      "parents": [
+        {
+          "id": "scoping-vcenter-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Management API Activity",
+        "reads": [
+          "url_path",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT url_path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_http_activity WHERE (instr(',' || '{{api_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0 OR LOWER(url_path) LIKE '%/api/appliance/access/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_path HAVING host_count <= 2 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "An API call used on one or two appliances, suggesting non-standard maintenance. Normal activity typically appears fleet-wide.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-25"
+      }
+    },
+    {
+      "id": "os-privilege-escalation",
+      "type": "query",
+      "label": "OS Persistence and Root Escalation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, raw_record, time FROM hb_linux_audit WHERE record_type = 'EXECVE' AND ( (LOWER(raw_record) LIKE '%useradd%' AND instr(',' || LOWER('{{persistence_groups}}') || ',', ',superadmin,') > 0 AND LOWER(raw_record) LIKE '%superadmin%') OR (LOWER(raw_record) LIKE '%sudo%' AND LOWER(raw_record) LIKE '%/bin/bash%') ) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_linux_audit",
+        "description": "Search Linux audit logs for command arguments used in administrative persistence and root shell spawning.",
+        "expected_signal": "Rows showing the manual creation of a superAdmin user or the use of sudo to open an interactive Bash shell as root."
+      },
+      "parents": [
+        {
+          "id": "scoping-vcenter-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "OS Persistence and Root Escalation",
+        "reads": [
+          "device_hostname",
+          "raw_record",
+          "time"
+        ],
+        "source": "hb_linux_audit",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, raw_record, time FROM hb_linux_audit WHERE record_type = 'EXECVE' AND ( (LOWER(raw_record) LIKE '%useradd%' AND instr(',' || LOWER('{{persistence_groups}}') || ',', ',superadmin,') > 0 AND LOWER(raw_record) LIKE '%superadmin%') OR (LOWER(raw_record) LIKE '%sudo%' AND LOWER(raw_record) LIKE '%/bin/bash%') ) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows showing the manual creation of a superAdmin user or the use of sudo to open an interactive Bash shell as root.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-25"
+      }
+    },
+    {
+      "id": "triage-vcenter-tampering",
+      "type": "analytic",
+      "label": "Triage Tampering Evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "scoping-vcenter-hosts",
+          "api-management-activity",
+          "os-privilege-escalation"
+        ],
+        "objective": "Determine if the rare API calls to management paths and the OS-level user/shell modifications confirm unauthorized tampering. Contrast against the software inventory to ensure these are production vCenter hosts.",
+        "description": "Assess whether the management API calls and OS-level commands together indicate a post-exploitation chain.",
+        "max_iterations": 4,
+        "expected_signal": "A detailed verdict per host citing the correlated activity.",
+        "success_criteria": "A verdict of malicious | suspicious | benign for each host, citing the API paths and audit record command lines."
+      },
+      "parents": [
+        {
+          "id": "api-management-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "os-privilege-escalation",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "routing-decision",
+      "type": "checkpoint",
+      "label": "Route on Triage Result",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "missing-linux-audit",
+        "confidence": "high",
+        "description": "Drive automated containment for high-confidence hits and analyst review for ambiguous signals.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-vcenter-tampering"
+        }
+      ]
+    },
+    {
+      "id": "isolate-appliance",
+      "type": "action",
+      "label": "Isolate Compromised Appliance",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further management plane commands or data theft by isolating the vCenter appliance.",
+        "instructions": "Isolate the vCenter appliance and revoke all active administrative API sessions and SSH keys.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "routing-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-forensic-review",
+      "type": "task",
+      "label": "Forensic Review of vmdir Logs",
+      "config": {
+        "assignee": "analyst",
+        "description": "Perform deeper analysis to identify the origin of the bypass and the full extent of tampering.",
+        "instructions": "Examine the vmdir logs for unexpected SRP verifier creation. Verify if any directory database copies were granted before the account creation. Reconstruct the attacker's shell commands from /var/log/audit/audit.log."
+      },
+      "parents": [
+        {
+          "id": "routing-decision",
+          "branch": "default"
+        },
+        {
+          "id": "routing-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-appliance"
+        }
+      ]
+    },
+    {
+      "id": "remediation-verification",
+      "type": "task",
+      "label": "Verify Remediation and Patching",
+      "config": {
+        "assignee": "analyst",
+        "description": "Ensure the appliance is updated and the vulnerable configuration is addressed.",
+        "instructions": "Verify that the appliance has been updated to the fixed version (e.g., 8.0 U3m). Confirm that all local accounts created during the intrusion have been deleted."
+      },
+      "parents": [
+        {
+          "id": "analyst-forensic-review"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close-out and Documentation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the hunt results and update baseline exclusions for legitimate vCenter administrators.",
+        "instructions": "Archive the forensic findings. If any benign activity was found, update the hunt parameters to exclude the authorized administrative source IPs."
+      },
+      "parents": [
+        {
+          "id": "routing-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "remediation-verification"
+        }
+      ]
+    }
+  ]
+}

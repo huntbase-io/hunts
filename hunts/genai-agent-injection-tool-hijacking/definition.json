@@ -1,0 +1,599 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "As GenAI agents are granted autonomous permissions to call tools and access databases, protecting them from prompt injection is critical to preventing unauthorized goal hijacking and data theft."
+      },
+      "name": "GenAI Agent Prompt Injection and Tool Hijacking",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t0034",
+        "attack.t0051",
+        "attack.t0053",
+        "attack.t0054",
+        "defense evasion",
+        "execution",
+        "impact",
+        "initial access",
+        "aws"
+      ],
+      "related": [
+        {
+          "hunt": "genai-cost-harvesting-detection",
+          "reason": "Large scale cost-harvesting through model abuse is a sibling threat but requires specific monitoring of token consumption rather than prompt injection.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "aws": {
+          "name": "aws",
+          "category": "siem",
+          "huntbase": {
+            "product": "aws"
+          }
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple rule can fire on the string 'ignore all instructions', but this hunt pivots to behavioral tool-invocation spikes and uses an agent to correlate the natural language intent with the outcome, reducing noise from testing and development.",
+      "coverage": [
+        {
+          "stage": "initial-access-prompt-injection",
+          "steps": [
+            "detect-injection-strings"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "defense-evasion-encoded-payloads",
+          "steps": [
+            "detect-encoded-payloads"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-agent-tool-misuse",
+          "steps": [
+            "detect-tool-volume-spikes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "impact-model-refusal",
+          "reason": "AWS CloudTrail does not log the model response body by default; needs specialized LLM telemetry integration.",
+          "status": "not_visible",
+          "blind_spot": "no-response-body-logging"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "GenAI Prompt Injection",
+            "slug": "initial-access-prompt-injection",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190",
+              "T0051"
+            ],
+            "observables": [
+              "Ignore all previous instructions",
+              "Instruction overrides in gen_ai.input.messages",
+              "Natural language injection attempts"
+            ]
+          },
+          {
+            "name": "Encoded and Obfuscated Payloads",
+            "slug": "defense-evasion-encoded-payloads",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T0054"
+            ],
+            "observables": [
+              "SWdub3JlIGFsbCBwcmV2aW91cyBpbnN0cnVjdGlvbnMu",
+              "5f4dcc3b5aa765d61d8327deb882cf99",
+              "Leetspeak",
+              "Morse code",
+              "0xNN hex strings",
+              "Decorative Unicode"
+            ]
+          },
+          {
+            "name": "Anomalous Agent Tool Invocation",
+            "slug": "execution-agent-tool-misuse",
+            "tactic": "execution",
+            "techniques": [
+              "T0053",
+              "T0034"
+            ],
+            "observables": [
+              "Unusually large tool-request batches",
+              "Rare tool selection per user.id",
+              "High tool-call volume",
+              "Bedrock invocation spikes"
+            ]
+          },
+          {
+            "name": "GenAI Assistant Refusal",
+            "slug": "impact-model-refusal",
+            "tactic": "impact",
+            "techniques": [
+              "T0054"
+            ],
+            "observables": [
+              "Refusal text in gen_ai.output.messages",
+              "Assistant refusals indicating guardrail firing"
+            ]
+          }
+        ],
+        "summary": "Threat actors target GenAI agents using prompt injection to override system instructions and execute unauthorized tool calls or hide malicious payloads within encoded strings. The campaign is characterized by the use of natural language to bypass traditional filters, employing Base64 encoding, leetspeak obfuscation, and high-volume tool invocation to exploit agentic capabilities."
+      },
+      "severity": "high",
+      "rationale": "Focus on high-privilege IAM roles and identities that interact with AWS Bedrock. Widen scope if injection strings appear from normally benign user accounts.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is manipulating GenAI agent behavior through natural language prompt injection or encoded payloads to bypass guardrails and execute unauthorized tool calls or API operations.",
+      "parameters": {
+        "md5_ioc": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/blog/prompt-injection-detection-ai-agents",
+            "kind": "article",
+            "observed": "2026-11-23"
+          },
+          "type": "string",
+          "default": "5f4dcc3b5aa765d61d8327deb882cf99",
+          "description": "The MD5 hash of 'password' as a sample credential leak/payload string."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific IAM principals or hostnames to scope the hunt to; leave empty for all."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "base64_payload": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/blog/prompt-injection-detection-ai-agents",
+            "kind": "article",
+            "observed": "2026-11-23"
+          },
+          "type": "string",
+          "default": "SWdub3JlIGFsbCBwcmV2aW91cyBpbnN0cnVjdGlvbnMu",
+          "description": "Specific Base64 payload from the report (Ignore all previous instructions)."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/prompt-injection-detection-ai-agents",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/prompt-injection-detection-ai-agents",
+          "name": "Thinking fast about prompt injection: New System 1 models in Elastic"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "cloudtrail-data-event-latency",
+          "risk": "If Data Events are not enabled or only Management Events are captured, the prompt content (request_attribute) may be truncated or missing, hiding the injection string.",
+          "stage": "initial-access-prompt-injection",
+          "question": "whether model invocation bodies are logged in full",
+          "requires": "CloudTrail Data Events enabled for Bedrock"
+        },
+        {
+          "id": "no-response-body-logging",
+          "risk": "Without visibility into the assistant's response body, we cannot see the 'refusal' signal, which is a key indicator of a blocked but attempted exploit.",
+          "stage": "impact-model-refusal",
+          "question": "whether the model refused the request due to a guardrail firing",
+          "requires": "Indexing of gen_ai.output.messages"
+        }
+      ]
+    },
+    "name": "GenAI Agent Prompt Injection and Tool Hijacking",
+    "description": "This hunt identifies attempts to hijack GenAI agents, specifically targeting AWS Bedrock. It correlates early-stage natural language injection attempts and encoded payloads with follow-on behavioral anomalies, such as unusually high tool invocation volume. The hunt uses a phased approach: first identifying vulnerable agents and injection attempts, then corroborating these with actual execution patterns across cloud API logs."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-prompt-injection",
+            "steps": [
+              "detect-injection-strings"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "defense-evasion-encoded-payloads",
+            "steps": [
+              "detect-encoded-payloads"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-agent-tool-misuse",
+            "steps": [
+              "detect-tool-volume-spikes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "impact-model-refusal",
+            "reason": "AWS CloudTrail does not log the model response body by default; needs specialized LLM telemetry integration.",
+            "status": "not_visible",
+            "blind_spot": "no-response-body-logging"
+          }
+        ],
+        "rationale": "An adversary is manipulating GenAI agent behavior through natural language prompt injection or encoded payloads to bypass guardrails and execute unauthorized tool calls or API operations.",
+        "blind_spots": [
+          {
+            "id": "cloudtrail-data-event-latency",
+            "risk": "If Data Events are not enabled or only Management Events are captured, the prompt content (request_attribute) may be truncated or missing, hiding the injection string.",
+            "stage": "initial-access-prompt-injection",
+            "question": "whether model invocation bodies are logged in full",
+            "requires": "CloudTrail Data Events enabled for Bedrock"
+          },
+          {
+            "id": "no-response-body-logging",
+            "risk": "Without visibility into the assistant's response body, we cannot see the 'refusal' signal, which is a key indicator of a blocked but attempted exploit.",
+            "stage": "impact-model-refusal",
+            "question": "whether the model refused the request due to a guardrail firing",
+            "requires": "Indexing of gen_ai.output.messages"
+          }
+        ],
+        "scoping_notes": "Focus on high-privilege IAM roles and identities that interact with AWS Bedrock. Widen scope if injection strings appear from normally benign user accounts.",
+        "beyond_detection": "A simple rule can fire on the string 'ignore all instructions', but this hunt pivots to behavioral tool-invocation spikes and uses an agent to correlate the natural language intent with the outcome, reducing noise from testing and development."
+      }
+    },
+    {
+      "id": "identify-bedrock-agents",
+      "type": "query",
+      "label": "Identify AWS Bedrock agents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "aws",
+        "content": "SELECT arn, agent_name, foundation_model, agent_status, account_id FROM aws_bedrock_agent",
+        "product": "aws",
+        "surface": "aws_bedrock_agent",
+        "extension": "aws",
+        "description": "Find the foundation models and agents currently configured in the environment to establish scope.",
+        "expected_signal": "A list of agents that could be targets for injection. Silence means no Bedrock agents are configured."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify AWS Bedrock agents",
+        "reads": [
+          "arn",
+          "agent_name",
+          "foundation_model",
+          "agent_status",
+          "account_id"
+        ],
+        "source": "aws_bedrock_agent",
+        "target": "aws",
+        "content": "SELECT arn, agent_name, foundation_model, agent_status, account_id FROM aws_bedrock_agent",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of agents that could be targets for injection. Silence means no Bedrock agents are configured.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-24",
+        "target_extension": "aws"
+      }
+    },
+    {
+      "id": "detect-injection-strings",
+      "type": "query",
+      "label": "Detect prompt injection strings",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT time, actor_user_name, request_attribute, api_operation, cloud_account_uid FROM hb_cloud_api_activity WHERE LOWER(api_service_name) LIKE '%bedrock%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || actor_user_name || ',') > 0) AND (LOWER(request_attribute) LIKE '%ignore all%' OR LOWER(request_attribute) LIKE '%instruction override%' OR LOWER(request_attribute) LIKE '%developer mode%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Identify natural language strings used to override agent instructions in API calls.",
+        "expected_signal": "A row indicates an explicit prompt injection attempt. Silence means no common override strings were found in the logged request attributes."
+      },
+      "parents": [
+        {
+          "id": "identify-bedrock-agents"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect prompt injection strings",
+        "reads": [
+          "time",
+          "actor_user_name",
+          "request_attribute",
+          "api_operation",
+          "cloud_account_uid",
+          "api_service_name"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT time, actor_user_name, request_attribute, api_operation, cloud_account_uid FROM hb_cloud_api_activity WHERE LOWER(api_service_name) LIKE '%bedrock%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || actor_user_name || ',') > 0) AND (LOWER(request_attribute) LIKE '%ignore all%' OR LOWER(request_attribute) LIKE '%instruction override%' OR LOWER(request_attribute) LIKE '%developer mode%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A row indicates an explicit prompt injection attempt. Silence means no common override strings were found in the logged request attributes.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-24"
+      }
+    },
+    {
+      "id": "detect-encoded-payloads",
+      "type": "query",
+      "label": "Detect encoded payloads and hashes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT time, actor_user_name, request_attribute, api_operation FROM hb_cloud_api_activity WHERE LOWER(api_service_name) LIKE '%bedrock%' AND (instr(request_attribute, '{{base64_payload}}') > 0 OR instr(request_attribute, '{{md5_ioc}}') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Search for obfuscated content or hash strings used to bypass simple text filters.",
+        "expected_signal": "Specific indicators from the report appearing in Bedrock API traffic."
+      },
+      "parents": [
+        {
+          "id": "identify-bedrock-agents"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Detect encoded payloads and hashes",
+        "reads": [
+          "time",
+          "actor_user_name",
+          "request_attribute",
+          "api_operation",
+          "api_service_name"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT time, actor_user_name, request_attribute, api_operation FROM hb_cloud_api_activity WHERE LOWER(api_service_name) LIKE '%bedrock%' AND (instr(request_attribute, '{{base64_payload}}') > 0 OR instr(request_attribute, '{{md5_ioc}}') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Specific indicators from the report appearing in Bedrock API traffic.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-24"
+      }
+    },
+    {
+      "id": "weigh-early-signals",
+      "type": "analytic",
+      "label": "Weigh early-stage injection signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "aws",
+          "endpoint"
+        ],
+        "context": [
+          "detect-injection-strings",
+          "detect-encoded-payloads"
+        ],
+        "objective": "Determine if the prompts observed in the parallel steps show intentional instruction overrides or evasion through encoding.",
+        "description": "Assess whether the observed strings and encodings constitute a credible injection attempt.",
+        "max_iterations": 3,
+        "expected_signal": "A triage verdict on the injection attempts.",
+        "success_criteria": "A list of actors or accounts that attempted prompt injection."
+      },
+      "parents": [
+        {
+          "id": "detect-injection-strings",
+          "kind": "merge"
+        },
+        {
+          "id": "detect-encoded-payloads",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "detect-tool-volume-spikes",
+      "type": "query",
+      "label": "Detect anomalous tool invocation volume",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, COUNT(*) as call_count, MIN(time) as first_call, MAX(time) as last_call FROM hb_cloud_api_activity WHERE LOWER(api_service_name) LIKE '%bedrock%' AND (LOWER(api_operation) LIKE '%invoke%' OR LOWER(api_operation) LIKE '%call%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, api_operation HAVING call_count > 50 ORDER BY call_count DESC",
+        "surface": "hb_cloud_api_activity",
+        "description": "Corroborate injection attempts with subsequent behavioral anomalies in tool usage.",
+        "expected_signal": "A high-volume tool-request batch from a single user. Silence proves the absence of large automated tool misuse within the lookback."
+      },
+      "parents": [
+        {
+          "id": "weigh-early-signals"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Detect anomalous tool invocation volume",
+        "reads": [
+          "actor_user_name",
+          "api_operation",
+          "time",
+          "api_service_name"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, COUNT(*) as call_count, MIN(time) as first_call, MAX(time) as last_call FROM hb_cloud_api_activity WHERE LOWER(api_service_name) LIKE '%bedrock%' AND (LOWER(api_operation) LIKE '%invoke%' OR LOWER(api_operation) LIKE '%call%') AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY actor_user_name, api_operation HAVING call_count > 50 ORDER BY call_count DESC",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "prior_equal_window"
+        },
+        "expected": "A high-volume tool-request batch from a single user. Silence proves the absence of large automated tool misuse within the lookback.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "actor_user_name",
+          "key": [
+            "api_operation"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-11-24"
+      }
+    },
+    {
+      "id": "final-correlation-read",
+      "type": "analytic",
+      "label": "Final correlation read",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "aws",
+          "endpoint"
+        ],
+        "context": [
+          "weigh-early-signals",
+          "detect-tool-volume-spikes"
+        ],
+        "objective": "Correlate the injection verdicts from the first agent with the tool volume anomalies to confirm if an injection was successful and led to unauthorized actions.",
+        "description": "Correlate injection attempts with subsequent tool misuse or refusals.",
+        "max_iterations": 3,
+        "expected_signal": "A definitive verdict on hijacked agent sessions.",
+        "success_criteria": "A per-actor verdict of malicious hijacking or benign use."
+      },
+      "parents": [
+        {
+          "id": "detect-tool-volume-spikes"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The final correlation read confirms an injection attempt followed by anomalous tool usage for at least one actor.",
+        "condition": "The final correlation read confirms an injection attempt followed by anomalous tool usage for at least one actor.",
+        "blind_spot": "cloudtrail-data-event-latency",
+        "confidence": "high",
+        "description": "Route the hunt based on the final correlation result.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-correlation-read"
+        }
+      ]
+    },
+    {
+      "id": "revoke-iam-access",
+      "type": "action",
+      "label": "Revoke IAM access",
+      "config": {
+        "target": "identity",
+        "description": "Contain the threat by revoking the credentials used to hijack the agent.",
+        "instructions": "Revoke active IAM sessions and temporary credentials for the identified actor_user_name.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-manual-review",
+      "type": "task",
+      "label": "Analyst manual review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Confirm the hijacking and review the impact of the tool misuse.",
+        "instructions": "Examine the raw requestParameters for the confirmed actor. Determine which tools were called and if any data was exfiltrated."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "revoke-iam-access"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and close the hunt.",
+        "instructions": "Record the absence of agent hijacking activity and update the baseline for tool volume."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}
