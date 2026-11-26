@@ -1,0 +1,458 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "VMware vCenter is a critical asset; an unauthenticated authentication bypass allows full control over the virtualization environment, making a negative result over the estate highly valuable."
+      },
+      "name": "VMware vCenter Directory Service Authentication Bypass Exposure",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "vcenter-post-exploitation-behavior",
+          "reason": "This hunt focuses on initial exposure; a follow-on hunt would look for broader lateral movement or persistence across the virtualization fabric.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A static detection rule alerts on the presence of a CVE; this hunt correlates vulnerability status with active network listening states and anomalous inbound connection patterns across multiple surfaces to find exposure that a single alert misses.",
+      "coverage": [
+        {
+          "stage": "exploit-vcenter-auth-bypass",
+          "steps": [
+            "identify-vulnerable-findings",
+            "vcenter-inventory-scoping",
+            "inbound-ldap-prevalence",
+            "vmdir-anomaly-check"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "vCenter Directory Service Auth Bypass",
+            "slug": "exploit-vcenter-auth-bypass",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "CVE-2026-123903",
+              "CVE-2026-123890",
+              "VMware Directory Service (vmdir)",
+              "LDAP traffic on TCP/389 or TCP/636",
+              "RPC traffic to vCenter",
+              "vCenter versions 5.x, 7.0, 8.0, 9.0.x, 9.1.x"
+            ]
+          }
+        ],
+        "summary": "Attackers exploit a critical authentication bypass in the VMware Directory Service (vmdir) component of vCenter by sending crafted LDAP or RPC requests. Successful exploitation allows an unauthenticated attacker with network access to gain administrative control over the vCenter environment, potentially compromising all managed virtual infrastructure."
+      },
+      "severity": "high",
+      "rationale": "Focus on servers identified as vCenter in software inventory or those within virtualization management subnets. Include any devices with vulnerability findings for the targeted CVEs.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An unauthenticated attacker is attempting to exploit a critical authentication bypass in the VMware Directory Service (vmdir) by sending malicious LDAP or RPC traffic to exposed vCenter instances.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hostnames of vCenter servers to focus the hunt; leave empty to scan the estate."
+        },
+        "target_cves": {
+          "from": {
+            "ref": "VMSA-2026-0011",
+            "kind": "article",
+            "observed": "2026-11-24"
+          },
+          "type": "list[string]",
+          "default": [
+            "CVE-2026-123903",
+            "CVE-2026-123890"
+          ],
+          "description": "CVE identifiers for the vCenter Directory Service authentication bypass."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for network and process activity."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/etr-cve-2026-123903-critical-vmware-directory-service-authentication-bypass-affects-vcenter",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/etr-cve-2026-123903-critical-vmware-directory-service-authentication-bypass-affects-vcenter",
+          "name": "Rapid7 — CVE-2026-123903: Critical VMware Directory Service Authentication Bypass affects vCenter"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-network-logs",
+          "risk": "Without inbound connection logs, we cannot distinguish between a vulnerable but idle instance and one being actively probed or exploited.",
+          "stage": "exploit-vcenter-auth-bypass",
+          "question": "whether an external attacker connected to the LDAP service",
+          "requires": "hb_network_connection logs for inbound traffic"
+        },
+        {
+          "id": "ldaps-encryption",
+          "risk": "Encrypted LDAP (LDAPS) traffic prevents inspection of the request body, meaning we rely on connection prevalence rather than payload analysis.",
+          "stage": "exploit-vcenter-auth-bypass",
+          "question": "whether the content of an LDAP request on port 636 was malicious",
+          "requires": "LDAPS decryption or vmdir application audit logs"
+        }
+      ]
+    },
+    "name": "VMware vCenter Directory Service Authentication Bypass Exposure",
+    "description": "This hunt identifies VMware vCenter instances exposed to the critical authentication bypass vulnerabilities CVE-2026-123903 (LDAP) and CVE-2026-123890 (RPC). The hunt scopes the estate using vulnerability findings and software inventory, baselines inbound LDAP/RPC traffic to identify anomalous source IPs, and examines vCenter directory service process behavior for signs of post-exploitation activity. An agent weighs the exposure against the observed traffic patterns to prioritize remediation of the virtualization fabric."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "exploit-vcenter-auth-bypass",
+            "steps": [
+              "identify-vulnerable-findings",
+              "vcenter-inventory-scoping",
+              "inbound-ldap-prevalence",
+              "vmdir-anomaly-check"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An unauthenticated attacker is attempting to exploit a critical authentication bypass in the VMware Directory Service (vmdir) by sending malicious LDAP or RPC traffic to exposed vCenter instances.",
+        "blind_spots": [
+          {
+            "id": "missing-network-logs",
+            "risk": "Without inbound connection logs, we cannot distinguish between a vulnerable but idle instance and one being actively probed or exploited.",
+            "stage": "exploit-vcenter-auth-bypass",
+            "question": "whether an external attacker connected to the LDAP service",
+            "requires": "hb_network_connection logs for inbound traffic"
+          },
+          {
+            "id": "ldaps-encryption",
+            "risk": "Encrypted LDAP (LDAPS) traffic prevents inspection of the request body, meaning we rely on connection prevalence rather than payload analysis.",
+            "stage": "exploit-vcenter-auth-bypass",
+            "question": "whether the content of an LDAP request on port 636 was malicious",
+            "requires": "LDAPS decryption or vmdir application audit logs"
+          }
+        ],
+        "scoping_notes": "Focus on servers identified as vCenter in software inventory or those within virtualization management subnets. Include any devices with vulnerability findings for the targeted CVEs.",
+        "beyond_detection": "A static detection rule alerts on the presence of a CVE; this hunt correlates vulnerability status with active network listening states and anomalous inbound connection patterns across multiple surfaces to find exposure that a single alert misses."
+      }
+    },
+    {
+      "id": "identify-vulnerable-findings",
+      "type": "query",
+      "label": "Identify vulnerability findings",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_uid, resource_uid, cve_uid, severity, status, last_seen FROM hb_vulnerability_finding WHERE instr(',' || '{{target_cves}}' || ',', ',' || cve_uid || ',') > 0",
+        "surface": "hb_vulnerability_finding",
+        "description": "Filter the estate for hosts already flagged by scanning products with the targeted vCenter CVEs.",
+        "expected_signal": "Rows identify specific devices and resources (vCenter instances) known to be vulnerable. Silence means no findings are recorded for these CVEs."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerability findings",
+        "reads": [
+          "device_uid",
+          "resource_uid",
+          "cve_uid",
+          "severity",
+          "status",
+          "last_seen"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT device_uid, resource_uid, cve_uid, severity, status, last_seen FROM hb_vulnerability_finding WHERE instr(',' || '{{target_cves}}' || ',', ',' || cve_uid || ',') > 0",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows identify specific devices and resources (vCenter instances) known to be vulnerable. Silence means no findings are recorded for these CVEs.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-26"
+      }
+    },
+    {
+      "id": "vcenter-inventory-scoping",
+      "type": "query",
+      "label": "Enumerate vCenter software versions",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%vcenter%'",
+        "surface": "hb_software_inventory",
+        "description": "Locate vCenter installations that may be vulnerable based on their reported version, providing a list of hostnames for subsequent steps.",
+        "expected_signal": "A list of hostnames and vCenter versions. Any version below the fixed releases (e.g., 9.1.2, 9.0.2.0300, 8.0 U3m) is vulnerable."
+      },
+      "parents": [
+        {
+          "id": "identify-vulnerable-findings"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Enumerate vCenter software versions",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, vendor_name FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%vcenter%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames and vCenter versions. Any version below the fixed releases (e.g., 9.1.2, 9.0.2.0300, 8.0 U3m) is vulnerable.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-26"
+      }
+    },
+    {
+      "id": "inbound-ldap-prevalence",
+      "type": "query",
+      "label": "Analyze inbound LDAP traffic prevalence",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT device_hostname, src_endpoint_ip, dst_endpoint_port, COUNT(*) as connection_count, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_network_connection WHERE (dst_endpoint_port = 389 OR dst_endpoint_port = 636) AND direction = 'inbound' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, src_endpoint_ip, dst_endpoint_port ORDER BY connection_count ASC",
+        "surface": "hb_network_connection",
+        "description": "Detect anomalous inbound connections to vCenter LDAP ports (389/636) by stack-counting source IPs per host.",
+        "expected_signal": "Rare source IPs connecting to LDAP ports on a vCenter instance. Administrative workstations and known load balancers should be the only frequent sources."
+      },
+      "parents": [
+        {
+          "id": "vcenter-inventory-scoping"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Analyze inbound LDAP traffic prevalence",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "dst_endpoint_port",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, src_endpoint_ip, dst_endpoint_port, COUNT(*) as connection_count, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_network_connection WHERE (dst_endpoint_port = 389 OR dst_endpoint_port = 636) AND direction = 'inbound' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY device_hostname, src_endpoint_ip, dst_endpoint_port ORDER BY connection_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Rare source IPs connecting to LDAP ports on a vCenter instance. Administrative workstations and known load balancers should be the only frequent sources.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-11-26"
+      }
+    },
+    {
+      "id": "vmdir-anomaly-check",
+      "type": "query",
+      "label": "Check vmdir process behavior",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%vmdir%' OR LOWER(parent_process_name) LIKE '%vmdir%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_process_activity",
+        "description": "Identify any unusual child processes or commands associated with the VMware Directory Service, which may follow a successful bypass.",
+        "expected_signal": "The vmdir process should have minimal child activity. Any shell launch or unusual binary run by vmdir is highly suspicious."
+      },
+      "parents": [
+        {
+          "id": "inbound-ldap-prevalence"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Check vmdir process behavior",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%vmdir%' OR LOWER(parent_process_name) LIKE '%vmdir%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "The vmdir process should have minimal child activity. Any shell launch or unusual binary run by vmdir is highly suspicious.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-26"
+      }
+    },
+    {
+      "id": "triage-vcenter-exposure",
+      "type": "analytic",
+      "label": "Triage vCenter exposure and traffic",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "identify-vulnerable-findings",
+          "vcenter-inventory-scoping",
+          "inbound-ldap-prevalence",
+          "vmdir-anomaly-check"
+        ],
+        "objective": "Determine if any vulnerable vCenter instances are exposed to potentially unauthenticated and unauthorized traffic that might exploit CVE-2026-123903.",
+        "description": "Evaluate whether the confirmed vulnerable hosts are receiving anomalous LDAP traffic and if the directory service shows suspicious behavior.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host risk assessment citing the presence of CVEs and correlating them with rare source IPs or unusual process activity.",
+        "success_criteria": "A per-host verdict of exposed-at-risk, compromised, or benign, citing specific rows from network and process logs."
+      },
+      "parents": [
+        {
+          "id": "vmdir-anomaly-check"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on exposure risk",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict identifies at least one vulnerable vCenter instance or suspicious inbound traffic from unknown source IPs",
+        "condition": "the triage verdict identifies at least one vulnerable vCenter instance or suspicious inbound traffic from unknown source IPs",
+        "blind_spot": "missing-network-logs",
+        "confidence": "medium",
+        "description": "Direct the analyst to remediation if the agent finds evidence of exposure or suspicious activity.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-vcenter-exposure"
+        }
+      ]
+    },
+    {
+      "id": "remediation-task",
+      "type": "task",
+      "label": "Remediate vulnerable vCenter instances",
+      "config": {
+        "assignee": "analyst",
+        "description": "Address the vulnerability by applying updates and reviewing access controls.",
+        "instructions": "Apply VMware patches urgently for all instances identified as vulnerable (fixed in 9.1.2, 9.0.2.0300, 8.0 U3m, or 5.2.5). Review the ownership of anomalous source IPs identified in the network prevalence step. Restrict LDAP (389/636) and RPC traffic to trusted administrative network segments."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize documentation and findings.",
+        "instructions": "Document all vulnerable instances discovered and confirm patch application. Update the asset management system to reflect current software versions and ensure the hunt is scheduled for periodic review."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "remediation-task"
+        }
+      ]
+    }
+  ]
+}
