@@ -1,0 +1,590 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Ransomware represents a critical risk to business continuity. Identifying the transition from credential abuse to malicious endpoint activity before full encryption is complete provides the only window for effective containment."
+      },
+      "name": "Credential-driven LOLBin Proxying and Ransomware",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1078",
+        "attack.t1218",
+        "attack.t1486",
+        "defense evasion",
+        "impact",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "lateral-movement-rdp-abuse",
+          "reason": "This hunt focuses on direct ransomware impact after a breach, not the step-by-step lateral movement via RDP.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple rule might catch rundll32.exe with a DLL; this hunt pivots from an anomalous sign-in to a rare process to mass file operations, requiring an analyst and agent to correlate three distinct telemetry surfaces.",
+      "coverage": [
+        {
+          "stage": "credential-access-compromised-accounts",
+          "steps": [
+            "auth-lead-query",
+            "evaluate-lead"
+          ],
+          "reason": "Matches anomalous authentication leads to subsequent host activity.",
+          "status": "covered"
+        },
+        {
+          "stage": "defense-evasion-lolbin-proxy",
+          "steps": [
+            "lolbin-execution"
+          ],
+          "reason": "Identifies signed binaries proxying malicious payloads.",
+          "status": "covered"
+        },
+        {
+          "stage": "impact-ransomware-encryption",
+          "steps": [
+            "encryption-patterns"
+          ],
+          "reason": "Detects the high-frequency file touches characteristic of ransomware impact.",
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Sign-in via Stolen Credentials",
+            "slug": "credential-access-compromised-accounts",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1078"
+            ],
+            "observables": [
+              "Sign-in from unusual source IP",
+              "Successful authentication using established user accounts",
+              "Anomalous geographic login patterns"
+            ]
+          },
+          {
+            "name": "System Binary Proxy Execution",
+            "slug": "defense-evasion-lolbin-proxy",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1218"
+            ],
+            "observables": [
+              "Execution of signed Windows binaries (e.g., rundll32.exe, mshta.exe, certutil.exe) with malicious command line arguments",
+              "Unusual parent-child process relationships involving system tools",
+              "Loading of unsigned or suspicious modules by trusted binaries"
+            ]
+          },
+          {
+            "name": "Data Encrypted for Impact",
+            "slug": "impact-ransomware-encryption",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "Massive file renaming activity",
+              "High-volume file write and delete operations",
+              "Presence of ransomware notes in multiple directories"
+            ]
+          }
+        ],
+        "summary": "This intrusion scenario involves an attacker using stolen credentials to gain initial access before leveraging native Windows binaries to proxy the execution of malicious code. The final stage of the attack involves the deployment of ransomware to encrypt local data for impact."
+      },
+      "severity": "medium",
+      "rationale": "Start with network and remote interactive logons. Focus on servers and domain-admin workstations where impact is highest.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has used stolen credentials to gain initial access and is now using signed system binaries to proxy execution and encrypt files across the estate.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "Huntress Blog",
+            "kind": "manual",
+            "observed": "2026-11-02"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to narrow the expensive investigation."
+        },
+        "lolbin_names": {
+          "from": {
+            "ref": "Huntress Blog",
+            "kind": "manual",
+            "observed": "2026-11-02"
+          },
+          "type": "list[string]",
+          "default": [
+            "rundll32.exe",
+            "mshta.exe",
+            "certutil.exe",
+            "regsvr32.exe",
+            "vssadmin.exe",
+            "powershell.exe"
+          ],
+          "description": "List of system binaries often used as proxies or for ransomware preparation."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "Huntress Blog",
+            "kind": "manual",
+            "observed": "2026-11-02"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "file_op_threshold": {
+          "from": {
+            "ref": "Huntress Blog",
+            "kind": "manual",
+            "observed": "2026-11-02"
+          },
+          "type": "number",
+          "default": "500",
+          "description": "Number of file creates or renames per host in a one-hour window that triggers suspicion of mass encryption."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/what-is-threat-hunting",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/what-is-threat-hunting",
+          "name": "Huntress \u2014 Threat Hunting: What It Is, How It Works, & Why It Matters"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-auth-logs",
+          "risk": "A sign-in on an unmonitored provider would bypass the lead query, preventing the gated investigation from starting.",
+          "stage": "credential-access-compromised-accounts",
+          "question": "whether a user signed in via a provider not currently integrated",
+          "requires": "hb_auth_signin coverage for all identity providers"
+        },
+        {
+          "id": "no-process-visibility",
+          "risk": "Attackers can hide within unmonitored hosts; file operations may still alert us, but the source process would remain unknown.",
+          "stage": "defense-evasion-lolbin-proxy",
+          "question": "whether a LOLBin was used on a host without an agent",
+          "requires": "hb_process_activity on all workstations"
+        },
+        {
+          "id": "encryption-entropy-blindspot",
+          "risk": "A high count of file writes can be benign (e.g., updates or backups); without entropy, we rely on count alone as a behavioral proxy.",
+          "stage": "impact-ransomware-encryption",
+          "question": "whether the file writes are actually encrypted content",
+          "requires": "file content entropy calculation"
+        }
+      ]
+    },
+    "name": "Credential-driven LOLBin Proxying and Ransomware",
+    "description": "This hunt follows a gated flow to first identify anomalous successful sign-ins as a cheap lead. If an account shows signs of takeover, the hunt opens an expensive search for behavioral evidence: the use of signed system binaries (LOLBins) to proxy malicious execution and high-volume file operations characteristic of ransomware encryption. An agent then correlates the initial access with the endpoint activity to isolate the host before encryption completes."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "credential-access-compromised-accounts",
+            "steps": [
+              "auth-lead-query",
+              "evaluate-lead"
+            ],
+            "reason": "Matches anomalous authentication leads to subsequent host activity.",
+            "status": "covered"
+          },
+          {
+            "stage": "defense-evasion-lolbin-proxy",
+            "steps": [
+              "lolbin-execution"
+            ],
+            "reason": "Identifies signed binaries proxying malicious payloads.",
+            "status": "covered"
+          },
+          {
+            "stage": "impact-ransomware-encryption",
+            "steps": [
+              "encryption-patterns"
+            ],
+            "reason": "Detects the high-frequency file touches characteristic of ransomware impact.",
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has used stolen credentials to gain initial access and is now using signed system binaries to proxy execution and encrypt files across the estate.",
+        "blind_spots": [
+          {
+            "id": "missing-auth-logs",
+            "risk": "A sign-in on an unmonitored provider would bypass the lead query, preventing the gated investigation from starting.",
+            "stage": "credential-access-compromised-accounts",
+            "question": "whether a user signed in via a provider not currently integrated",
+            "requires": "hb_auth_signin coverage for all identity providers"
+          },
+          {
+            "id": "no-process-visibility",
+            "risk": "Attackers can hide within unmonitored hosts; file operations may still alert us, but the source process would remain unknown.",
+            "stage": "defense-evasion-lolbin-proxy",
+            "question": "whether a LOLBin was used on a host without an agent",
+            "requires": "hb_process_activity on all workstations"
+          },
+          {
+            "id": "encryption-entropy-blindspot",
+            "risk": "A high count of file writes can be benign (e.g., updates or backups); without entropy, we rely on count alone as a behavioral proxy.",
+            "stage": "impact-ransomware-encryption",
+            "question": "whether the file writes are actually encrypted content",
+            "requires": "file content entropy calculation"
+          }
+        ],
+        "scoping_notes": "Start with network and remote interactive logons. Focus on servers and domain-admin workstations where impact is highest.",
+        "beyond_detection": "A simple rule might catch rundll32.exe with a DLL; this hunt pivots from an anomalous sign-in to a rare process to mass file operations, requiring an analyst and agent to correlate three distinct telemetry surfaces."
+      }
+    },
+    {
+      "id": "auth-lead-query",
+      "type": "query",
+      "label": "Suspicious successful sign-ins",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT device_hostname, actor_user_name, src_endpoint_ip, logon_type, status_code, status_id, time FROM hb_auth_signin WHERE status_id = 1 AND logon_type IN ('Network', 'Remote Interactive') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify successful authentications from network or remote interactive sessions as a lead for potential credential abuse.",
+        "expected_signal": "A list of successful logons. Silence means no network-based logons occurred in the window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Suspicious successful sign-ins",
+        "reads": [
+          "actor_user_name",
+          "device_hostname",
+          "logon_type",
+          "src_endpoint_ip",
+          "status_code",
+          "status_id",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT device_hostname, actor_user_name, src_endpoint_ip, logon_type, status_code, status_id, time FROM hb_auth_signin WHERE status_id = 1 AND logon_type IN ('Network', 'Remote Interactive') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of successful logons. Silence means no network-based logons occurred in the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-03"
+      }
+    },
+    {
+      "id": "evaluate-lead",
+      "type": "analytic",
+      "label": "Evaluate sign-in lead",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "auth-lead-query"
+        ],
+        "objective": "Examine the sign-in results and identify any accounts or source IPs that appear anomalous for the environment.",
+        "description": "Analyze the lead query results to decide if the sign-in activity warrants an expensive follow-on investigation.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict on whether any sign-in looks suspicious enough to investigate the endpoint.",
+        "success_criteria": "A per-host verdict of suspicious or benign."
+      },
+      "parents": [
+        {
+          "id": "auth-lead-query"
+        }
+      ]
+    },
+    {
+      "id": "gate-decision",
+      "type": "checkpoint",
+      "label": "Gate: Proceed to investigation?",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-lead verdict is suspicious for at least one host",
+        "condition": "the evaluate-lead verdict is suspicious for at least one host",
+        "blind_spot": "missing-auth-logs",
+        "confidence": "high",
+        "description": "Route the hunt based on the first agent's evaluation of the lead.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-lead"
+        }
+      ]
+    },
+    {
+      "id": "lolbin-execution",
+      "type": "query",
+      "label": "Proxied system binary execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE instr(',' || '{{lolbin_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND (LOWER(process_cmd_line) LIKE '%.dll%' OR LOWER(process_cmd_line) LIKE '%http%' OR LOWER(process_cmd_line) LIKE '%-enc%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify LOLBins running with arguments typical of malicious payload delivery or defense evasion.",
+        "expected_signal": "Signed binaries with complex command lines. Silence proves no targeted LOLBin execution matched these patterns on the scoped hosts."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Proxied system binary execution",
+        "reads": [
+          "device_hostname",
+          "parent_process_name",
+          "process_cmd_line",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE instr(',' || '{{lolbin_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND (LOWER(process_cmd_line) LIKE '%.dll%' OR LOWER(process_cmd_line) LIKE '%http%' OR LOWER(process_cmd_line) LIKE '%-enc%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Signed binaries with complex command lines. Silence proves no targeted LOLBin execution matched these patterns on the scoped hosts.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-03"
+      }
+    },
+    {
+      "id": "encryption-patterns",
+      "type": "query",
+      "label": "High-volume file operations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, activity_name, strftime('%Y-%m-%d %H', time) AS hour_bin, COUNT(*) AS file_ops FROM hb_file_activity WHERE activity_id IN (1, 3, 5) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, activity_name, hour_bin HAVING file_ops > {{file_op_threshold}} ORDER BY file_ops DESC",
+        "surface": "hb_file_activity",
+        "description": "Identify mass renames or writes that characterize ransomware encryption.",
+        "expected_signal": "Hosts with hundreds or thousands of file operations in a one-hour window. Silence proves no mass file activity occurred on monitored hosts."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "High-volume file operations",
+        "reads": [
+          "activity_id",
+          "activity_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, activity_name, strftime('%Y-%m-%d %H', time) AS hour_bin, COUNT(*) AS file_ops FROM hb_file_activity WHERE activity_id IN (1, 3, 5) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, activity_name, hour_bin HAVING file_ops > {{file_op_threshold}} ORDER BY file_ops DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "Hosts with hundreds or thousands of file operations in a one-hour window. Silence proves no mass file activity occurred on monitored hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "device_hostname"
+          ],
+          "rare_below": 2
+        },
+        "verified_at": "2026-11-03"
+      }
+    },
+    {
+      "id": "final-triage",
+      "type": "analytic",
+      "label": "Correlate authentication and endpoint behavior",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "evaluate-lead",
+          "lolbin-execution",
+          "encryption-patterns"
+        ],
+        "objective": "Determine if any host shows the complete pattern: successful anomalous authentication followed by proxy binary execution and/or mass file operations.",
+        "description": "Determine if the sign-in, LOLBin usage, and file activity together indicate an active ransomware intrusion.",
+        "max_iterations": 5,
+        "expected_signal": "A high-confidence verdict per host citing specific sign-ins and process chains.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host."
+      },
+      "parents": [
+        {
+          "id": "lolbin-execution",
+          "kind": "merge"
+        },
+        {
+          "id": "encryption-patterns",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on final verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-triage verdict is malicious for at least one host",
+        "condition": "the final-triage verdict is malicious for at least one host",
+        "blind_spot": "no-process-visibility",
+        "confidence": "high",
+        "description": "Direct the workflow to containment or manual review based on the correlated findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop the ransomware spread immediately upon high-confidence detection.",
+        "instructions": "Isolate the host immediately to prevent further file encryption or lateral movement. Revoke the credentials for the identified compromised account.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-manual-review",
+      "type": "task",
+      "label": "Analyst manual review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Provide human oversight for suspicious or indeterminate results.",
+        "instructions": "Review the correlated evidence from authentication, process activity, and file operations. If malicious, ensure isolation was completed and initiate the full ransomware recovery playbook."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "default"
+        },
+        {
+          "id": "gate-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt when no malicious activity is found.",
+        "instructions": "Record the findings. If the sign-in was suspicious but no endpoint activity followed, consider monitoring the account for future anomalies."
+      },
+      "parents": [
+        {
+          "id": "gate-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,659 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Email bombing is a high-confidence indicator of a concurrent, more serious intrusion; a negative result over the estate confirms no such coordinated campaign is active."
+      },
+      "name": "Email Bombing and Identity Takeover Correlation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1499",
+        "attack.t1098",
+        "attack.t1550",
+        "attack.t1114.003",
+        "attack.t1219",
+        "attack.t1566",
+        "defense evasion",
+        "execution",
+        "impact",
+        "persistence",
+        "google-workspace"
+      ],
+      "related": [
+        {
+          "hunt": "mfa-fatigue-and-push-hijacking",
+          "reason": "MFA fatigue also uses a volume-based distraction strategy.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        },
+        "google-workspace": {
+          "name": "google workspace",
+          "category": "siem",
+          "huntbase": {
+            "product": "google-workspace"
+          }
+        }
+      },
+      "analysis": "This hunt correlates behavioral smokescreens (email floods) across SaaS, identity, and endpoint surfaces, which a single detection rule cannot link.",
+      "coverage": [
+        {
+          "stage": "inbox-flood-distraction",
+          "steps": [
+            "detect-mailbox-flood"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "account-takeover-alerts",
+          "steps": [
+            "scoping-account-activity",
+            "detect-auth-risk"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "mailbox-rule-evasion",
+          "steps": [
+            "detect-mailbox-rules"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "remote-access-scam",
+          "steps": [
+            "detect-rmm-tools"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Email Bombing Smokescreen",
+            "slug": "inbox-flood-distraction",
+            "tactic": "impact",
+            "techniques": [
+              "T1499"
+            ],
+            "observables": [
+              "Hundreds of 'Welcome' or 'Confirm Subscription' emails within 24 hours",
+              "Automated sign-ups for newsletters and mailing lists",
+              "High volume of messages from legitimate but unsolicited domains"
+            ]
+          },
+          {
+            "name": "Hidden Account Takeover",
+            "slug": "account-takeover-alerts",
+            "tactic": "persistence",
+            "techniques": [
+              "T1098",
+              "T1550"
+            ],
+            "observables": [
+              "Password reset notifications",
+              "New device registration alerts",
+              "MFA/2FA method changes",
+              "Recovery email or phone number updates",
+              "Fraudulent purchase invoices"
+            ]
+          },
+          {
+            "name": "Mailbox Rule Manipulation",
+            "slug": "mailbox-rule-evasion",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1114.003"
+            ],
+            "observables": [
+              "Creation of new inbox rules to redirect alerts",
+              "Moving security notifications to RSS or Deleted folders",
+              "UAL Operation: New-InboxRule",
+              "UAL Operation: Set-InboxRule"
+            ]
+          },
+          {
+            "name": "Tech Support Scam Execution",
+            "slug": "remote-access-scam",
+            "tactic": "execution",
+            "techniques": [
+              "T1219",
+              "T1566"
+            ],
+            "observables": [
+              "Installation of AnyDesk, TeamViewer, or other RMM tools",
+              "Process execution of remote access binaries",
+              "Network connections to known RMM control planes"
+            ]
+          }
+        ],
+        "summary": "Attackers flood a victim's inbox with hundreds of automated sign-up emails to bury legitimate security alerts. This smokescreen masks unauthorized account takeovers, fraudulent purchases, or password changes occurring simultaneously, and can also serve as a precursor to tech support scams."
+      },
+      "severity": "medium",
+      "rationale": "Focus first on users with sensitive identity changes in the last 14 days, then expand to mailbox volume analysis for those accounts.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker is using an email sign-up flood as a smokescreen to hide security alerts while they perform account takeovers and install remote access tools via tech support scams.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2024-10-16"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the process hunt."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "default-retention",
+            "kind": "manual",
+            "observed": "2024-10-16"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "bomb_threshold": {
+          "from": {
+            "ref": "flood-heuristics",
+            "kind": "manual",
+            "observed": "2024-10-16"
+          },
+          "type": "number",
+          "default": "50",
+          "description": "Number of total sign-up emails within a day to flag as a potential flood."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.welivesecurity.com/en/cybersecurity/inbox-flooded-signup-messages-email-bombing/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.welivesecurity.com/en/cybersecurity/inbox-flooded-signup-messages-email-bombing/",
+          "name": "Inbox flooded with sign-up messages? Email bombing explained"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "mailbox-visibility-gap",
+          "risk": "A flood that bypasses the primary inbox or is handled by a local Outlook rule might be missed by server-side auditing.",
+          "owner": "Messaging Team",
+          "stage": "inbox-flood-distraction",
+          "question": "whether we can see floods targeting sub-folders or those processed by local client rules",
+          "requires": "comprehensive mailbox auditing for all folders",
+          "remediation": "Enable advanced mailbox auditing in M365/Workspace to capture all folder moves and deletions."
+        },
+        {
+          "id": "telephony-blindspot",
+          "risk": "The initial social engineering call is invisible to endpoint and cloud logs, preventing early detection of the scam phase.",
+          "owner": "Infrastructure Team",
+          "stage": "remote-access-scam",
+          "question": "whether the victim received a call from the fraudster prior to installing the RMM tool",
+          "requires": "corporate telephony logs",
+          "remediation": "Correlate external VoIP call logs with employee ID profiles."
+        }
+      ]
+    },
+    "name": "Email Bombing and Identity Takeover Correlation",
+    "description": "This hunt identifies the coordination between a distraction-based denial-of-service (email bombing) and unauthorized identity changes. Attackers flood a victim's mailbox with automated sign-up emails to bury legitimate alerts from banks or identity providers. The hunt flows through a phased analysis of initial account scoping, mailbox floods, authentication risks, and follow-on evasion tactics like mailbox rule manipulation or unauthorized remote management software execution."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "inbox-flood-distraction",
+            "steps": [
+              "detect-mailbox-flood"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "account-takeover-alerts",
+            "steps": [
+              "scoping-account-activity",
+              "detect-auth-risk"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "mailbox-rule-evasion",
+            "steps": [
+              "detect-mailbox-rules"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "remote-access-scam",
+            "steps": [
+              "detect-rmm-tools"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker is using an email sign-up flood as a smokescreen to hide security alerts while they perform account takeovers and install remote access tools via tech support scams.",
+        "blind_spots": [
+          {
+            "id": "mailbox-visibility-gap",
+            "risk": "A flood that bypasses the primary inbox or is handled by a local Outlook rule might be missed by server-side auditing.",
+            "owner": "Messaging Team",
+            "stage": "inbox-flood-distraction",
+            "question": "whether we can see floods targeting sub-folders or those processed by local client rules",
+            "requires": "comprehensive mailbox auditing for all folders",
+            "remediation": "Enable advanced mailbox auditing in M365/Workspace to capture all folder moves and deletions."
+          },
+          {
+            "id": "telephony-blindspot",
+            "risk": "The initial social engineering call is invisible to endpoint and cloud logs, preventing early detection of the scam phase.",
+            "owner": "Infrastructure Team",
+            "stage": "remote-access-scam",
+            "question": "whether the victim received a call from the fraudster prior to installing the RMM tool",
+            "requires": "corporate telephony logs",
+            "remediation": "Correlate external VoIP call logs with employee ID profiles."
+          }
+        ],
+        "scoping_notes": "Focus first on users with sensitive identity changes in the last 14 days, then expand to mailbox volume analysis for those accounts.",
+        "beyond_detection": "This hunt correlates behavioral smokescreens (email floods) across SaaS, identity, and endpoint surfaces, which a single detection rule cannot link."
+      }
+    },
+    {
+      "id": "scoping-account-activity",
+      "type": "query",
+      "label": "Scope sensitive account changes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, activity_name, time FROM hb_account_change WHERE activity_id IN (3, 4, 99) AND (LOWER(activity_name) LIKE '%password%' OR LOWER(activity_name) LIKE '%mfa%' OR LOWER(activity_name) LIKE '%factor%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_account_change",
+        "description": "Find users associated with sensitive account modifications like password resets or MFA changes that may be targets of a smokescreen.",
+        "expected_signal": "A list of users who underwent identity modifications. This scopes the initial investigation to potential takeover victims."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope sensitive account changes",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "activity_name",
+          "time"
+        ],
+        "source": "hb_account_change",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, activity_name, time FROM hb_account_change WHERE activity_id IN (3, 4, 99) AND (LOWER(activity_name) LIKE '%password%' OR LOWER(activity_name) LIKE '%mfa%' OR LOWER(activity_name) LIKE '%factor%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of users who underwent identity modifications. This scopes the initial investigation to potential takeover victims.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-18"
+      }
+    },
+    {
+      "id": "detect-mailbox-flood",
+      "type": "query",
+      "label": "Detect aggregate mailbox floods",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "google-workspace",
+        "content": "SELECT COUNT(*) as volume, date(internal_date) as received_on, user_id FROM googleworkspace_gmail_message WHERE internal_date >= datetime('now', '-{{lookback_days}} days') GROUP BY user_id, received_on HAVING volume > {{bomb_threshold}} ORDER BY volume DESC",
+        "product": "google-workspace",
+        "surface": "googleworkspace_gmail_message",
+        "extension": "google-workspace",
+        "description": "Identify potential email bombs by searching for rare volume spikes per user.",
+        "expected_signal": "Users receiving an abnormal amount of mail in a single day. Silence proves absence only if all mailboxes were scanned."
+      },
+      "parents": [
+        {
+          "id": "scoping-account-activity"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Detect aggregate mailbox floods",
+        "reads": [
+          "internal_date",
+          "user_id"
+        ],
+        "source": "googleworkspace_gmail_message",
+        "target": "google-workspace",
+        "content": "SELECT COUNT(*) as volume, date(internal_date) as received_on, user_id FROM googleworkspace_gmail_message WHERE internal_date >= datetime('now', '-{{lookback_days}} days') GROUP BY user_id, received_on HAVING volume > {{bomb_threshold}} ORDER BY volume DESC",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "Users receiving an abnormal amount of mail in a single day. Silence proves absence only if all mailboxes were scanned.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "user_id",
+          "key": [
+            "user_id"
+          ],
+          "rare_below": 2
+        },
+        "verified_at": "2026-10-18",
+        "target_extension": "google-workspace"
+      }
+    },
+    {
+      "id": "detect-auth-risk",
+      "type": "query",
+      "label": "Hunt for authentication risks",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "identity",
+        "content": "SELECT actor_user_name, device_hostname, risk_state, status_detail, src_endpoint_ip, src_location_country, time FROM hb_auth_signin WHERE (risk_state != 'none' OR status_id = 2) AND time >= datetime('now', '-{{lookback_days}} days') ORDER BY time DESC",
+        "surface": "hb_auth_signin",
+        "description": "Find sign-ins marked as high risk or failure patterns during the suspected flood period.",
+        "expected_signal": "Users experiencing both a mailbox flood and security-relevant authentication failures or risks."
+      },
+      "parents": [
+        {
+          "id": "scoping-account-activity"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Hunt for authentication risks",
+        "reads": [
+          "actor_user_name",
+          "device_hostname",
+          "risk_state",
+          "status_detail",
+          "src_endpoint_ip",
+          "src_location_country",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT actor_user_name, device_hostname, risk_state, status_detail, src_endpoint_ip, src_location_country, time FROM hb_auth_signin WHERE (risk_state != 'none' OR status_id = 2) AND time >= datetime('now', '-{{lookback_days}} days') ORDER BY time DESC",
+        "silence": "not_evidence_of_absence",
+        "expected": "Users experiencing both a mailbox flood and security-relevant authentication failures or risks.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-18"
+      }
+    },
+    {
+      "id": "early-stage-agent",
+      "type": "analytic",
+      "label": "Early stage triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "google-workspace",
+          "identity"
+        ],
+        "context": [
+          "scoping-account-activity",
+          "detect-mailbox-flood",
+          "detect-auth-risk"
+        ],
+        "objective": "Identify users with concurrent high-volume email events and sensitive identity changes. Correlate timestamps to determine if the flood acted as a distraction for a specific security alert or auth failure.",
+        "description": "Determine if the inbox flood and account changes represent a coordinated smokescreen.",
+        "max_iterations": 3,
+        "expected_signal": "A prioritized list of users showing high-volume email floods concurrent with identity changes.",
+        "success_criteria": "A per-user confidence score for an active distraction campaign."
+      },
+      "parents": [
+        {
+          "id": "detect-mailbox-flood",
+          "kind": "merge"
+        },
+        {
+          "id": "detect-auth-risk",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "detect-mailbox-rules",
+      "type": "query",
+      "label": "Detect mailbox rule and filter manipulation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, target_modified_property_new_values, time FROM hb_cloud_api_activity WHERE ((api_operation IN ('New-InboxRule', 'Set-InboxRule') AND (LOWER(target_modified_property_new_values) LIKE '%move%' OR LOWER(target_modified_property_new_values) LIKE '%delete%')) OR (api_operation = 'CREATE_SETTINGS_FILTER')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Identify rules or filters created to move or delete alerts, ensuring the distraction remains permanent.",
+        "expected_signal": "Rules or Google filters configured to silently process incoming mail, appearing after a flood."
+      },
+      "parents": [
+        {
+          "id": "early-stage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Detect mailbox rule and filter manipulation",
+        "reads": [
+          "actor_user_name",
+          "api_operation",
+          "target_modified_property_new_values",
+          "time"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, target_modified_property_new_values, time FROM hb_cloud_api_activity WHERE ((api_operation IN ('New-InboxRule', 'Set-InboxRule') AND (LOWER(target_modified_property_new_values) LIKE '%move%' OR LOWER(target_modified_property_new_values) LIKE '%delete%')) OR (api_operation = 'CREATE_SETTINGS_FILTER')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rules or Google filters configured to silently process incoming mail, appearing after a flood.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-18"
+      }
+    },
+    {
+      "id": "detect-rmm-tools",
+      "type": "query",
+      "label": "Detect RMM tool execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_file_description, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%anydesk%' OR LOWER(process_name) LIKE '%teamviewer%' OR LOWER(process_name) LIKE '%screenconnect%' OR LOWER(process_name) LIKE '%logmein%' OR LOWER(process_name) LIKE '%rustdesk%' OR LOWER(process_name) LIKE '%ateras%' OR LOWER(process_name) LIKE '%splashtop%' OR LOWER(process_name) LIKE '%ngrok%' OR LOWER(process_name) LIKE '%ultraviewer%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify unauthorized remote access software execution typically used in tech support scams.",
+        "expected_signal": "Execution of common RMM tools on machines belonging to users who were recently flooded or had identity changes."
+      },
+      "parents": [
+        {
+          "id": "early-stage-agent"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect RMM tool execution",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_file_description",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_file_description, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%anydesk%' OR LOWER(process_name) LIKE '%teamviewer%' OR LOWER(process_name) LIKE '%screenconnect%' OR LOWER(process_name) LIKE '%logmein%' OR LOWER(process_name) LIKE '%rustdesk%' OR LOWER(process_name) LIKE '%ateras%' OR LOWER(process_name) LIKE '%splashtop%' OR LOWER(process_name) LIKE '%ngrok%' OR LOWER(process_name) LIKE '%ultraviewer%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Execution of common RMM tools on machines belonging to users who were recently flooded or had identity changes.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-18"
+      }
+    },
+    {
+      "id": "follow-on-agent",
+      "type": "analytic",
+      "label": "Synthesize the attack chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "google-workspace",
+          "identity"
+        ],
+        "context": [
+          "early-stage-agent",
+          "detect-mailbox-rules",
+          "detect-rmm-tools"
+        ],
+        "objective": "Review the early stage distraction indicators and determine if follow-on actions (mailbox rules, RMM execution) confirm an active threat. Malicious verdicts require temporal proximity between the email flood and unauthorized tool installation.",
+        "description": "Correlate smokescreen evidence with follow-on evasion and scam patterns.",
+        "max_iterations": 5,
+        "expected_signal": "A high-confidence verdict on whether a coordinated identity takeover occurred.",
+        "success_criteria": "A final verdict of malicious | suspicious | benign per host and user."
+      },
+      "parents": [
+        {
+          "id": "detect-mailbox-rules",
+          "kind": "merge"
+        },
+        {
+          "id": "detect-rmm-tools",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on final verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the follow-on-agent verdict is malicious for at least one host or user",
+        "condition": "the follow-on-agent verdict is malicious for at least one host or user",
+        "blind_spot": "mailbox-visibility-gap",
+        "confidence": "high",
+        "description": "Direct response to containment for malicious hits or analyst review for suspicious patterns.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "follow-on-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-and-remediate",
+      "type": "action",
+      "label": "Isolate host and revoke identity",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop unauthorized remote access and secure the victim's account.",
+        "instructions": "Isolate the host where unauthorized RMM tools were detected. Revoke all active sessions for the identified user and purge all mailbox rules that move or delete security alerts.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst final review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manual review to confirm the full scope of the intrusion and identify any missed data.",
+        "instructions": "Review the cited rows from both agents. Confirm if the mailbox flood was coordinated with the RMM installation or auth failures. Record new IOCs."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-and-remediate"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt results and record tuning notes.",
+        "instructions": "Record what was examined and what was not visible. If the bomb_threshold produced too many false positives, adjust it for the next run."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

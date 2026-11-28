@@ -1,0 +1,528 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "N-central is an RMM platform with significant administrative reach; a compromise allows for immediate lateral movement to all managed endpoints."
+      },
+      "name": "Post-Compromise Escalation and Persistence on N-central",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1068",
+        "attack.t1548",
+        "attack.t1136.001",
+        "attack.t1555",
+        "attack.t1190",
+        "credential access",
+        "execution",
+        "initial access",
+        "persistence",
+        "privilege escalation"
+      ],
+      "series": {
+        "slug": "critical-vulnerabilities-in-n-able-n-central-prompt-hosted-shutdown",
+        "index": 2,
+        "title": "Critical vulnerabilities in N-able N-central prompt hosted shutdown",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "n-central-unauthenticated-rce-exploitation",
+          "reason": "This hunt focuses on post-exploitation; initial exploitation via XXE/SSRF is handled separately.",
+          "relation": "out-of-scope-alternative"
+        },
+        {
+          "hunt": "n-central-initial-exploitation-able2shell",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This is a hunt because it correlates vulnerability state with specific, reported escalation tradecraft like syslog-ng tampering and applies fleet-wide baselines to account creation.",
+      "coverage": [
+        {
+          "stage": "privilege-escalation-to-root",
+          "steps": [
+            "syslog-ng-tampering"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "unauthorized-account-creation",
+          "steps": [
+            "account-creation-prevalence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-and-session-disclosure",
+          "reason": "Internal session-handling disclosure is an application logic weakness not visible in host-level process or standard HTTP path logging.",
+          "status": "not_visible",
+          "blind_spot": "app-level-session-logging"
+        },
+        {
+          "stage": "n-central-exposure-and-scanning",
+          "reason": "Belongs to another part of the 'Critical vulnerabilities in N-able N-central prompt hosted shutdown' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "unauthenticated-rce-exploitation",
+          "reason": "Belongs to another part of the 'Critical vulnerabilities in N-able N-central prompt hosted shutdown' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "N-central Exposure and Vulnerability Scanning",
+            "slug": "n-central-exposure-and-scanning",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "N-able N-central instances before version 2026.4.1 (build 2026.4.1.26)",
+              "N-central Appliance 2026.4.0.31",
+              "HTTP scanning activity targeting N-central management interfaces"
+            ]
+          },
+          {
+            "name": "Unauthenticated RCE via Web Vulnerabilities",
+            "slug": "unauthenticated-rce-exploitation",
+            "tactic": "execution",
+            "techniques": [
+              "T1190",
+              "T1203"
+            ],
+            "observables": [
+              "XML external entity (XXE) payloads in HTTP requests",
+              "OGNL injection strings in web parameters",
+              "Path traversal sequences (../) in file-repository upload paths",
+              "Administrator viewing malicious MMS3 patch metadata"
+            ]
+          },
+          {
+            "name": "Local Privilege Escalation to Root",
+            "slug": "privilege-escalation-to-root",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1068",
+              "T1548"
+            ],
+            "observables": [
+              "Modification of nable-writable syslog-ng configuration files",
+              "Exploitation of insecure IPC channels",
+              "nable service account spawning shell with root privileges"
+            ]
+          },
+          {
+            "name": "Unauthorized Account Creation for Persistence",
+            "slug": "unauthorized-account-creation",
+            "tactic": "persistence",
+            "techniques": [
+              "T1136.001"
+            ],
+            "observables": [
+              "New local user accounts created on the N-central appliance",
+              "Unauthorized administrative account creation"
+            ]
+          },
+          {
+            "name": "Credential and Session Disclosure",
+            "slug": "credential-and-session-disclosure",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555"
+            ],
+            "observables": [
+              "Access to ProductAdmin credentials",
+              "Exploitation of session-handling weaknesses to disclose credentials"
+            ]
+          }
+        ],
+        "summary": "The Able2Shell disclosure identifies 33 vulnerabilities in the N-able N-central RMM platform, enabling unauthenticated remote code execution (RCE) via XXE, OGNL injection, and path traversal. Once initial access is gained, attackers can escalate privileges to root through insecure IPC or syslog-ng configurations and maintain persistence via unauthorized account creation, putting downstream managed environments at risk."
+      },
+      "severity": "high",
+      "rationale": "Focus on servers identified as N-central appliances. Prioritize those running versions below 2026.4.1.26.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has exploited N-central vulnerabilities to gain a beachhead as the nable service account and is now attempting to escalate to root by tampering with syslog configurations or creating unauthorized local accounts.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2026-11-11"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hostnames of N-central appliances to focus on; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-11-11"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for post-exploitation activity."
+        },
+        "vulnerable_build_threshold": {
+          "from": {
+            "ref": "Rapid7 N-central advisory",
+            "kind": "article",
+            "observed": "2026-11-10"
+          },
+          "type": "string",
+          "default": "2026.4.1.26",
+          "description": "The build version that includes the fix; versions lower than this are considered vulnerable."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/etr-critical-vulnerabilities-in-n-able-n-central-prompt-hosted-shutdown",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/etr-critical-vulnerabilities-in-n-able-n-central-prompt-hosted-shutdown",
+          "name": "Rapid7 \u2014 Critical Vulnerabilities in N-able N-central"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-linux-audit-ipc",
+          "risk": "Exploitation of insecure IPC channels may not produce discrete file or process launch events detectable in standard process telemetry until after root is achieved.",
+          "stage": "privilege-escalation-to-root",
+          "question": "Whether insecure IPC channels (CVE-2026-91000) were exploited",
+          "requires": "hb_linux_audit with socket/ipc syscalls"
+        },
+        {
+          "id": "app-level-session-logging",
+          "risk": "Disclosure of credentials through session weaknesses occurs within the application logic and is invisible to host-level process and file monitoring.",
+          "stage": "credential-and-session-disclosure",
+          "question": "Whether session-handling weaknesses were used to disclose ProductAdmin credentials",
+          "requires": "N-central application access logs or hb_http_activity with request body"
+        }
+      ]
+    },
+    "name": "Post-Compromise Escalation and Persistence on N-central",
+    "description": "This hunt focuses on the 'Able2Shell' post-exploitation lifecycle on N-able N-central appliances. It follows an exposure flow, identifying vulnerable N-central instances and then examining host-telemetry for privilege escalation and persistence tradecraft described in recent research. The hunt specifically monitors the nable service account for anomalous file modifications and shell execution, alongside auditing new local account creations that could indicate an attacker establishing a long-term presence on the RMM server."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "critical-vulnerabilities-in-n-able-n-central-prompt-hosted-shutdown",
+          "index": 2,
+          "title": "Critical vulnerabilities in N-able N-central prompt hosted shutdown",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "privilege-escalation-to-root",
+            "steps": [
+              "syslog-ng-tampering"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "unauthorized-account-creation",
+            "steps": [
+              "account-creation-prevalence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-and-session-disclosure",
+            "reason": "Internal session-handling disclosure is an application logic weakness not visible in host-level process or standard HTTP path logging.",
+            "status": "not_visible",
+            "blind_spot": "app-level-session-logging"
+          },
+          {
+            "stage": "n-central-exposure-and-scanning",
+            "reason": "Belongs to another part of the 'Critical vulnerabilities in N-able N-central prompt hosted shutdown' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "unauthenticated-rce-exploitation",
+            "reason": "Belongs to another part of the 'Critical vulnerabilities in N-able N-central prompt hosted shutdown' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has exploited N-central vulnerabilities to gain a beachhead as the nable service account and is now attempting to escalate to root by tampering with syslog configurations or creating unauthorized local accounts.",
+        "blind_spots": [
+          {
+            "id": "missing-linux-audit-ipc",
+            "risk": "Exploitation of insecure IPC channels may not produce discrete file or process launch events detectable in standard process telemetry until after root is achieved.",
+            "stage": "privilege-escalation-to-root",
+            "question": "Whether insecure IPC channels (CVE-2026-91000) were exploited",
+            "requires": "hb_linux_audit with socket/ipc syscalls"
+          },
+          {
+            "id": "app-level-session-logging",
+            "risk": "Disclosure of credentials through session weaknesses occurs within the application logic and is invisible to host-level process and file monitoring.",
+            "stage": "credential-and-session-disclosure",
+            "question": "Whether session-handling weaknesses were used to disclose ProductAdmin credentials",
+            "requires": "N-central application access logs or hb_http_activity with request body"
+          }
+        ],
+        "scoping_notes": "Focus on servers identified as N-central appliances. Prioritize those running versions below 2026.4.1.26.",
+        "beyond_detection": "This is a hunt because it correlates vulnerability state with specific, reported escalation tradecraft like syslog-ng tampering and applies fleet-wide baselines to account creation."
+      }
+    },
+    {
+      "id": "scoping-vulnerable-n-central",
+      "type": "query",
+      "label": "Identify vulnerable N-central instances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (instr(LOWER(package_name), 'n-central') > 0 OR instr(LOWER(package_name), 'ncentral') > 0) AND package_version < '{{vulnerable_build_threshold}}'",
+        "surface": "hb_software_inventory",
+        "description": "Identify hosts running N-central versions prior to the 2026.4.1.26 hotfix to scope the hunt to potentially exposed appliances.",
+        "expected_signal": "A list of hostnames running outdated N-central software. None means the estate is already patched or N-central is not present."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable N-central instances",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE (instr(LOWER(package_name), 'n-central') > 0 OR instr(LOWER(package_name), 'ncentral') > 0) AND package_version < '{{vulnerable_build_threshold}}'",
+        "silence": "evidence_of_absence",
+        "expected": "A list of hostnames running outdated N-central software. None means the estate is already patched or N-central is not present.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "account-creation-prevalence",
+      "type": "query",
+      "label": "Prevalence of local account creation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, activity_name, COUNT(*) as changes, MIN(time) as first_seen FROM hb_account_change WHERE activity_id = 1 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, user_name ORDER BY changes ASC",
+        "surface": "hb_account_change",
+        "description": "Identify unauthorized account creation on appliances, which is a reported persistence method in the Able2Shell disclosure.",
+        "expected_signal": "Newly created user accounts on N-central appliances. Unexpected usernames should be scrutinized for correlation with vulnerability disclosure dates."
+      },
+      "parents": [
+        {
+          "id": "scoping-vulnerable-n-central"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Prevalence of local account creation",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "activity_name",
+          "time"
+        ],
+        "source": "hb_account_change",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, activity_name, COUNT(*) as changes, MIN(time) as first_seen FROM hb_account_change WHERE activity_id = 1 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, user_name ORDER BY changes ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Newly created user accounts on N-central appliances. Unexpected usernames should be scrutinized for correlation with vulnerability disclosure dates.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "user_name"
+          ],
+          "rare_below": 2
+        },
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "syslog-ng-tampering",
+      "type": "query",
+      "label": "Syslog-ng configuration modification",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, file_path, process_name, time FROM hb_file_activity WHERE instr(LOWER(file_path), 'syslog-ng.conf') > 0 AND LOWER(actor_user_name) = 'nable' AND activity_id IN (1, 3, 5) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect the LPE mechanism where the nable user account modifies syslog-ng configuration to gain root privileges.",
+        "expected_signal": "The nable service account modifying the syslog-ng configuration file, which is anomalous for this account context."
+      },
+      "parents": [
+        {
+          "id": "account-creation-prevalence"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Syslog-ng configuration modification",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, file_path, process_name, time FROM hb_file_activity WHERE instr(LOWER(file_path), 'syslog-ng.conf') > 0 AND LOWER(actor_user_name) = 'nable' AND activity_id IN (1, 3, 5) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "The nable service account modifying the syslog-ng configuration file, which is anomalous for this account context.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "agent-weigh-evidence",
+      "type": "analytic",
+      "label": "Assess post-exploitation evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "scoping-vulnerable-n-central",
+          "account-creation-prevalence",
+          "syslog-ng-tampering"
+        ],
+        "objective": "Decide whether the observed file modifications and account changes on vulnerable N-central hosts indicate an active compromise or unauthorized post-exploitation activity.",
+        "description": "Weigh the scoping results, prevalence of account changes, and behavioral anomalies to determine if a host has been compromised.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict based on version vulnerability and anomalous service account behavior.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign, citing specific rows for any anomaly."
+      },
+      "parents": [
+        {
+          "id": "syslog-ng-tampering"
+        }
+      ]
+    },
+    {
+      "id": "decision-route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route based on compromise verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent verdict is malicious or suspicious for at least one host",
+        "condition": "the agent verdict is malicious or suspicious for at least one host",
+        "blind_spot": "missing-linux-audit-ipc",
+        "confidence": "high",
+        "description": "Direct results to remediation tasks if any host is judged as compromised or highly suspicious.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-weigh-evidence"
+        }
+      ]
+    },
+    {
+      "id": "task-remediation-review",
+      "type": "task",
+      "label": "Remediation and Incident Response Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Address confirmed exposure and suspicious behavioral findings.",
+        "instructions": "1. For hosts with malicious or suspicious verdicts, verify if the account creation or syslog modification was unauthorized.\n2. Ensure all identified vulnerable N-central instances are upgraded to build 2026.4.1.26 or higher immediately.\n3. Validate that Agents and Probes are scheduled for updates following the server patch."
+      },
+      "parents": [
+        {
+          "id": "decision-route-on-verdict",
+          "branch": "on_supports"
+        },
+        {
+          "id": "decision-route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "decision-route-on-verdict",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "task-close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the final state of the N-central estate and visibility gaps.",
+        "instructions": "Record the count of vulnerable vs patched hosts. Document any blind spots encountered, such as missing process-start telemetry for short-lived IPC exploitation."
+      },
+      "parents": [
+        {
+          "id": "decision-route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "task-remediation-review"
+        }
+      ]
+    }
+  ]
+}

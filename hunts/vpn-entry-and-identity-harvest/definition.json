@@ -1,0 +1,649 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Akira and similar ransomware groups can exfiltrate data in as little as two hours. Detecting the identity harvesting and exfiltration phases before the 16-hour mark is a critical business obligation to prevent both data loss and total system encryption."
+      },
+      "name": "VPN Entry and Identity Harvest",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1133",
+        "attack.t1078",
+        "attack.t1003.001",
+        "attack.t1558.003",
+        "attack.t1059.001",
+        "attack.t1486",
+        "attack.t1490",
+        "attack.t1567.002",
+        "attack.t1572",
+        "credential access",
+        "exfiltration",
+        "impact",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "lateral-movement-rdp-identities",
+          "reason": "This hunt focuses on the VPN beachhead and its direct identity harvesting follow-on; internal lateral movement via RDP is covered by identity-specific hunts.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A single detection rule might flag a vssadmin command, but this hunt correlates that final impact with the preceding VPN logon without MFA and early-stage identity harvesting. It pivots across three telemetry surfaces (authentication, scripting, and DNS) to build the high-confidence context required for an analyst to authorize full-site isolation.",
+      "coverage": [
+        {
+          "stage": "initial-access-vpn",
+          "steps": [
+            "identify-vpn-hosts",
+            "vpn-logons-no-mfa"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-harvesting-and-lateral-movement",
+          "steps": [
+            "identity-harvest-scripting"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "data-staging-and-exfiltration",
+          "steps": [
+            "cloud-exfiltration-dns"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "recovery-inhibition-and-impact",
+          "steps": [
+            "shadow-copy-inhibition"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Initial Access via VPN",
+            "slug": "initial-access-vpn",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1133",
+              "T1078"
+            ],
+            "observables": [
+              "VPN service without multi-factor authentication",
+              "Compromised user account credentials"
+            ]
+          },
+          {
+            "name": "Credential Dumping and Lateral Movement",
+            "slug": "credential-harvesting-and-lateral-movement",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1003.001",
+              "T1558.003",
+              "T1059.001"
+            ],
+            "observables": [
+              "mimikatz",
+              "lazagne",
+              "cobalt strike",
+              "lsass.exe memory dumping",
+              "Kerberoasting against service accounts",
+              "Service Principal Name (SPN) requests"
+            ]
+          },
+          {
+            "name": "Data Staging and Cloud Exfiltration",
+            "slug": "data-staging-and-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1567.002",
+              "T1572",
+              "T1041"
+            ],
+            "observables": [
+              "filezilla.exe",
+              "winrar.exe",
+              "winscp.exe",
+              "rclone.exe",
+              "ngrok.io",
+              "ngrok.app",
+              "mega.nz",
+              "tens of gigabytes pushed to consumer cloud endpoints"
+            ]
+          },
+          {
+            "name": "Recovery Inhibition and Encryption",
+            "slug": "recovery-inhibition-and-impact",
+            "tactic": "impact",
+            "techniques": [
+              "T1490",
+              "T1486"
+            ],
+            "observables": [
+              "vssadmin.exe delete shadows /all /quiet",
+              "PowerShell commands to remove volume shadow copies",
+              "Mass file modification by a single process",
+              "Ransom note text files on shared drives"
+            ]
+          }
+        ],
+        "summary": "Ransomware operators leverage initial access (often from brokers) via VPNs without MFA to perform rapid credential harvesting and data exfiltration, frequently completing the theft within hours. The intrusion culminates in the deletion of volume shadow copies to prevent recovery followed by widespread file encryption."
+      },
+      "severity": "high",
+      "rationale": "Start with VPN gateway hosts and administrative workstations. If VPN logs do not populate hb_auth_signin, check process events for VPN appliance management tools.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has gained initial access via a VPN without multi-factor authentication and is harvesting credentials via LSASS dumping or Kerberoasting to facilitate exfiltration and eventual disk encryption.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts to narrow the follow-on stages; leave empty to hunt across the estate."
+        },
+        "exfil_domains": {
+          "from": {
+            "ref": "CISA Akira AA23-353A",
+            "kind": "advisory",
+            "observed": "2025-11-01"
+          },
+          "type": "list[domain]",
+          "default": [
+            "mega.nz",
+            "rclone.org",
+            "transfer.sh",
+            "dropbox.com",
+            "ngrok.io",
+            "ngrok.app"
+          ],
+          "description": "Cloud storage and tunneling domains associated with ransomware exfiltration."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/what-happens-during-a-ransomware-attack",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/what-happens-during-a-ransomware-attack",
+          "name": "Huntress \u2014 What Happens During a Ransomware Attack"
+        },
+        {
+          "url": "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-353a",
+          "name": "CISA AA23-353A: Akira Ransomware"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-vpn-logs",
+          "risk": "Without these logs, the hunt cannot correlate the start of the intrusion with the endpoint behavior, forcing the analyst to guess the entry point.",
+          "stage": "initial-access-vpn",
+          "question": "whether the initial entry came through the VPN",
+          "requires": "VPN provider logs in hb_auth_signin"
+        },
+        {
+          "id": "powershell-script-blocks",
+          "risk": "If obfuscated commands are used and script block logging is absent, the Kerberoasting and LSASS dumping attempts remain invisible to the hb_script_activity surface.",
+          "stage": "credential-harvesting-and-lateral-movement",
+          "question": "what code was executed by the attacker's scripts",
+          "requires": "PowerShell Script Block Logging (Event 4104)"
+        }
+      ]
+    },
+    "name": "VPN Entry and Identity Harvest",
+    "description": "The adversary enters via a VPN that lacks multi-factor authentication, then harvests credentials to move laterally. This hunt identifies the unhardened sign-ins and the subsequent identity-focused script blocks. It then pivots to find evidence of outbound data transfer and the destruction of system backups. By correlating early-stage access with later-stage destructive behavior, the hunt provides the evidence required for an analyst to authorize isolation and identity resets before the encryption phase completes across the estate."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-vpn",
+            "steps": [
+              "identify-vpn-hosts",
+              "vpn-logons-no-mfa"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-harvesting-and-lateral-movement",
+            "steps": [
+              "identity-harvest-scripting"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "data-staging-and-exfiltration",
+            "steps": [
+              "cloud-exfiltration-dns"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "recovery-inhibition-and-impact",
+            "steps": [
+              "shadow-copy-inhibition"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has gained initial access via a VPN without multi-factor authentication and is harvesting credentials via LSASS dumping or Kerberoasting to facilitate exfiltration and eventual disk encryption.",
+        "blind_spots": [
+          {
+            "id": "missing-vpn-logs",
+            "risk": "Without these logs, the hunt cannot correlate the start of the intrusion with the endpoint behavior, forcing the analyst to guess the entry point.",
+            "stage": "initial-access-vpn",
+            "question": "whether the initial entry came through the VPN",
+            "requires": "VPN provider logs in hb_auth_signin"
+          },
+          {
+            "id": "powershell-script-blocks",
+            "risk": "If obfuscated commands are used and script block logging is absent, the Kerberoasting and LSASS dumping attempts remain invisible to the hb_script_activity surface.",
+            "stage": "credential-harvesting-and-lateral-movement",
+            "question": "what code was executed by the attacker's scripts",
+            "requires": "PowerShell Script Block Logging (Event 4104)"
+          }
+        ],
+        "scoping_notes": "Start with VPN gateway hosts and administrative workstations. If VPN logs do not populate hb_auth_signin, check process events for VPN appliance management tools.",
+        "beyond_detection": "A single detection rule might flag a vssadmin command, but this hunt correlates that final impact with the preceding VPN logon without MFA and early-stage identity harvesting. It pivots across three telemetry surfaces (authentication, scripting, and DNS) to build the high-confidence context required for an analyst to authorize full-site isolation."
+      }
+    },
+    {
+      "id": "identify-vpn-hosts",
+      "type": "query",
+      "label": "Identify hosts with VPN activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT DISTINCT device_hostname FROM hb_auth_signin WHERE (LOWER(event_type) LIKE '%vpn%' OR LOWER(auth_protocol) LIKE '%vpn%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Scope the estate to hosts acting as VPN gateways or beachheads based on authentication logs.",
+        "expected_signal": "A list of hostnames with VPN-related sign-in events. Silence suggests no VPN telemetry is being ingested or no VPN activity occurred."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify hosts with VPN activity",
+        "reads": [
+          "device_hostname",
+          "event_type",
+          "auth_protocol",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT DISTINCT device_hostname FROM hb_auth_signin WHERE (LOWER(event_type) LIKE '%vpn%' OR LOWER(auth_protocol) LIKE '%vpn%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames with VPN-related sign-in events. Silence suggests no VPN telemetry is being ingested or no VPN activity occurred.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-04"
+      }
+    },
+    {
+      "id": "vpn-logons-no-mfa",
+      "type": "query",
+      "label": "VPN sign-ins without MFA",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT device_hostname, actor_user_name, src_endpoint_ip, mfa, event_type, time FROM hb_auth_signin WHERE (mfa IS NULL OR LOWER(mfa) = 'false' OR mfa = '0') AND (LOWER(event_type) LIKE '%vpn%' OR LOWER(auth_protocol) LIKE '%vpn%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Find VPN sessions where MFA was absent or bypassed, identifying potential beachhead accounts.",
+        "expected_signal": "A list of users and source IPs using single-factor VPN access. Silence suggests MFA is enforced or the provider does not report it."
+      },
+      "parents": [
+        {
+          "id": "identify-vpn-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "VPN sign-ins without MFA",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "src_endpoint_ip",
+          "mfa",
+          "event_type",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT device_hostname, actor_user_name, src_endpoint_ip, mfa, event_type, time FROM hb_auth_signin WHERE (mfa IS NULL OR LOWER(mfa) = 'false' OR mfa = '0') AND (LOWER(event_type) LIKE '%vpn%' OR LOWER(auth_protocol) LIKE '%vpn%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of users and source IPs using single-factor VPN access. Silence suggests MFA is enforced or the provider does not report it.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-04"
+      }
+    },
+    {
+      "id": "identity-harvest-scripting",
+      "type": "query",
+      "label": "Credential harvesting script blocks",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, script_name, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%kerberoast%' OR LOWER(script_content) LIKE '%get-domainspnticket%' OR LOWER(script_content) LIKE '%sekurlsa%' OR LOWER(script_content) LIKE '%minidump%lsass%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_script_activity",
+        "description": "Detect Kerberoasting or LSASS memory dumping attempts within PowerShell or shell scripts.",
+        "expected_signal": "Script blocks containing offensive identity keywords. Silence may indicate the use of native binaries or that script logging is absent."
+      },
+      "parents": [
+        {
+          "id": "identify-vpn-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Credential harvesting script blocks",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "script_name",
+          "script_content",
+          "time"
+        ],
+        "source": "hb_script_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, script_name, script_content, time FROM hb_script_activity WHERE (LOWER(script_content) LIKE '%kerberoast%' OR LOWER(script_content) LIKE '%get-domainspnticket%' OR LOWER(script_content) LIKE '%sekurlsa%' OR LOWER(script_content) LIKE '%minidump%lsass%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Script blocks containing offensive identity keywords. Silence may indicate the use of native binaries or that script logging is absent.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-04"
+      }
+    },
+    {
+      "id": "triage-early-access",
+      "type": "analytic",
+      "label": "Triage early access phase",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "vpn-logons-no-mfa",
+          "identity-harvest-scripting"
+        ],
+        "objective": "Determine if the unhardened VPN logons and identity harvesting scripts occur on the same timeline for any single host.",
+        "description": "Weigh the VPN sign-in data against the credential harvesting evidence to confirm an account compromise.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict linking the VPN session to the subsequent credential theft attempts.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing relevant rows."
+      },
+      "parents": [
+        {
+          "id": "vpn-logons-no-mfa",
+          "kind": "merge"
+        },
+        {
+          "id": "identity-harvest-scripting",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "cloud-exfiltration-dns",
+      "type": "query",
+      "label": "Rare cloud exfiltration DNS",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{exfil_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Find connections to exfiltration and tunneling domains that are rare across the fleet, suggesting targeted staging.",
+        "expected_signal": "A small number of hosts resolving mega.nz or ngrok domains. Widespread traffic is likely legitimate software."
+      },
+      "parents": [
+        {
+          "id": "triage-early-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare cloud exfiltration DNS",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE instr(',' || '{{exfil_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A small number of hosts resolving mega.nz or ngrok domains. Widespread traffic is likely legitimate software.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-04"
+      }
+    },
+    {
+      "id": "shadow-copy-inhibition",
+      "type": "query",
+      "label": "Volume shadow copy deletion",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%vssadmin%delete%shadows%' OR LOWER(process_cmd_line) LIKE '%wmic%shadowcopy%delete%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the use of native tools to destroy system recovery features, a precursor to widespread encryption.",
+        "expected_signal": "Successful deletion commands. Silence is strong evidence the impact phase has not reached these specific hosts."
+      },
+      "parents": [
+        {
+          "id": "triage-early-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Volume shadow copy deletion",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%vssadmin%delete%shadows%' OR LOWER(process_cmd_line) LIKE '%wmic%shadowcopy%delete%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "expected": "Successful deletion commands. Silence is strong evidence the impact phase has not reached these specific hosts.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-04"
+      }
+    },
+    {
+      "id": "triage-full-intrusion",
+      "type": "analytic",
+      "label": "Triage full intrusion chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity"
+        ],
+        "context": [
+          "triage-early-access",
+          "cloud-exfiltration-dns",
+          "shadow-copy-inhibition"
+        ],
+        "objective": "Determine if any host shows a complete chain from compromised VPN access to exfiltration or shadow copy deletion.",
+        "description": "Synthesize early access findings with later impact evidence to confirm the full ransomware lifecycle.",
+        "max_iterations": 5,
+        "expected_signal": "A detailed verdict per host connecting the initial VPN compromise to the exfiltration and recovery-denial steps.",
+        "success_criteria": "A final verdict including recommended isolation priority and the account used for entry."
+      },
+      "parents": [
+        {
+          "id": "cloud-exfiltration-dns",
+          "kind": "merge"
+        },
+        {
+          "id": "shadow-copy-inhibition",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "evaluate-threat",
+      "type": "checkpoint",
+      "label": "Evaluate threat verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host, indicating a confirmed ransomware intrusion",
+        "condition": "the triage verdict is malicious for at least one host, indicating a confirmed ransomware intrusion",
+        "blind_spot": "missing-vpn-logs",
+        "confidence": "high",
+        "description": "Authorize immediate containment if the agent confirms a high-confidence ransomware scenario.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-full-intrusion"
+        }
+      ]
+    },
+    {
+      "id": "contain-intrusion",
+      "type": "action",
+      "label": "Isolate hosts and reset identities",
+      "config": {
+        "target": "endpoint",
+        "description": "Immediately sever the attacker's network connection and revoke credentials.",
+        "instructions": "Network-isolate the compromised hosts from the EDR console. Simultaneously, disable the accounts identified in the VPN logon step and schedule a double reset of the krbtgt account to revoke all existing Kerberos tickets.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "evaluate-threat",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "audit-recovery-safety",
+      "type": "task",
+      "label": "Audit recovery safety",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify that backup infrastructure remains intact before promising a recovery time.",
+        "instructions": "Restore one production file from the most recent backup and confirm it opens correctly. Verify that immutable storage or object lock is currently active in the backup console."
+      },
+      "parents": [
+        {
+          "id": "evaluate-threat",
+          "branch": "default"
+        },
+        {
+          "id": "evaluate-threat",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "evaluate-threat",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "contain-intrusion"
+        }
+      ]
+    },
+    {
+      "id": "incident-wrap-up",
+      "type": "task",
+      "label": "Incident wrap-up",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record the findings and identify the exact window where the attacker moved from access to impact.",
+        "instructions": "Document the compromised accounts, the volume of data exfiltrated (if measurable via DNS/network traffic), and any blind spots that delayed detection. Record tuning notes for the VPN sign-in baseline."
+      },
+      "parents": [
+        {
+          "id": "audit-recovery-safety"
+        }
+      ]
+    }
+  ]
+}

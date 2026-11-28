@@ -1,0 +1,475 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Ransomware represents a critical risk to business continuity; correlating initial access with final impact confirms the effectiveness of security controls and identifies successful breaches."
+      },
+      "name": "Email-to-Ransomware Attack Correlation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1486",
+        "impact",
+        "initial access",
+        "microsoft-365"
+      ],
+      "related": [
+        {
+          "hunt": "lateral-movement-discovery",
+          "reason": "This hunt focuses on the initial infection and encryption impact; the lateral movement stages between them require separate monitoring of hb_auth_signin and hb_smb_activity.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        },
+        "microsoft-365": {
+          "name": "microsoft 365",
+          "category": "siem",
+          "huntbase": {
+            "product": "microsoft-365"
+          }
+        }
+      },
+      "analysis": "A single rule might flag a risky sign-in or a mass file change, but rarely correlates them with a specific email delivery event. This hunt uses cross-surface context (Mail + Identity + Endpoint) to distinguish ransomware from legitimate batch file processing.",
+      "coverage": [
+        {
+          "stage": "initial-access-email-threats",
+          "steps": [
+            "identify-anomalous-access",
+            "examine-phishing-delivery"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "impact-ransomware-encryption",
+          "steps": [
+            "detect-mass-encryption"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Phishing and BEC Delivery",
+            "slug": "initial-access-email-threats",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "phishing emails",
+              "business email compromise (BEC) attempts",
+              "malicious links",
+              "www.proofpoint.com"
+            ]
+          },
+          {
+            "name": "Ransomware Data Encryption",
+            "slug": "impact-ransomware-encryption",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "ransomware activity",
+              "unauthorized file encryption",
+              "data unavailability"
+            ]
+          }
+        ],
+        "summary": "Microsoft and Proofpoint have integrated their security platforms to provide layered defense against email-based threats including phishing, business email compromise, and ransomware. The integration pushes Proofpoint's API-based detections into the Microsoft Defender portal to centralize visibility for security analysts investigating initial access and subsequent impacts."
+      },
+      "severity": "medium",
+      "rationale": "Focus on users with existing identity risk flags or those who have recently reported phishing. Expand to all hosts if a cluster of mass encryption events is observed.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has established initial access via a phishing email, resulting in an anomalous sign-in and subsequent mass file encryption by a non-system process.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Specific hosts to narrow the hunt; leave empty to scan the entire estate."
+        },
+        "scope_users": {
+          "type": "list[string]",
+          "default": [],
+          "description": "List of usernames to focus the investigation on."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.proofpoint.com/us/newsroom/press-releases/proofpoint-joins-microsoft-integrated-cloud-email-security-ices-ecosystem",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.proofpoint.com/us/newsroom/press-releases/proofpoint-joins-microsoft-integrated-cloud-email-security-ices-ecosystem",
+          "name": "Proofpoint Joins Microsoft Integrated Cloud Email Security (ICES) Ecosystem"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-m365-logs",
+          "risk": "The initial vector may be invisible, preventing the identification of the full attack chain.",
+          "owner": "Cloud Security Team",
+          "stage": "initial-access-email-threats",
+          "question": "whether the phishing email was received by a user not currently being audited",
+          "requires": "Full M365 Unified Audit Log ingestion",
+          "remediation": "Ensure M365 UAL is enabled and ingested for all licensed users."
+        },
+        {
+          "id": "encryption-threshold",
+          "risk": "Stealthy ransomware that encrypts files slowly over a long period may bypass the mass-modification threshold.",
+          "owner": "Endpoint Engineering",
+          "stage": "impact-ransomware-encryption",
+          "question": "whether ransomware is encrypting files at a rate below 100 files per lookback window",
+          "requires": "hb_file_activity with higher resolution",
+          "remediation": "Implement entropy-based detection for file writes to identify encryption regardless of volume."
+        }
+      ]
+    },
+    "name": "Email-to-Ransomware Attack Correlation",
+    "description": "This hunt correlates initial delivery telemetry from Microsoft 365 mail services with endpoint-based file and process activity to identify the full progression of email-borne ransomware campaigns. By linking anomalous authentication events and email reception with subsequent mass file modifications, the hunt identifies the 'patient zero' and the scope of impact. The hunt follows a funnel approach, starting with identity risk leads and then fanning out to check for ransomware-like file behavior and phishing context. An agent weighs these signals to determine if a coordinated attack is underway, enabling rapid containment of affected hosts."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-email-threats",
+            "steps": [
+              "identify-anomalous-access",
+              "examine-phishing-delivery"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "impact-ransomware-encryption",
+            "steps": [
+              "detect-mass-encryption"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary has established initial access via a phishing email, resulting in an anomalous sign-in and subsequent mass file encryption by a non-system process.",
+        "blind_spots": [
+          {
+            "id": "missing-m365-logs",
+            "risk": "The initial vector may be invisible, preventing the identification of the full attack chain.",
+            "owner": "Cloud Security Team",
+            "stage": "initial-access-email-threats",
+            "question": "whether the phishing email was received by a user not currently being audited",
+            "requires": "Full M365 Unified Audit Log ingestion",
+            "remediation": "Ensure M365 UAL is enabled and ingested for all licensed users."
+          },
+          {
+            "id": "encryption-threshold",
+            "risk": "Stealthy ransomware that encrypts files slowly over a long period may bypass the mass-modification threshold.",
+            "owner": "Endpoint Engineering",
+            "stage": "impact-ransomware-encryption",
+            "question": "whether ransomware is encrypting files at a rate below 100 files per lookback window",
+            "requires": "hb_file_activity with higher resolution",
+            "remediation": "Implement entropy-based detection for file writes to identify encryption regardless of volume."
+          }
+        ],
+        "scoping_notes": "Focus on users with existing identity risk flags or those who have recently reported phishing. Expand to all hosts if a cluster of mass encryption events is observed.",
+        "beyond_detection": "A single rule might flag a risky sign-in or a mass file change, but rarely correlates them with a specific email delivery event. This hunt uses cross-surface context (Mail + Identity + Endpoint) to distinguish ransomware from legitimate batch file processing."
+      }
+    },
+    {
+      "id": "identify-anomalous-access",
+      "type": "query",
+      "label": "Identify anomalous authentication",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT device_hostname, actor_user_name, src_endpoint_ip, risk_state, is_proxy, time FROM hb_auth_signin WHERE (risk_state IN ('atRisk', 'confirmedCompromised') OR is_proxy = 'true') AND ('{{scope_users}}' = '' OR instr(',' || '{{scope_users}}' || ',', ',' || actor_user_name || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Find users and hosts with high-risk sign-in events to narrow the scope of potential victims.",
+        "expected_signal": "A list of users and hosts with risky authentication flags. Silence indicates no reported identity risk in the window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify anomalous authentication",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "src_endpoint_ip",
+          "risk_state",
+          "is_proxy",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT device_hostname, actor_user_name, src_endpoint_ip, risk_state, is_proxy, time FROM hb_auth_signin WHERE (risk_state IN ('atRisk', 'confirmedCompromised') OR is_proxy = 'true') AND ('{{scope_users}}' = '' OR instr(',' || '{{scope_users}}' || ',', ',' || actor_user_name || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of users and hosts with risky authentication flags. Silence indicates no reported identity risk in the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-27"
+      }
+    },
+    {
+      "id": "detect-mass-encryption",
+      "type": "query",
+      "label": "Detect mass file encryption",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, process_name, COUNT(DISTINCT file_path) AS file_count, MIN(time) AS start_time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{scope_users}}' = '' OR instr(',' || '{{scope_users}}' || ',', ',' || actor_user_name || ',') > 0) AND activity_id IN (1, 3, 5) AND LOWER(process_name) NOT LIKE 'c:\\windows\\%' AND LOWER(process_name) NOT LIKE 'c:\\program files\\%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, actor_user_name, process_name HAVING file_count > 100",
+        "surface": "hb_file_activity",
+        "description": "Identify processes performing an unusually high volume of file updates or renames outside of standard system paths.",
+        "expected_signal": "A process modifying hundreds of files on a single host. High file counts from user-space processes are strong indicators of ransomware activity."
+      },
+      "parents": [
+        {
+          "id": "identify-anomalous-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect mass file encryption",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "process_name",
+          "file_path",
+          "activity_id",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, actor_user_name, process_name, COUNT(DISTINCT file_path) AS file_count, MIN(time) AS start_time FROM hb_file_activity WHERE ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ('{{scope_users}}' = '' OR instr(',' || '{{scope_users}}' || ',', ',' || actor_user_name || ',') > 0) AND activity_id IN (1, 3, 5) AND LOWER(process_name) NOT LIKE 'c:\\windows\\%' AND LOWER(process_name) NOT LIKE 'c:\\program files\\%' AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, actor_user_name, process_name HAVING file_count > 100",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A process modifying hundreds of files on a single host. High file counts from user-space processes are strong indicators of ransomware activity.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-27"
+      }
+    },
+    {
+      "id": "examine-phishing-delivery",
+      "type": "query",
+      "label": "Examine phishing email delivery",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "microsoft-365",
+        "content": "SELECT \"from\", subject, received_date_time, body_preview, tenant_id FROM microsoft365_mail_message WHERE has_attachments = 'true' AND received_date_time >= datetime('now', '-{{lookback_days}} days')",
+        "product": "microsoft-365",
+        "surface": "microsoft365_mail_message",
+        "extension": "microsoft-365",
+        "description": "Search the mail audit logs for recent emails with attachments that might have served as the infection vector.",
+        "expected_signal": "Emails with attachments received by users who subsequently exhibited anomalous host activity. Silence suggests the vector was not email-borne."
+      },
+      "parents": [
+        {
+          "id": "identify-anomalous-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Examine phishing email delivery",
+        "reads": [
+          "from",
+          "subject",
+          "received_date_time",
+          "body_preview",
+          "tenant_id"
+        ],
+        "source": "microsoft365_mail_message",
+        "target": "microsoft-365",
+        "content": "SELECT \"from\", subject, received_date_time, body_preview, tenant_id FROM microsoft365_mail_message WHERE has_attachments = 'true' AND received_date_time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Emails with attachments received by users who subsequently exhibited anomalous host activity. Silence suggests the vector was not email-borne.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-27",
+        "target_extension": "microsoft-365"
+      }
+    },
+    {
+      "id": "agent-triage-attack-chain",
+      "type": "analytic",
+      "label": "Agent triage of attack chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "microsoft-365"
+        ],
+        "context": [
+          "identify-anomalous-access",
+          "detect-mass-encryption",
+          "examine-phishing-delivery"
+        ],
+        "objective": "Determine if any host shows a temporal and causal link between an anomalous sign-in, the receipt of a suspicious email, and subsequent mass file encryption.",
+        "description": "Correlate email delivery, authentication risk, and mass file encryption to settle a verdict on each affected host.",
+        "max_iterations": 5,
+        "expected_signal": "A detailed assessment linking specific emails to authentication anomalies and endpoint encryption events.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign, citing specific authentication risk flags and encryption process details."
+      },
+      "parents": [
+        {
+          "id": "detect-mass-encryption",
+          "kind": "merge"
+        },
+        {
+          "id": "examine-phishing-delivery",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "evaluate-triage-results",
+      "type": "checkpoint",
+      "label": "Evaluate triage results",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "missing-m365-logs",
+        "confidence": "high",
+        "description": "Route based on the agent's findings to either isolate the host or perform deeper manual forensic review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-triage-attack-chain"
+        }
+      ]
+    },
+    {
+      "id": "isolate-affected-endpoint",
+      "type": "action",
+      "label": "Isolate affected endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop the ransomware encryption process by isolating the host from the network.",
+        "instructions": "Isolate the host immediately via the EDR. Collect the suspicious binary and any file ransom notes for further analysis.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "evaluate-triage-results",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-forensic-review",
+      "type": "task",
+      "label": "Analyst forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually confirm the findings and check for other users who might have received the same email.",
+        "instructions": "Review the correlated evidence. Use the identified email sender to search for other recipients across the tenant. Verify if the identified process is a known ransomware variant."
+      },
+      "parents": [
+        {
+          "id": "evaluate-triage-results",
+          "branch": "default"
+        },
+        {
+          "id": "evaluate-triage-results",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-affected-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "hunt-close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and propose permanent detection rules.",
+        "instructions": "Record the outcome. If the mass-encryption query caught a real infection, promote it to a standing rule after tuning."
+      },
+      "parents": [
+        {
+          "id": "evaluate-triage-results",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-forensic-review"
+        }
+      ]
+    }
+  ]
+}

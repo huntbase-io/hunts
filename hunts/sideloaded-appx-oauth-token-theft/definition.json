@@ -1,0 +1,550 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "The sideloading of AppX packages with WinRT access bypasses browser-based security and harvests tokens that survive MFA; identifying the prerequisite configuration and rare registration events is the only way to stop the theft before exfiltration."
+      },
+      "name": "Sideloaded AppX OAuth Token Theft",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566",
+        "attack.t1574.002",
+        "attack.t1218.010",
+        "attack.t1041"
+      ],
+      "series": {
+        "slug": "oauth-token-theft-through-microsoft-s-front-door-huntress",
+        "index": 1,
+        "title": "OAuth Token Theft Through Microsoft's Front Door | Huntress",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "oauth-token-theft-exfiltration",
+          "reason": "This hunt focuses on the endpoint setup; a follow-up hunt would examine the exfiltration and subsequent use of stolen tokens.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "Detecting WWAHost network activity alone is too noisy for developer environments. This hunt stack-counts the registration commands to find rare packages and correlates them with the configuration state to provide high-fidelity results a single rule could not achieve.",
+      "coverage": [
+        {
+          "stage": "enable-developer-mode",
+          "steps": [
+            "detect-developer-mode-enablement"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "appx-package-sideloading",
+          "steps": [
+            "rare-package-registration"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "wwahost-proxy-execution",
+          "steps": [
+            "wwahost-auth-connections"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "oauth-credential-theft",
+          "reason": "Belongs to another part of the \"OAuth Token Theft Through Microsoft's Front Door | Huntress\" series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "auth-code-exfiltration",
+          "reason": "Belongs to another part of the \"OAuth Token Theft Through Microsoft's Front Door | Huntress\" series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Enable Developer Mode",
+            "slug": "enable-developer-mode",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1574.002"
+            ],
+            "observables": [
+              "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock\" /v AllowDevelopmentWithoutDevLicense /t REG_DWORD /d 1 /f"
+            ]
+          },
+          {
+            "name": "AppX Package Sideloading",
+            "slug": "appx-package-sideloading",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566",
+              "T1574.002"
+            ],
+            "observables": [
+              "Add-AppxPackage -Register",
+              "AppxManifest.xml",
+              "WindowsRuntimeAccess=\"all\""
+            ]
+          },
+          {
+            "name": "WWAHost Proxy Execution",
+            "slug": "wwahost-proxy-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1218.010"
+            ],
+            "observables": [
+              "WWAHost.exe"
+            ]
+          },
+          {
+            "name": "OAuth Credential Theft",
+            "slug": "oauth-credential-theft",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1566"
+            ],
+            "observables": [
+              "WebAuthenticationBroker.authenticateAsync",
+              "login.microsoftonline.com",
+              "d590ed36-52b3-4102-aeff-aad2292ab01c",
+              "urn:ietf:wg:oauth:2.0:oob",
+              "AuditLog.Create",
+              "Directory.Read.All",
+              "Mail.ReadWrite"
+            ]
+          },
+          {
+            "name": "Auth Code Exfiltration",
+            "slug": "auth-code-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              "POST /collect"
+            ]
+          }
+        ],
+        "summary": "An attacker enables Windows Developer Mode or leverages existing enterprise sideloading policies to register a malicious AppX package as a standard user. This package uses WWAHost.exe with 'WindowsRuntimeAccess=all' to execute remote JavaScript that invokes the WebAuthenticationBroker, stealing legitimate Microsoft 365 OAuth tokens via a first-party client ID. The resulting tokens bypass MFA and provide broad persistent access to the victim's email, files, and Teams environment."
+      },
+      "severity": "high",
+      "rationale": "Focus on engineering environments, CI/CD runners, and developer workstations where Developer Mode is most likely to be enabled.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary has enabled Developer Mode and sideloaded a malicious AppX package to abuse WWAHost.exe, allowing them to capture MFA-compliant OAuth tokens via a legitimate Microsoft login dialog.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2026-09-23"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Target hosts for the investigation; leave empty to hunt across the entire estate."
+        },
+        "auth_domains": {
+          "from": {
+            "ref": "huntress-sideloaded-appx",
+            "kind": "article",
+            "observed": "2026-09-23"
+          },
+          "type": "list[domain]",
+          "default": [
+            "login.microsoftonline.com",
+            "login.live.com",
+            "login.windows.net"
+          ],
+          "description": "Microsoft authentication domains targeted by the WebAuthenticationBroker."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "huntress-sideloaded-appx",
+            "kind": "article",
+            "observed": "2026-09-23"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for configuration changes and execution."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/stealing-oauth-tokens-through-microsofts-front-door",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/stealing-oauth-tokens-through-microsofts-front-door",
+          "name": "Huntress \u2014 Stealing OAuth Tokens Through Microsoft's Front Door"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-wwahost-telemetry",
+          "risk": "If network telemetry for signed Microsoft binaries is suppressed, the connection to login.microsoftonline.com will be missed.",
+          "stage": "wwahost-proxy-execution",
+          "question": "did WWAHost connect to an auth domain without generating a network row?",
+          "requires": "endpoint logging of WWAHost.exe network activity"
+        },
+        {
+          "id": "historical-registry-enablement",
+          "risk": "A host that already has Developer Mode enabled will not show up in the scoping query, making the registration command the only indicator.",
+          "stage": "enable-developer-mode",
+          "question": "was Developer Mode enabled before the lookback window?",
+          "requires": "historical registry state beyond the lookback window"
+        }
+      ]
+    },
+    "name": "Sideloaded AppX OAuth Token Theft",
+    "description": "This hunt identifies the endpoint preparation and execution phase of a Microsoft-signed binary proxy attack. It focuses on the enablement of Developer Mode, the registration of local AppX packages, and the subsequent network activity of the Windows Web App Host (WWAHost.exe) as it interacts with Microsoft identity endpoints. By correlating these three signals, the hunt identifies unauthorized registration of applications that can harvest credentials without triggering typical phishing defenses or domain-based blocks."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "oauth-token-theft-through-microsoft-s-front-door-huntress",
+          "index": 1,
+          "title": "OAuth Token Theft Through Microsoft's Front Door | Huntress",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "enable-developer-mode",
+            "steps": [
+              "detect-developer-mode-enablement"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "appx-package-sideloading",
+            "steps": [
+              "rare-package-registration"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "wwahost-proxy-execution",
+            "steps": [
+              "wwahost-auth-connections"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "oauth-credential-theft",
+            "reason": "Belongs to another part of the \"OAuth Token Theft Through Microsoft's Front Door | Huntress\" series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "auth-code-exfiltration",
+            "reason": "Belongs to another part of the \"OAuth Token Theft Through Microsoft's Front Door | Huntress\" series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An adversary has enabled Developer Mode and sideloaded a malicious AppX package to abuse WWAHost.exe, allowing them to capture MFA-compliant OAuth tokens via a legitimate Microsoft login dialog.",
+        "blind_spots": [
+          {
+            "id": "missing-wwahost-telemetry",
+            "risk": "If network telemetry for signed Microsoft binaries is suppressed, the connection to login.microsoftonline.com will be missed.",
+            "stage": "wwahost-proxy-execution",
+            "question": "did WWAHost connect to an auth domain without generating a network row?",
+            "requires": "endpoint logging of WWAHost.exe network activity"
+          },
+          {
+            "id": "historical-registry-enablement",
+            "risk": "A host that already has Developer Mode enabled will not show up in the scoping query, making the registration command the only indicator.",
+            "stage": "enable-developer-mode",
+            "question": "was Developer Mode enabled before the lookback window?",
+            "requires": "historical registry state beyond the lookback window"
+          }
+        ],
+        "scoping_notes": "Focus on engineering environments, CI/CD runners, and developer workstations where Developer Mode is most likely to be enabled.",
+        "beyond_detection": "Detecting WWAHost network activity alone is too noisy for developer environments. This hunt stack-counts the registration commands to find rare packages and correlates them with the configuration state to provide high-fidelity results a single rule could not achieve."
+      }
+    },
+    {
+      "id": "detect-developer-mode-enablement",
+      "type": "query",
+      "label": "Detect Developer Mode enablement",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, actor_user_name, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\\\appmodelunlock\\\\allowdevelopmentwithoutdevlicense' AND reg_value_data = '1' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_registry_activity",
+        "description": "Identify hosts where the Developer Mode prerequisite has been enabled to permit sideloading.",
+        "expected_signal": "Rows indicate hosts where the sideloading restriction was lifted. Silence suggests no recent configuration changes, but does not prove the state is disabled if it was set prior to the lookback window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Detect Developer Mode enablement",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "actor_user_name",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, actor_user_name, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\\\appmodelunlock\\\\allowdevelopmentwithoutdevlicense' AND reg_value_data = '1' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows indicate hosts where the sideloading restriction was lifted. Silence suggests no recent configuration changes, but does not prove the state is disabled if it was set prior to the lookback window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-23"
+      }
+    },
+    {
+      "id": "rare-package-registration",
+      "type": "query",
+      "label": "Rare AppX package registration",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_cmd_line) AS cmd, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%add-appxpackage%' AND LOWER(process_cmd_line) LIKE '%-register%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY LOWER(process_cmd_line) HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_process_activity",
+        "description": "Stack-count package registration commands to isolate local or attacker-deployed packages from enterprise-standard software.",
+        "expected_signal": "A command line pointing to a local or relative AppxManifest.xml path seen on very few hosts. Common enterprise apps will have higher host counts."
+      },
+      "parents": [
+        {
+          "id": "detect-developer-mode-enablement"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Rare AppX package registration",
+        "reads": [
+          "device_hostname",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_cmd_line) AS cmd, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%add-appxpackage%' AND LOWER(process_cmd_line) LIKE '%-register%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY LOWER(process_cmd_line) HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A command line pointing to a local or relative AppxManifest.xml path seen on very few hosts. Common enterprise apps will have higher host counts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-23"
+      }
+    },
+    {
+      "id": "wwahost-auth-connections",
+      "type": "query",
+      "label": "WWAHost connections to Microsoft Auth",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_hostname, time FROM hb_network_connection WHERE LOWER(process_name) LIKE '%wwahost.exe' AND instr(',' || '{{auth_domains}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify the proxy execution behavior where WWAHost reaches out to identity services to initiate sign-in.",
+        "expected_signal": "Connections from WWAHost to Microsoft login domains. This confirms the package invoked the WebAuthenticationBroker API."
+      },
+      "parents": [
+        {
+          "id": "detect-developer-mode-enablement"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "WWAHost connections to Microsoft Auth",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_hostname",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_hostname, time FROM hb_network_connection WHERE LOWER(process_name) LIKE '%wwahost.exe' AND instr(',' || '{{auth_domains}}' || ',', ',' || LOWER(dst_endpoint_hostname) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Connections from WWAHost to Microsoft login domains. This confirms the package invoked the WebAuthenticationBroker API.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-23"
+      }
+    },
+    {
+      "id": "triage-malicious-sideload",
+      "type": "analytic",
+      "label": "Triage malicious sideloading",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "detect-developer-mode-enablement",
+          "rare-package-registration",
+          "wwahost-auth-connections"
+        ],
+        "objective": "Determine if the registry changes, the registration of a new AppX package, and the WWAHost network activity together indicate a malicious OAuth theft attempt.",
+        "description": "Weigh the correlated evidence to determine if a sideloaded package is performing token theft.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict linking the registration and network activity.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host, citing specific rows from each surface."
+      },
+      "parents": [
+        {
+          "id": "rare-package-registration",
+          "kind": "merge"
+        },
+        {
+          "id": "wwahost-auth-connections",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host where a rare package registration is followed by WWAHost network traffic",
+        "condition": "the triage verdict is malicious for at least one host where a rare package registration is followed by WWAHost network traffic",
+        "blind_spot": "missing-wwahost-telemetry",
+        "confidence": "high",
+        "description": "Direct the hunt to containment or manual review based on the triage findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-malicious-sideload"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host and revoke tokens",
+      "config": {
+        "target": "endpoint",
+        "description": "Stop further token theft and terminate the adversary's persistent access.",
+        "instructions": "Isolate the host from the network. Revoke all active Microsoft 365 sessions and refresh tokens for users logged into this host during the identified window.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review and package audit",
+      "config": {
+        "assignee": "analyst",
+        "description": "Forensic collection and manual audit of the registered packages.",
+        "instructions": "1. Review the cited registration command and network destinations. 2. Collect the AppxManifest.xml and local package files from the target host. 3. Audit for unauthorized service principals created in the tenant during this window."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final reporting and policy remediation recommendations.",
+        "instructions": "Document the findings. If Developer Mode is not required by policy, recommend disabling it via Group Policy by setting AllowDevelopmentWithoutDevLicense to 0."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

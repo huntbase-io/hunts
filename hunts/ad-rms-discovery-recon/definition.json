@@ -1,0 +1,652 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "AD RMS protects the most sensitive files in a Windows environment; unauthorized access to its administrative surface is a precursor to master key extraction and permanent decryption of enterprise content."
+      },
+      "name": "AD RMS Discovery and Administrative Reconnaissance",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1018",
+        "attack.t1083",
+        "attack.t1078.002",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "ad-rms-key-extraction-and-decryption",
+          "reason": "This hunt identifies the reconnaissance phase; the follow-on hunt identifies the extraction of the SLC private key.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single rule fires on the addition of a user to a local group, but it misses the context of preceding RMS discovery and subsequent SOAP administrative traffic. This hunt connects the long-term risk of unrotatable SLC keys with the specific multi-stage path an adversary takes to reach them across DNS, HTTP, and process surfaces.",
+      "coverage": [
+        {
+          "stage": "discovery-rms-service-location",
+          "steps": [
+            "dns-discovery"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "reconnaissance-rms-templates",
+          "steps": [
+            "template-enumeration"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privilege-escalation-service-group",
+          "steps": [
+            "group-abuse"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "administrative-recon-soap",
+          "steps": [
+            "admin-surface-access"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "AD RMS Cluster Discovery",
+            "slug": "discovery-rms-service-location",
+            "tactic": "discovery",
+            "techniques": [
+              "T1018"
+            ],
+            "observables": [
+              "DNS lookups for newjersey.sopranos.local",
+              "Network connections to VESUVIO (RMS server) or BARONE (SQL server)",
+              "Scanning for HTTP/HTTPS listeners on ports 80 or 443 on domain member servers"
+            ]
+          },
+          {
+            "name": "Rights Policy Template Enumeration",
+            "slug": "reconnaissance-rms-templates",
+            "tactic": "discovery",
+            "techniques": [
+              "T1083"
+            ],
+            "observables": [
+              "HTTP GET requests to /_wmcs/certification/certification.asmx",
+              "HTTP GET requests to /_wmcs/licensing/licensing.asmx",
+              "HTTP GET requests to /_wmcs/template/template.asmx",
+              "Retrieval of XrML rights-policy templates by ordinary domain users like paulie.gualtieri"
+            ]
+          },
+          {
+            "name": "Service Group Membership Abuse",
+            "slug": "privilege-escalation-service-group",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1078.002"
+            ],
+            "observables": [
+              "Addition of domain users (e.g., tony.soprano) to the local 'AD RMS Service Group' on VESUVIO",
+              "Execution of 'net localgroup' commands to audit or modify RMS group membership",
+              "Logons to VESUVIO by users not typically associated with RMS administration"
+            ]
+          },
+          {
+            "name": "Administrative Surface Interaction",
+            "slug": "administrative-recon-soap",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1090.003"
+            ],
+            "observables": [
+              "Authenticated SOAP calls to administrative endpoints on VESUVIO",
+              "Traffic proxying from the RMS server (VESUVIO) to the back-end SQL configuration database (BARONE)",
+              "Requests to the administrative pipeline yielding 200 OK for Service Group members versus 401 for plain users"
+            ]
+          }
+        ],
+        "summary": "An attacker performs reconnaissance against an on-premises Active Directory Rights Management Services (AD RMS) deployment to identify the cluster and its templates. By leveraging membership in the local AD RMS Service Group, they gain access to the administrative SOAP surface, positioning themselves to target the Server Licensor Certificate (SLC) private key stored in the SQL configuration database."
+      },
+      "severity": "high",
+      "rationale": "Focus on Windows Servers in the domain, specifically member servers rather than Domain Controllers. Prioritize hosts running the IIS w3wp.exe process.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is identifying on-premises AD RMS clusters via DNS and rights-policy template enumeration before escalating privileges via local group membership to reach the administrative surface.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "List of hostnames to scope the search for template and admin access."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Number of days to search for discovery and exploitation signals."
+        },
+        "target_domain": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/ad-rms-architecture-and-recon",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "string",
+          "default": "sopranos.local",
+          "description": "The internal domain name for identifying DNS discovery traffic."
+        },
+        "rms_group_name": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/ad-rms-architecture-and-recon",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "string",
+          "default": "AD RMS Service Group",
+          "description": "The local group on RMS servers gating administrative access."
+        },
+        "rms_admin_paths": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/ad-rms-architecture-and-recon",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[path]",
+          "default": [
+            "/_wmcs/admin/admin.asmx"
+          ],
+          "description": "SOAP endpoints for the AD RMS administrative surface."
+        },
+        "rms_client_paths": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/ad-rms-architecture-and-recon",
+            "kind": "article",
+            "observed": "2026-09-08"
+          },
+          "type": "list[path]",
+          "default": [
+            "/_wmcs/certification/certification.asmx",
+            "/_wmcs/licensing/licensing.asmx",
+            "/_wmcs/template/template.asmx"
+          ],
+          "description": "SOAP endpoints used for client certification and template distribution."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/ad-rms-architecture-and-recon",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/ad-rms-architecture-and-recon",
+          "name": "AD Rights Management Service (Part 1): Architecture, Deprecation, and Reconnaissance"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-http-telemetry",
+          "risk": "If internal web server logs are not centralized, template enumeration and administrative surface interaction will be invisible.",
+          "stage": "reconnaissance-rms-templates",
+          "question": "Are internal SOAP calls being logged and forwarded?",
+          "requires": "hb_http_activity on internal IIS servers"
+        },
+        {
+          "id": "direct-sql-recon",
+          "risk": "If an adversary has direct SQL access, they can extract metadata or keys without ever touching the SOAP endpoints.",
+          "stage": "administrative-recon-soap",
+          "question": "Did the adversary bypass the SOAP surface and query the database directly?",
+          "requires": "SQL query logging on the back-end configuration database"
+        }
+      ]
+    },
+    "name": "AD RMS Discovery and Administrative Reconnaissance",
+    "description": "Because the Server Licensor Certificate (SLC) is valid for centuries and cannot be rotated, identifying this reconnaissance phase early is vital to preventing a permanent compromise of the document trust model. The hunt searches for standard domain users mapping the infrastructure via DNS and template enumeration. It then monitors for the transition to exploitation where an adversary adds accounts to the local AD RMS Service Group to reach the privileged SOAP administrative surface. The analyst confirms the legitimacy of group changes and coordinates with the AD team to secure the RMS cluster."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "discovery-rms-service-location",
+            "steps": [
+              "dns-discovery"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "reconnaissance-rms-templates",
+            "steps": [
+              "template-enumeration"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privilege-escalation-service-group",
+            "steps": [
+              "group-abuse"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "administrative-recon-soap",
+            "steps": [
+              "admin-surface-access"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is identifying on-premises AD RMS clusters via DNS and rights-policy template enumeration before escalating privileges via local group membership to reach the administrative surface.",
+        "blind_spots": [
+          {
+            "id": "missing-http-telemetry",
+            "risk": "If internal web server logs are not centralized, template enumeration and administrative surface interaction will be invisible.",
+            "stage": "reconnaissance-rms-templates",
+            "question": "Are internal SOAP calls being logged and forwarded?",
+            "requires": "hb_http_activity on internal IIS servers"
+          },
+          {
+            "id": "direct-sql-recon",
+            "risk": "If an adversary has direct SQL access, they can extract metadata or keys without ever touching the SOAP endpoints.",
+            "stage": "administrative-recon-soap",
+            "question": "Did the adversary bypass the SOAP surface and query the database directly?",
+            "requires": "SQL query logging on the back-end configuration database"
+          }
+        ],
+        "scoping_notes": "Focus on Windows Servers in the domain, specifically member servers rather than Domain Controllers. Prioritize hosts running the IIS w3wp.exe process.",
+        "beyond_detection": "A single rule fires on the addition of a user to a local group, but it misses the context of preceding RMS discovery and subsequent SOAP administrative traffic. This hunt connects the long-term risk of unrotatable SLC keys with the specific multi-stage path an adversary takes to reach them across DNS, HTTP, and process surfaces."
+      }
+    },
+    {
+      "id": "identify-potential-servers",
+      "type": "query",
+      "label": "Identify Potential AD RMS Servers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT hostname AS device_hostname, os_name, os_version, time FROM hb_devices WHERE platform = 'windows' AND (LOWER(os_name) LIKE '%server%' OR os_version LIKE '10.0.2%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_devices",
+        "description": "Define the target scope of Windows Servers that could host the AD RMS role.",
+        "expected_signal": "A list of Windows Servers likely hosting the role. No servers means the hunt remains broad."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Potential AD RMS Servers",
+        "reads": [
+          "hostname",
+          "os_name",
+          "os_version",
+          "platform",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname AS device_hostname, os_name, os_version, time FROM hb_devices WHERE platform = 'windows' AND (LOWER(os_name) LIKE '%server%' OR os_version LIKE '10.0.2%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of Windows Servers likely hosting the role. No servers means the hunt remains broad.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "dns-discovery",
+      "type": "query",
+      "label": "DNS-based AD RMS Discovery",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT query_hostname, device_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_dns_activity WHERE LOWER(query_hostname) LIKE '%' || LOWER('{{target_domain}}') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count < 3",
+        "surface": "hb_dns_activity",
+        "description": "Detect rare DNS lookups targeting internal domain suffixes that reveal server locations.",
+        "expected_signal": "Anomalous DNS queries for internal member servers. Silence means no rare discovery was captured."
+      },
+      "parents": [
+        {
+          "id": "identify-potential-servers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "DNS-based AD RMS Discovery",
+        "reads": [
+          "query_hostname",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT query_hostname, device_hostname, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_dns_activity WHERE LOWER(query_hostname) LIKE '%' || LOWER('{{target_domain}}') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY query_hostname HAVING host_count < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Anomalous DNS queries for internal member servers. Silence means no rare discovery was captured.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "query_hostname"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "template-enumeration",
+      "type": "query",
+      "label": "HTTP Template Enumeration",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT device_hostname, actor_user_name, url_path, status_code, time FROM hb_http_activity WHERE (instr(',' || '{{rms_client_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Detect requests to public SOAP endpoints used for template retrieval.",
+        "expected_signal": "Successful (200) or failed (401/403) HTTP requests to certification and template endpoints."
+      },
+      "parents": [
+        {
+          "id": "identify-potential-servers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "HTTP Template Enumeration",
+        "reads": [
+          "device_hostname",
+          "actor_user_name",
+          "url_path",
+          "status_code",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, actor_user_name, url_path, status_code, time FROM hb_http_activity WHERE (instr(',' || '{{rms_client_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Successful (200) or failed (401/403) HTTP requests to certification and template endpoints.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Assess Early Discovery Signals",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "dns-discovery",
+          "template-enumeration"
+        ],
+        "objective": "Identify domain users who successfully located and enumerated RMS rights-policy templates.",
+        "description": "Determine if specific hosts or users are performing coordinated RMS reconnaissance.",
+        "max_iterations": 3,
+        "expected_signal": "A summary of actors performing discovery and identified RMS servers.",
+        "success_criteria": "A list of confirmed AD RMS servers and the domain accounts querying them."
+      },
+      "parents": [
+        {
+          "id": "dns-discovery",
+          "kind": "merge"
+        },
+        {
+          "id": "template-enumeration",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "group-abuse",
+      "type": "query",
+      "label": "AD RMS Service Group Abuse",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_cmd_line, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%localgroup%' OR LOWER(process_cmd_line) LIKE '%localgroupmember%') AND LOWER(process_cmd_line) LIKE '%' || LOWER('{{rms_group_name}}') || '%' AND LOWER(process_cmd_line) LIKE '%add%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect unauthorized users being added to the local group gating admin access.",
+        "expected_signal": "Processes adding domain users to the RMS administrative group. Silence proves no such command was run by a monitored agent."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "AD RMS Service Group Abuse",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_cmd_line, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%localgroup%' OR LOWER(process_cmd_line) LIKE '%localgroupmember%') AND LOWER(process_cmd_line) LIKE '%' || LOWER('{{rms_group_name}}') || '%' AND LOWER(process_cmd_line) LIKE '%add%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Processes adding domain users to the RMS administrative group. Silence proves no such command was run by a monitored agent.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "admin-surface-access",
+      "type": "query",
+      "label": "Administrative SOAP Surface Interaction",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, actor_user_name, url_path, status_code, time FROM hb_http_activity WHERE (instr(',' || '{{rms_admin_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0) AND status_code = 200 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Identify successful authenticated calls to the administrative surface.",
+        "expected_signal": "Authenticated 200 OK responses on administrative paths, indicating successful surface interaction."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Administrative SOAP Surface Interaction",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "actor_user_name",
+          "url_path",
+          "status_code",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, actor_user_name, url_path, status_code, time FROM hb_http_activity WHERE (instr(',' || '{{rms_admin_paths}}' || ',', ',' || LOWER(url_path) || ',') > 0) AND status_code = 200 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Authenticated 200 OK responses on administrative paths, indicating successful surface interaction.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "follow-on-triage",
+      "type": "analytic",
+      "label": "Synthesize Exploitation Path",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "early-stage-triage",
+          "group-abuse",
+          "admin-surface-access"
+        ],
+        "objective": "Determine if a domain user followed the discovery of the RMS cluster with a group modification and successful administrative surface access.",
+        "description": "Correlate early discovery with privilege escalation and admin access.",
+        "max_iterations": 5,
+        "expected_signal": "A detailed verdict on whether the AD RMS cluster has been compromised.",
+        "success_criteria": "A per-host verdict citing discovery traffic, group changes, and admin SOAP requests."
+      },
+      "parents": [
+        {
+          "id": "group-abuse",
+          "kind": "merge"
+        },
+        {
+          "id": "admin-surface-access",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-evidence",
+      "type": "checkpoint",
+      "label": "Route on Intrusion Evidence",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host, indicating successful admin surface interaction following a group modification.",
+        "condition": "the triage verdict is malicious for at least one host, indicating successful admin surface interaction following a group modification.",
+        "blind_spot": "missing-http-telemetry",
+        "confidence": "high",
+        "description": "Respond based on the certainty of AD RMS cluster compromise.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "follow-on-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-server",
+      "type": "action",
+      "label": "Isolate Compromised RMS Server",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat before the SLC private key can be extracted or used.",
+        "instructions": "Isolate the AD RMS cluster server and notify the Active Directory team immediately.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-evidence",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review and Tuning",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review evidence and identify authorized administrative activity.",
+        "instructions": "Review the actor identity and the timing of the group modification. Confirm if the actor is a legitimate administrator. Investigate if any non-standard tools were used for the SOAP calls."
+      },
+      "parents": [
+        {
+          "id": "route-on-evidence",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-evidence",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-server"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Hunt Close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Record findings and status.",
+        "instructions": "Update the known AD RMS server list. Document any unauthorized group changes discovered."
+      },
+      "parents": [
+        {
+          "id": "route-on-evidence",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

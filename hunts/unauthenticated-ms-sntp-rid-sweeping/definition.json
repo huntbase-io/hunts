@@ -1,0 +1,615 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Timeroasting allows an unauthenticated adversary to harvest password-derived MACs for any domain account without generating logon events. This hunt is required to detect the network signature of RID sweeping and the configuration downgrades that facilitate it."
+      },
+      "name": "Unauthenticated MS-SNTP RID Sweeping",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1558.003",
+        "attack.t1087.002",
+        "attack.t1190",
+        "attack.t1562.001",
+        "credential access",
+        "defense evasion",
+        "discovery",
+        "execution",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "kerberoasting-tgs-request-anomalies",
+          "reason": "Both hunts involve Kerberos-related credential harvesting, but Timeroasting is unauthenticated and uses MS-SNTP.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standing rule on UDP/123 volume is prone to noise from periodic time-sync. This hunt correlates that volume with specific process execution artifacts and DC registry configuration states to provide the high-fidelity context required to isolate a host.",
+      "coverage": [
+        {
+          "stage": "initial-access-unauthenticated-ntp",
+          "steps": [
+            "ntp-sweep-volume"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "discovery-rid-enumeration",
+          "steps": [
+            "ntp-sweep-volume"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-access-mac-harvesting",
+          "reason": "The available surfaces provide connection metadata but not the packet payload required to see the MS-SNTP authenticators.",
+          "status": "not_visible",
+          "blind_spot": "payload-visibility-gap"
+        },
+        {
+          "stage": "execution-roasting-tooling",
+          "steps": [
+            "roasting-tool-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "defense-evasion-crypto-downgrade",
+          "steps": [
+            "registry-downgrade-check"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Unauthenticated NTP Request",
+            "slug": "initial-access-unauthenticated-ntp",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "UDP/123",
+              "Domain Controller IP addresses",
+              "Unauthenticated network traffic to w32time service"
+            ]
+          },
+          {
+            "name": "MS-SNTP RID Sweeping",
+            "slug": "discovery-rid-enumeration",
+            "tactic": "discovery",
+            "techniques": [
+              "T1087.002"
+            ],
+            "observables": [
+              "Sequential RID requests at offset 48 of NTP packet",
+              "Targeting AZUREADSSOACC",
+              "Targeting trust accounts and machine accounts ($)",
+              "Enumeration of Relative Identifiers (RIDs)"
+            ]
+          },
+          {
+            "name": "MS-SNTP MAC Harvesting",
+            "slug": "credential-access-mac-harvesting",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1558.003"
+            ],
+            "observables": [
+              "68-byte UDP/123 packets (Legacy MD5 form)",
+              "120-byte UDP/123 packets (Extended HMAC-SHA512 form)",
+              "KeyIdentifier at packet offset 48",
+              "USE_OLDKEY_VERSION flag (0x01) at offset 53"
+            ]
+          },
+          {
+            "name": "Roasting Tool Execution",
+            "slug": "execution-roasting-tooling",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.006"
+            ],
+            "observables": [
+              "timeroast.py",
+              "trustroast.py",
+              "netexec timeroast module",
+              "KerbWolf",
+              "timeroast-ng"
+            ]
+          },
+          {
+            "name": "Forced Legacy Authentication Downgrade",
+            "slug": "defense-evasion-crypto-downgrade",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1562.001"
+            ],
+            "observables": [
+              "Registry value SignatureAuthAllowed set to 0",
+              "Forcing 68-byte legacy MD5 authenticators"
+            ]
+          }
+        ],
+        "summary": "Timeroasting exploits the MS-SNTP protocol extension on Windows Domain Controllers to obtain password-derived MACs for computer and trust accounts without authentication. Attackers perform unauthenticated RID sweeping over UDP port 123 to collect 68-byte or 120-byte authenticator blobs for offline brute-force cracking."
+      },
+      "severity": "high",
+      "rationale": "Identify Domain Controllers by the KDC service to focus the network and registry searches. If no DCs are found, run the hunt against all Windows servers by clearing the scope_hosts parameter.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is performing unauthenticated MS-SNTP RID sweeping against Domain Controllers to harvest password-derived MACs, often preceded by a configuration downgrade to allow legacy MD5 authenticators.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of Domain Controllers to narrow the hunt."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "roasting_tool_names": {
+          "from": {
+            "ref": "https://www.huntress.com/blog/detecting-timeroasting",
+            "kind": "article",
+            "observed": "2024-11-19"
+          },
+          "type": "list[string]",
+          "default": [
+            "timeroast.py",
+            "trustroast.py",
+            "netexec",
+            "kerbwolf",
+            "timeroast-ng"
+          ],
+          "description": "Known roasting tool filenames to search for."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/detecting-timeroasting",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/detecting-timeroasting",
+          "name": "Huntress \u2014 Detecting Timeroasting the Hard Way"
+        },
+        {
+          "url": "https://www.secura.com/blog/timeroasting-trustroasting-and-computer-spraying",
+          "name": "Tom Tervoort (Secura) \u2014 Timeroasting, Trustroasting and Computer Spraying"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "payload-visibility-gap",
+          "risk": "We can only see connection volume, not the content; we cannot confirm which cryptographic form was harvested without payload inspection.",
+          "stage": "credential-access-mac-harvesting",
+          "question": "Can we distinguish between the 68-byte legacy and 120-byte extended MS-SNTP authenticators?",
+          "requires": "Network packet capture (PCAP) or Deep Packet Inspection (DPI)"
+        },
+        {
+          "id": "unmanaged-device-blind-spot",
+          "risk": "If network flow logs do not cover all client subnets, a sweep from an unmanaged device will be invisible to the endpoint-centric connection surface.",
+          "stage": "initial-access-unauthenticated-ntp",
+          "question": "Can we see RID sweeping from unmanaged devices or BYOD?",
+          "requires": "hb_network_connection with flow log coverage for all subnets"
+        }
+      ]
+    },
+    "name": "Unauthenticated MS-SNTP RID Sweeping",
+    "description": "Timeroasting abuses Microsoft's NTP authentication extension (MS-SNTP) to obtain encrypted authenticators for any domain account without prior authentication. The adversary sweeps Relative Identifiers (RIDs) via UDP/123, collecting MACs that can be cracked offline. This hunt identifies the attack by correlating volumetric NTP spikes reaching Domain Controllers with the presence of roasting tools and specific registry downgrades (SignatureAuthAllowed=0) that force the use of weaker MD5-based authenticators. It follows a phased flow: first establishing the DC scope and initial network indicators, then confirming the configuration state of the targets."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-unauthenticated-ntp",
+            "steps": [
+              "ntp-sweep-volume"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "discovery-rid-enumeration",
+            "steps": [
+              "ntp-sweep-volume"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-access-mac-harvesting",
+            "reason": "The available surfaces provide connection metadata but not the packet payload required to see the MS-SNTP authenticators.",
+            "status": "not_visible",
+            "blind_spot": "payload-visibility-gap"
+          },
+          {
+            "stage": "execution-roasting-tooling",
+            "steps": [
+              "roasting-tool-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "defense-evasion-crypto-downgrade",
+            "steps": [
+              "registry-downgrade-check"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is performing unauthenticated MS-SNTP RID sweeping against Domain Controllers to harvest password-derived MACs, often preceded by a configuration downgrade to allow legacy MD5 authenticators.",
+        "blind_spots": [
+          {
+            "id": "payload-visibility-gap",
+            "risk": "We can only see connection volume, not the content; we cannot confirm which cryptographic form was harvested without payload inspection.",
+            "stage": "credential-access-mac-harvesting",
+            "question": "Can we distinguish between the 68-byte legacy and 120-byte extended MS-SNTP authenticators?",
+            "requires": "Network packet capture (PCAP) or Deep Packet Inspection (DPI)"
+          },
+          {
+            "id": "unmanaged-device-blind-spot",
+            "risk": "If network flow logs do not cover all client subnets, a sweep from an unmanaged device will be invisible to the endpoint-centric connection surface.",
+            "stage": "initial-access-unauthenticated-ntp",
+            "question": "Can we see RID sweeping from unmanaged devices or BYOD?",
+            "requires": "hb_network_connection with flow log coverage for all subnets"
+          }
+        ],
+        "scoping_notes": "Identify Domain Controllers by the KDC service to focus the network and registry searches. If no DCs are found, run the hunt against all Windows servers by clearing the scope_hosts parameter.",
+        "beyond_detection": "A standing rule on UDP/123 volume is prone to noise from periodic time-sync. This hunt correlates that volume with specific process execution artifacts and DC registry configuration states to provide the high-fidelity context required to isolate a host."
+      }
+    },
+    {
+      "id": "find-domain-controllers",
+      "type": "query",
+      "label": "Identify Domain Controllers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, service_name, service_start_name FROM hb_service_activity WHERE LOWER(service_name) = 'kdc' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_service_activity",
+        "description": "Identify hosts running the Kerberos Key Distribution Center (KDC) service, which is unique to Domain Controllers.",
+        "expected_signal": "A list of hostnames acting as Domain Controllers. Silence means no DCs were identified via service logs in the window."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify Domain Controllers",
+        "reads": [
+          "device_hostname",
+          "service_name",
+          "service_start_name",
+          "time"
+        ],
+        "source": "hb_service_activity",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname, service_name, service_start_name FROM hb_service_activity WHERE LOWER(service_name) = 'kdc' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames acting as Domain Controllers. Silence means no DCs were identified via service logs in the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-20"
+      }
+    },
+    {
+      "id": "ntp-sweep-volume",
+      "type": "query",
+      "label": "Volumetric NTP connection spikes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT src_endpoint_ip, device_hostname, COUNT(*) as request_count, SUM(traffic_packets) as total_packets, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_network_connection WHERE dst_endpoint_port = 123 AND protocol = 'udp' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, device_hostname HAVING request_count > 100 ORDER BY request_count DESC",
+        "surface": "hb_network_connection",
+        "description": "Detect high-frequency UDP/123 connections from a single source, characteristic of a RID sweep.",
+        "expected_signal": "A source IP making hundreds of NTP requests to a DC. Normal time-sync is periodic and low-volume."
+      },
+      "parents": [
+        {
+          "id": "find-domain-controllers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Volumetric NTP connection spikes",
+        "reads": [
+          "src_endpoint_ip",
+          "device_hostname",
+          "dst_endpoint_port",
+          "protocol",
+          "traffic_packets",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT src_endpoint_ip, device_hostname, COUNT(*) as request_count, SUM(traffic_packets) as total_packets, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_network_connection WHERE dst_endpoint_port = 123 AND protocol = 'udp' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, device_hostname HAVING request_count > 100 ORDER BY request_count DESC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "A source IP making hundreds of NTP requests to a DC. Normal time-sync is periodic and low-volume.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-11-20"
+      }
+    },
+    {
+      "id": "roasting-tool-execution",
+      "type": "query",
+      "label": "Roasting tool execution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE (instr(',' || '{{roasting_tool_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR LOWER(process_cmd_line) LIKE '%timeroast%' OR LOWER(process_cmd_line) LIKE '%trustroast%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find evidence of offensive tools specifically built for Timeroasting and MS-SNTP abuse.",
+        "expected_signal": "Process execution records for known roasting tools or command lines containing roasting keywords."
+      },
+      "parents": [
+        {
+          "id": "find-domain-controllers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Roasting tool execution",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE (instr(',' || '{{roasting_tool_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 OR LOWER(process_cmd_line) LIKE '%timeroast%' OR LOWER(process_cmd_line) LIKE '%trustroast%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process execution records for known roasting tools or command lines containing roasting keywords.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-20"
+      }
+    },
+    {
+      "id": "early-triage",
+      "type": "analytic",
+      "label": "Initial triage of network activity",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "find-domain-controllers",
+          "ntp-sweep-volume",
+          "roasting-tool-execution"
+        ],
+        "objective": "Identify if the NTP traffic spikes are indicative of unauthenticated RID sweeping and whether they originate from hosts running roasting tools.",
+        "description": "Weigh the volumetric network signal against any identified tool executions to confirm a likely roasting attempt.",
+        "max_iterations": 3,
+        "expected_signal": "A verdict per host and source IP identifying suspicious NTP sweeping activity.",
+        "success_criteria": "A list of suspicious source IPs and targeted DCs."
+      },
+      "parents": [
+        {
+          "id": "ntp-sweep-volume",
+          "kind": "merge"
+        },
+        {
+          "id": "roasting-tool-execution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "registry-downgrade-check",
+      "type": "query",
+      "label": "Registry crypto downgrade",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\w32time\\config\\signatureauthallowed' AND reg_value_data = '0' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_registry_activity",
+        "description": "Detect configuration changes on DCs that allow legacy MD5 authenticators, facilitating easier offline cracking.",
+        "expected_signal": "Registry values showing SignatureAuthAllowed set to 0. Silence indicates no downgrade was performed or detected."
+      },
+      "parents": [
+        {
+          "id": "early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Registry crypto downgrade",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\w32time\\config\\signatureauthallowed' AND reg_value_data = '0' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Registry values showing SignatureAuthAllowed set to 0. Silence indicates no downgrade was performed or detected.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-20"
+      }
+    },
+    {
+      "id": "final-verdict",
+      "type": "analytic",
+      "label": "Final Timeroasting assessment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "early-triage",
+          "registry-downgrade-check"
+        ],
+        "objective": "Evaluate the combined evidence to determine if a coordinated Timeroasting attack has occurred, specifically highlighting where security controls were weakened to support it.",
+        "description": "Synthesize the network volume, tool presence, and registry state into a single host-based verdict.",
+        "max_iterations": 5,
+        "expected_signal": "Confirmed malicious verdicts for hosts where network sweeping aligns with configuration downgrades or tool use.",
+        "success_criteria": "A per-host verdict of malicious, suspicious, or benign."
+      },
+      "parents": [
+        {
+          "id": "registry-downgrade-check"
+        }
+      ]
+    },
+    {
+      "id": "evaluate-maliciousness",
+      "type": "checkpoint",
+      "label": "Evaluate maliciousness",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final assessment identifies at least one host as malicious due to correlated network spikes and registry downgrades",
+        "condition": "the final assessment identifies at least one host as malicious due to correlated network spikes and registry downgrades",
+        "blind_spot": "payload-visibility-gap",
+        "confidence": "high",
+        "description": "Route the hunt based on whether active roasting or configuration tampering was confirmed.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-verdict"
+        }
+      ]
+    },
+    {
+      "id": "isolate-beachhead",
+      "type": "action",
+      "label": "Isolate beachhead",
+      "config": {
+        "target": "endpoint",
+        "description": "Isolate the host running roasting tools to prevent further credential harvesting or lateral movement.",
+        "instructions": "Isolate the source host identified by the network and process telemetry. Revoke its active sessions.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "evaluate-maliciousness",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-analyst-review",
+      "type": "task",
+      "label": "Manual analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify the findings and investigate any indeterminate cases.",
+        "instructions": "Review the connection counts and source IPs. Verify if the registry change on the DCs was an authorized maintenance action. Confirm if the roasting tools were part of an authorized penetration test."
+      },
+      "parents": [
+        {
+          "id": "evaluate-maliciousness",
+          "branch": "default"
+        },
+        {
+          "id": "evaluate-maliciousness",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-beachhead"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the hunt results and record gaps for the platform team.",
+        "instructions": "Record the final status. If any DC was found with SignatureAuthAllowed=0, ensure it is reverted to 1. Document the lack of packet visibility for the platform team."
+      },
+      "parents": [
+        {
+          "id": "evaluate-maliciousness",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "manual-analyst-review"
+        }
+      ]
+    }
+  ]
+}

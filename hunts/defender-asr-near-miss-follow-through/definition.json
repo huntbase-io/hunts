@@ -1,0 +1,701 @@
+{
+  "hunt": {
+    "name": "ASR Near-Misses: Blocked Attempts and the Route Around Them",
+    "description": "An ASR block is a record of an attack attempt that was stopped, and an ASR audit event is a record of one that was not. Most organisations without Defender for Endpoint never see either: the events stay in the local Defender event log, which is rarely forwarded. Defender also keeps them in mpenginedb.db, in ProcessBlockHistory, for about 90 days.\n\nThis hunt reads that history on every Windows host through the defender_mpengine osquery extension, stacks each rule and process pair across the fleet so that line-of-business noise drops out, and lets an agent pick the near-misses and the objective each one served.\n\nAn attacker who is blocked usually tries another way. For each near-miss host the hunt looks for that route: credential theft without touching LSASS directly, a script host started through WMI or COM instead of from Word, a service or a scheduled task instead of PsExec. It then decides whether the attacker got through.",
+    "meta": {
+      "type": "investigation",
+      "name": "ASR Near-Misses: Blocked Attempts and the Route Around Them",
+      "labels": [
+        "hunt",
+        "attack.t1003.001",
+        "attack.t1047",
+        "attack.t1204.002",
+        "attack.t1569.002",
+        "attack.t1053.005",
+        "credential access",
+        "execution",
+        "lateral movement",
+        "persistence",
+        "hb-endpoint-control"
+      ],
+      "tlp": "clear",
+      "severity": "high",
+      "hypothesis": "An intruder triggered a Defender attack surface reduction rule, such as LSASS credential theft, an Office child process or PsExec/WMI process creation, and then reached the same objective by a route the rule does not cover; or the rule was only auditing and the action went ahead.",
+      "rationale": "Run across all Windows hosts with ASR enabled in block or audit mode. Servers with PsExec/WMI or webshell events and workstations with LSASS events come first. Paste the hosts near-miss-triage names into scope_hosts before the follow-through steps, and set lookback_days to cover the time since the oldest near-miss.",
+      "analysis": "Most ASR events are line-of-business noise, and a block on its own says nothing about whether the attacker succeeded. The hunt needs the fleet comparison to find near-misses and a per-host timeline across four other sources to decide what happened next.",
+      "hunt": {
+        "trigger": "detection-gap",
+        "methodology": "structured-hypothesis-driven",
+        "applicability": "environment-specific",
+        "handoff": "keep-as-periodic-hunt",
+        "justification": "Each near-miss is an observed attack attempt on a named host, and in most fleets nobody has looked at it."
+      },
+      "references": [
+        {
+          "name": "Protokol-7 \u2014 Defender's hidden flight recorder: mpenginedb.db",
+          "url": "https://protokol-7.github.io/dfir/2026/11/10/defenders-hidden-flight-recorder-mpenginedb.html"
+        },
+        {
+          "name": "osquery-defender-extension (defender_mpengine_* tables)",
+          "url": "https://github.com/rakeshrm/osquery-defender-extension"
+        },
+        {
+          "name": "Protokol-7 \u2014 mpenginedb_parser (deleted-row recovery, full timeline)",
+          "url": "https://github.com/Protokol-7/mpenginedb_parser"
+        }
+      ],
+      "guardrails": {
+        "telemetry": "untrusted",
+        "evidence": "citation_required",
+        "missing_data": "not_benign",
+        "claims": "no_unsupported"
+      },
+      "series": {
+        "slug": "defender-mpenginedb-flight-recorder",
+        "index": 4,
+        "total": 5,
+        "title": "Hunting with Defender's Flight Recorder (mpenginedb.db)"
+      },
+      "related": [
+        {
+          "hunt": "defender-weakening-tamper-asr-exclusions",
+          "relation": "sibling",
+          "reason": "Finds ASR rules switched to audit or off, which turns blocks into audits and audits into nothing."
+        }
+      ],
+      "scenario": {
+        "summary": "An intruder's action trips an ASR rule. In block mode the action is stopped and the intruder reaches the same objective another way; in audit mode it goes ahead. The ASR event is the only trace of the first attempt.",
+        "stages": [
+          {
+            "slug": "credential-theft-attempt",
+            "name": "LSASS credential theft attempt",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1003.001"
+            ],
+            "observables": [
+              "ASR 'Block credential stealing from LSASS' with target lsass.exe",
+              "comsvcs MiniDump",
+              "reg save hklm\\sam"
+            ]
+          },
+          {
+            "slug": "office-child-execution",
+            "name": "Office or script child process",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002",
+              "T1047"
+            ],
+            "observables": [
+              "ASR Office child-process rules",
+              "Script host under wmiprvse.exe or dllhost.exe"
+            ]
+          },
+          {
+            "slug": "remote-process-creation",
+            "name": "PsExec or WMI process creation",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1569.002",
+              "T1047"
+            ],
+            "observables": [
+              "ASR PsExec/WMI rule",
+              "New service running cmd /c"
+            ]
+          },
+          {
+            "slug": "persistence-follow-on",
+            "name": "Persistence after the block",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.005",
+              "T1546.003"
+            ],
+            "observables": [
+              "New scheduled task running a script host",
+              "ASR WMI-subscription rule"
+            ]
+          }
+        ]
+      },
+      "coverage": [
+        {
+          "stage": "credential-theft-attempt",
+          "status": "covered",
+          "steps": [
+            "asr-events",
+            "credential-theft-alternatives"
+          ]
+        },
+        {
+          "stage": "office-child-execution",
+          "status": "covered",
+          "steps": [
+            "asr-events",
+            "indirect-execution-alternatives"
+          ]
+        },
+        {
+          "stage": "remote-process-creation",
+          "status": "covered",
+          "steps": [
+            "asr-events",
+            "remote-service-creation"
+          ]
+        },
+        {
+          "stage": "persistence-follow-on",
+          "status": "covered",
+          "steps": [
+            "scheduled-task-creation"
+          ]
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "extension-not-answering",
+          "requires": "the defender_mpengine osquery extension loaded by osqueryd (running as SYSTEM) on every Windows host, with Microsoft Defender Antivirus as the active engine and defender_mpengine_status.error empty",
+          "question": "Did Defender record anything on hosts where the extension is missing, cannot decrypt the database, or Defender is passive behind another antivirus?",
+          "risk": "Those hosts return no rows, which looks the same as a clean host. An attacker who has removed or stopped Defender also leaves an empty or stale database.",
+          "owner": "Endpoint engineering",
+          "remediation": "Deploy the extension through extensions.load on all Windows hosts and alert on defender_mpengine_status rows with a non-empty error."
+        },
+        {
+          "id": "follow-through-telemetry",
+          "stage": "credential-theft-attempt",
+          "requires": "process creation with parent and command line (Sysmon 1 or 4688 with command line), service creation (7045) and task creation (4698) events in hb_ surfaces for the window",
+          "question": "What did the attacker do after the ASR event?",
+          "risk": "Without them the hunt finds the near-miss but cannot say whether the attacker got through, and the decision routes to an analyst."
+        },
+        {
+          "id": "rules-not-enabled",
+          "requires": "ASR rules configured in block or audit mode",
+          "question": "What would a rule that is not configured have recorded?",
+          "risk": "A rule that is off records nothing in ProcessBlockHistory."
+        },
+        {
+          "id": "block-history-retention",
+          "requires": "ProcessBlockHistory younger than about 90 days and a host not rebuilt",
+          "question": "Did anything trigger ASR before the history starts?",
+          "risk": "Older events and those on rebuilt hosts are gone."
+        },
+        {
+          "id": "wmi-subscription-persistence",
+          "stage": "persistence-follow-on",
+          "requires": "WMI event subscription telemetry (Sysmon 19-21)",
+          "question": "Did persistence move to a WMI subscription after the rule fired?",
+          "risk": "No hb_ surface in this hunt sees WMI subscriptions."
+        }
+      ],
+      "parameters": {
+        "asr_lookback_days": {
+          "type": "number",
+          "default": "90",
+          "description": "Days of ASR history to read; Defender keeps ProcessBlockHistory for about 90 days."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "30",
+          "description": "Days of process, service and task telemetry to examine after the ASR events."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts to focus the follow-up queries on, as osquery reports their hostname; empty runs them across the estate."
+        },
+        "asr_noise_processes": {
+          "type": "list[path]",
+          "default": [],
+          "description": "Full process paths confirmed as benign ASR triggers (line-of-business apps, add-ins), left out of the ASR step."
+        }
+      },
+      "targets": {
+        "endpoint": {
+          "category": "endpoint",
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "hunter": {
+          "agent": true,
+          "name": "Hunt agent"
+        },
+        "analyst": {
+          "role": "analyst",
+          "name": "Tier-2 analyst"
+        },
+        "hb-endpoint-control": {
+          "category": "endpoint",
+          "name": "osquery with the Defender MpEngineDb extension (Huntbase Endpoint Control)",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          }
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "name": "Huntbase",
+            "org": "huntbase.io"
+          }
+        ],
+        "generated": {
+          "by": "hand-authored-with-claude",
+          "from": "https://protokol-7.github.io/dfir/2026/11/10/defenders-hidden-flight-recorder-mpenginedb.html",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "claude-opus-5-5"
+        }
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "rationale": "An intruder triggered a Defender attack surface reduction rule, such as LSASS credential theft, an Office child process or PsExec/WMI process creation, and then reached the same objective by a route the rule does not cover; or the rule was only auditing and the action went ahead.",
+        "tags": [],
+        "scoping_notes": "Run across all Windows hosts with ASR enabled in block or audit mode. Servers with PsExec/WMI or webshell events and workstations with LSASS events come first. Paste the hosts near-miss-triage names into scope_hosts before the follow-through steps, and set lookback_days to cover the time since the oldest near-miss.",
+        "beyond_detection": "Most ASR events are line-of-business noise, and a block on its own says nothing about whether the attacker succeeded. The hunt needs the fleet comparison to find near-misses and a per-host timeline across four other sources to decide what happened next.",
+        "blind_spots": [
+          {
+            "id": "extension-not-answering",
+            "requires": "the defender_mpengine osquery extension loaded by osqueryd (running as SYSTEM) on every Windows host, with Microsoft Defender Antivirus as the active engine and defender_mpengine_status.error empty",
+            "question": "Did Defender record anything on hosts where the extension is missing, cannot decrypt the database, or Defender is passive behind another antivirus?",
+            "risk": "Those hosts return no rows, which looks the same as a clean host. An attacker who has removed or stopped Defender also leaves an empty or stale database.",
+            "owner": "Endpoint engineering",
+            "remediation": "Deploy the extension through extensions.load on all Windows hosts and alert on defender_mpengine_status rows with a non-empty error."
+          },
+          {
+            "id": "follow-through-telemetry",
+            "stage": "credential-theft-attempt",
+            "requires": "process creation with parent and command line (Sysmon 1 or 4688 with command line), service creation (7045) and task creation (4698) events in hb_ surfaces for the window",
+            "question": "What did the attacker do after the ASR event?",
+            "risk": "Without them the hunt finds the near-miss but cannot say whether the attacker got through, and the decision routes to an analyst."
+          },
+          {
+            "id": "rules-not-enabled",
+            "requires": "ASR rules configured in block or audit mode",
+            "question": "What would a rule that is not configured have recorded?",
+            "risk": "A rule that is off records nothing in ProcessBlockHistory."
+          },
+          {
+            "id": "block-history-retention",
+            "requires": "ProcessBlockHistory younger than about 90 days and a host not rebuilt",
+            "question": "Did anything trigger ASR before the history starts?",
+            "risk": "Older events and those on rebuilt hosts are gone."
+          },
+          {
+            "id": "wmi-subscription-persistence",
+            "stage": "persistence-follow-on",
+            "requires": "WMI event subscription telemetry (Sysmon 19-21)",
+            "question": "Did persistence move to a WMI subscription after the rule fired?",
+            "risk": "No hb_ surface in this hunt sees WMI subscriptions."
+          }
+        ],
+        "coverage": [
+          {
+            "stage": "credential-theft-attempt",
+            "status": "covered",
+            "steps": [
+              "asr-events",
+              "credential-theft-alternatives"
+            ]
+          },
+          {
+            "stage": "office-child-execution",
+            "status": "covered",
+            "steps": [
+              "asr-events",
+              "indirect-execution-alternatives"
+            ]
+          },
+          {
+            "stage": "remote-process-creation",
+            "status": "covered",
+            "steps": [
+              "asr-events",
+              "remote-service-creation"
+            ]
+          },
+          {
+            "stage": "persistence-follow-on",
+            "status": "covered",
+            "steps": [
+              "scheduled-task-creation"
+            ]
+          }
+        ],
+        "series": {
+          "slug": "defender-mpenginedb-flight-recorder",
+          "index": 4,
+          "total": 5,
+          "title": "Hunting with Defender's Flight Recorder (mpenginedb.db)"
+        }
+      }
+    },
+    {
+      "id": "asr-events",
+      "type": "query",
+      "label": "ASR blocks and audits per host",
+      "config": {
+        "description": "Read every attack surface reduction event the engine kept: rule, the process that triggered it, its target, and whether the rule was in block or audit mode. In block mode the event is an attempt that was stopped; in audit mode it is an attempt that went ahead. Without Defender for Endpoint these events stay on the host.",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, asr_rule_name, rule_id, process_path, target_path, is_audit, COUNT(*) AS events, MIN(time) AS first_event, MAX(time) AS last_event, MAX(process_integrity) AS process_integrity, MAX(process_taint_reason) AS taint_reason, MAX(action) AS action FROM defender_mpengine_process_block_history WHERE time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{asr_lookback_days}} * 86400) AND NOT (instr(',' || LOWER('{{asr_noise_processes}}') || ',', ',' || LOWER(process_path) || ',') > 0) GROUP BY asr_rule_name, rule_id, process_path, target_path, is_audit",
+        "dsl": "osquery",
+        "source": "hb-endpoint-control",
+        "surface": "defender_mpengine_process_block_history",
+        "role": "triage",
+        "expected_signal": "A line-of-business app tripping the same rule on hundreds of hosts is noise to tune. A rule and process pair on one or two hosts is a near-miss: LSASS as target, Office or Acrobat starting children, PsExec or WMI creating processes, obfuscated scripts, or a vulnerable driver. action and taint_reason are undocumented codes.",
+        "product": "hb-endpoint-control",
+        "extension": "hb-endpoint-control"
+      },
+      "primitive_config": {
+        "dsl": "osquery",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, asr_rule_name, rule_id, process_path, target_path, is_audit, COUNT(*) AS events, MIN(time) AS first_event, MAX(time) AS last_event, MAX(process_integrity) AS process_integrity, MAX(process_taint_reason) AS taint_reason, MAX(action) AS action FROM defender_mpengine_process_block_history WHERE time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{asr_lookback_days}} * 86400) AND NOT (instr(',' || LOWER('{{asr_noise_processes}}') || ',', ',' || LOWER(process_path) || ',') > 0) GROUP BY asr_rule_name, rule_id, process_path, target_path, is_audit",
+        "label": "ASR blocks and audits per host",
+        "target": "hb-endpoint-control",
+        "source": "defender_mpengine_process_block_history",
+        "reads": [
+          "time",
+          "process_path",
+          "target_path",
+          "rule_id",
+          "asr_rule_name",
+          "is_audit",
+          "action",
+          "process_taint_reason",
+          "process_integrity"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "A line-of-business app tripping the same rule on hundreds of hosts is noise to tune. A rule and process pair on one or two hosts is a near-miss: LSASS as target, Office or Acrobat starting children, PsExec or WMI creating processes, obfuscated scripts, or a vulnerable driver. action and taint_reason are undocumented codes.",
+        "silence": "not_evidence_of_absence",
+        "prevalence": {
+          "key": [
+            "asr_rule_name",
+            "process_path"
+          ],
+          "by": "device_hostname",
+          "rare_below": 3
+        },
+        "target_extension": "hb-endpoint-control",
+        "role": "triage"
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ]
+    },
+    {
+      "id": "near-miss-triage",
+      "type": "analytic",
+      "label": "Near-misses versus noise",
+      "config": {
+        "description": "Pick the ASR events that were attacks and fix a time for each.",
+        "objective": "Separate noise (the same rule and process on many hosts, known add-ins, management agents) from near-misses (rare on the fleet, or a credential-theft, Office or Adobe child-process, PsExec/WMI, obfuscated-script, JavaScript/VBScript download, vulnerable-driver, webshell, copied-system-tool or Safe Mode rule). For each near-miss, record the host, the first event time, the triggering process, the objective the blocked action served (credential theft, code execution, lateral movement, persistence) and whether the rule was in audit mode, which means the action happened.",
+        "context": [
+          "asr-events"
+        ],
+        "tools": [
+          "endpoint",
+          "hb-endpoint-control"
+        ],
+        "success_criteria": "A list of near-misses per host with time, rule, process, objective and mode, citing rows; the hosts to paste into scope_hosts; and the noise processes to add to asr_noise_processes.",
+        "cite": "required",
+        "max_iterations": 3
+      },
+      "parents": [
+        {
+          "id": "asr-events"
+        }
+      ]
+    },
+    {
+      "id": "credential-theft-alternatives",
+      "type": "query",
+      "label": "Credential theft by other means",
+      "config": {
+        "description": "If the LSASS rule stopped a dump, look for the other ways to the same credentials: comsvcs MiniDump, procdump, renamed dumpers, saving the SAM, SECURITY and SYSTEM hives, NTDS copies and shadow copies.",
+        "content": "SELECT device_hostname, time, user_name, parent_process_name, process_name, process_cmd_line, integrity_level FROM hb_process_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%comsvcs%minidump%' OR LOWER(process_cmd_line) LIKE '%procdump%lsass%' OR LOWER(process_cmd_line) LIKE '%procdump%-ma%' OR LOWER(process_cmd_line) LIKE '%sekurlsa%' OR LOWER(process_cmd_line) LIKE '%lsadump%' OR (LOWER(process_cmd_line) LIKE '%reg%save%' AND (LOWER(process_cmd_line) LIKE '%hklm\\sam%' OR LOWER(process_cmd_line) LIKE '%hklm\\security%' OR LOWER(process_cmd_line) LIKE '%hklm\\system%')) OR LOWER(process_cmd_line) LIKE '%ntdsutil%ifm%' OR LOWER(process_cmd_line) LIKE '%esentutl%ntds%' OR LOWER(process_cmd_line) LIKE '%vssadmin%create%shadow%' OR LOWER(process_cmd_line) LIKE '%rdrleakdiag%' OR LOWER(process_cmd_line) LIKE '%sqldumper%')",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_process_activity",
+        "role": "triage",
+        "expected_signal": "Any of these after an LSASS ASR event on the same host means the attacker kept going for credentials."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, user_name, parent_process_name, process_name, process_cmd_line, integrity_level FROM hb_process_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_cmd_line) LIKE '%comsvcs%minidump%' OR LOWER(process_cmd_line) LIKE '%procdump%lsass%' OR LOWER(process_cmd_line) LIKE '%procdump%-ma%' OR LOWER(process_cmd_line) LIKE '%sekurlsa%' OR LOWER(process_cmd_line) LIKE '%lsadump%' OR (LOWER(process_cmd_line) LIKE '%reg%save%' AND (LOWER(process_cmd_line) LIKE '%hklm\\sam%' OR LOWER(process_cmd_line) LIKE '%hklm\\security%' OR LOWER(process_cmd_line) LIKE '%hklm\\system%')) OR LOWER(process_cmd_line) LIKE '%ntdsutil%ifm%' OR LOWER(process_cmd_line) LIKE '%esentutl%ntds%' OR LOWER(process_cmd_line) LIKE '%vssadmin%create%shadow%' OR LOWER(process_cmd_line) LIKE '%rdrleakdiag%' OR LOWER(process_cmd_line) LIKE '%sqldumper%')",
+        "label": "Credential theft by other means",
+        "target": "endpoint",
+        "source": "hb_process_activity",
+        "reads": [
+          "time",
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "user_name",
+          "integrity_level"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Any of these after an LSASS ASR event on the same host means the attacker kept going for credentials.",
+        "silence": "not_evidence_of_absence",
+        "role": "triage"
+      },
+      "parents": [
+        {
+          "id": "near-miss-triage"
+        }
+      ]
+    },
+    {
+      "id": "indirect-execution-alternatives",
+      "type": "query",
+      "label": "Script hosts and LOLBins started indirectly",
+      "config": {
+        "description": "If an Office, Adobe or script-host child process was blocked, look for the same payload started through WMI, COM, MMC or the task scheduler, or from an Office parent the rule does not cover.",
+        "content": "SELECT device_hostname, time, user_name, parent_process_name, parent_process_cmd_line, process_name, process_cmd_line FROM hb_process_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_name) LIKE '%\\powershell.exe' OR LOWER(process_name) LIKE '%\\pwsh.exe' OR LOWER(process_name) LIKE '%\\cmd.exe' OR LOWER(process_name) LIKE '%\\wscript.exe' OR LOWER(process_name) LIKE '%\\cscript.exe' OR LOWER(process_name) LIKE '%\\mshta.exe' OR LOWER(process_name) LIKE '%\\rundll32.exe' OR LOWER(process_name) LIKE '%\\regsvr32.exe' OR LOWER(process_name) LIKE '%\\msbuild.exe' OR LOWER(process_name) LIKE '%\\installutil.exe' OR LOWER(process_name) LIKE '%\\certutil.exe' OR LOWER(process_name) LIKE '%\\bitsadmin.exe' OR LOWER(process_name) LIKE '%\\msiexec.exe' OR LOWER(process_name) LIKE '%\\curl.exe') AND (LOWER(parent_process_name) LIKE '%\\wmiprvse.exe' OR LOWER(parent_process_name) LIKE '%\\dllhost.exe' OR LOWER(parent_process_name) LIKE '%\\mmc.exe' OR LOWER(parent_process_name) LIKE '%\\taskeng.exe' OR LOWER(parent_process_name) LIKE '%\\mshta.exe' OR LOWER(parent_process_name) LIKE '%\\wscript.exe' OR LOWER(parent_process_name) LIKE '%\\cscript.exe' OR LOWER(parent_process_name) LIKE '%\\excel.exe' OR LOWER(parent_process_name) LIKE '%\\winword.exe' OR LOWER(parent_process_name) LIKE '%\\outlook.exe' OR LOWER(parent_process_name) LIKE '%\\powerpnt.exe' OR LOWER(parent_process_name) LIKE '%\\onenote.exe' OR LOWER(parent_process_name) LIKE '%\\acrord32.exe')",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_process_activity",
+        "role": "triage",
+        "expected_signal": "powershell, mshta or rundll32 under wmiprvse.exe or dllhost.exe shortly after a blocked Office child process is the classic route around the rule."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, user_name, parent_process_name, parent_process_cmd_line, process_name, process_cmd_line FROM hb_process_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(process_name) LIKE '%\\powershell.exe' OR LOWER(process_name) LIKE '%\\pwsh.exe' OR LOWER(process_name) LIKE '%\\cmd.exe' OR LOWER(process_name) LIKE '%\\wscript.exe' OR LOWER(process_name) LIKE '%\\cscript.exe' OR LOWER(process_name) LIKE '%\\mshta.exe' OR LOWER(process_name) LIKE '%\\rundll32.exe' OR LOWER(process_name) LIKE '%\\regsvr32.exe' OR LOWER(process_name) LIKE '%\\msbuild.exe' OR LOWER(process_name) LIKE '%\\installutil.exe' OR LOWER(process_name) LIKE '%\\certutil.exe' OR LOWER(process_name) LIKE '%\\bitsadmin.exe' OR LOWER(process_name) LIKE '%\\msiexec.exe' OR LOWER(process_name) LIKE '%\\curl.exe') AND (LOWER(parent_process_name) LIKE '%\\wmiprvse.exe' OR LOWER(parent_process_name) LIKE '%\\dllhost.exe' OR LOWER(parent_process_name) LIKE '%\\mmc.exe' OR LOWER(parent_process_name) LIKE '%\\taskeng.exe' OR LOWER(parent_process_name) LIKE '%\\mshta.exe' OR LOWER(parent_process_name) LIKE '%\\wscript.exe' OR LOWER(parent_process_name) LIKE '%\\cscript.exe' OR LOWER(parent_process_name) LIKE '%\\excel.exe' OR LOWER(parent_process_name) LIKE '%\\winword.exe' OR LOWER(parent_process_name) LIKE '%\\outlook.exe' OR LOWER(parent_process_name) LIKE '%\\powerpnt.exe' OR LOWER(parent_process_name) LIKE '%\\onenote.exe' OR LOWER(parent_process_name) LIKE '%\\acrord32.exe')",
+        "label": "Script hosts and LOLBins started indirectly",
+        "target": "endpoint",
+        "source": "hb_process_activity",
+        "reads": [
+          "time",
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "parent_process_cmd_line",
+          "user_name"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "powershell, mshta or rundll32 under wmiprvse.exe or dllhost.exe shortly after a blocked Office child process is the classic route around the rule.",
+        "silence": "not_evidence_of_absence",
+        "role": "triage"
+      },
+      "parents": [
+        {
+          "id": "near-miss-triage"
+        }
+      ]
+    },
+    {
+      "id": "remote-service-creation",
+      "type": "query",
+      "label": "Services created with command or user-space binaries",
+      "config": {
+        "description": "If the PsExec/WMI rule stopped remote process creation, look for the same result through a new service.",
+        "content": "SELECT device_hostname, time, service_name, service_cmd_line, service_binary, service_start_name, actor_user_name FROM hb_service_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(COALESCE(service_cmd_line, '') || ' ' || COALESCE(service_binary, '')) LIKE '%cmd%/c%' OR LOWER(COALESCE(service_cmd_line, '') || ' ' || COALESCE(service_binary, '')) LIKE '%powershell%' OR LOWER(COALESCE(service_cmd_line, '') || ' ' || COALESCE(service_binary, '')) LIKE '%comspec%' OR LOWER(COALESCE(service_cmd_line, '') || ' ' || COALESCE(service_binary, '')) LIKE '%\\admin$\\%' OR (LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\users\\%' OR LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\programdata\\%' OR LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\windows\\temp\\%' OR LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\perflogs\\%' OR LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\$recycle.bin\\%'))",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_service_activity",
+        "role": "triage",
+        "expected_signal": "A service running cmd /c, PowerShell or a binary in a user-writable folder, created after a PsExec/WMI near-miss, is lateral movement that went through."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, service_name, service_cmd_line, service_binary, service_start_name, actor_user_name FROM hb_service_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND (LOWER(COALESCE(service_cmd_line, '') || ' ' || COALESCE(service_binary, '')) LIKE '%cmd%/c%' OR LOWER(COALESCE(service_cmd_line, '') || ' ' || COALESCE(service_binary, '')) LIKE '%powershell%' OR LOWER(COALESCE(service_cmd_line, '') || ' ' || COALESCE(service_binary, '')) LIKE '%comspec%' OR LOWER(COALESCE(service_cmd_line, '') || ' ' || COALESCE(service_binary, '')) LIKE '%\\admin$\\%' OR (LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\users\\%' OR LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\programdata\\%' OR LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\windows\\temp\\%' OR LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\perflogs\\%' OR LOWER(COALESCE(service_binary, service_cmd_line, '')) LIKE '%\\$recycle.bin\\%'))",
+        "label": "Services created with command or user-space binaries",
+        "target": "endpoint",
+        "source": "hb_service_activity",
+        "reads": [
+          "time",
+          "device_hostname",
+          "service_name",
+          "service_cmd_line",
+          "service_start_name",
+          "service_binary",
+          "actor_user_name"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "A service running cmd /c, PowerShell or a binary in a user-writable folder, created after a PsExec/WMI near-miss, is lateral movement that went through.",
+        "silence": "not_evidence_of_absence",
+        "role": "triage"
+      },
+      "parents": [
+        {
+          "id": "near-miss-triage"
+        }
+      ]
+    },
+    {
+      "id": "scheduled-task-creation",
+      "type": "query",
+      "label": "Scheduled tasks running scripts or user-space binaries",
+      "config": {
+        "description": "Look for persistence or execution moved into the task scheduler after a blocked attempt, including after the WMI-subscription persistence rule fired.",
+        "content": "SELECT device_hostname, time, job_name, job_cmd_line, job_user_name, actor_user_name FROM hb_scheduled_job WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ((LOWER(job_cmd_line) LIKE '%\\powershell.exe' OR LOWER(job_cmd_line) LIKE '%\\pwsh.exe' OR LOWER(job_cmd_line) LIKE '%\\cmd.exe' OR LOWER(job_cmd_line) LIKE '%\\wscript.exe' OR LOWER(job_cmd_line) LIKE '%\\cscript.exe' OR LOWER(job_cmd_line) LIKE '%\\mshta.exe' OR LOWER(job_cmd_line) LIKE '%\\rundll32.exe' OR LOWER(job_cmd_line) LIKE '%\\regsvr32.exe' OR LOWER(job_cmd_line) LIKE '%\\msbuild.exe' OR LOWER(job_cmd_line) LIKE '%\\installutil.exe' OR LOWER(job_cmd_line) LIKE '%\\certutil.exe' OR LOWER(job_cmd_line) LIKE '%\\bitsadmin.exe' OR LOWER(job_cmd_line) LIKE '%\\msiexec.exe' OR LOWER(job_cmd_line) LIKE '%\\curl.exe') OR LOWER(job_cmd_line) LIKE '%powershell%' OR LOWER(job_cmd_line) LIKE '%mshta%' OR LOWER(job_cmd_line) LIKE '%rundll32%' OR (LOWER(job_cmd_line) LIKE '%\\users\\%' OR LOWER(job_cmd_line) LIKE '%\\programdata\\%' OR LOWER(job_cmd_line) LIKE '%\\windows\\temp\\%' OR LOWER(job_cmd_line) LIKE '%\\perflogs\\%' OR LOWER(job_cmd_line) LIKE '%\\$recycle.bin\\%'))",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_scheduled_job",
+        "role": "triage",
+        "expected_signal": "A task created after the near-miss that runs a script host or a user-space binary."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, job_name, job_cmd_line, job_user_name, actor_user_name FROM hb_scheduled_job WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ((LOWER(job_cmd_line) LIKE '%\\powershell.exe' OR LOWER(job_cmd_line) LIKE '%\\pwsh.exe' OR LOWER(job_cmd_line) LIKE '%\\cmd.exe' OR LOWER(job_cmd_line) LIKE '%\\wscript.exe' OR LOWER(job_cmd_line) LIKE '%\\cscript.exe' OR LOWER(job_cmd_line) LIKE '%\\mshta.exe' OR LOWER(job_cmd_line) LIKE '%\\rundll32.exe' OR LOWER(job_cmd_line) LIKE '%\\regsvr32.exe' OR LOWER(job_cmd_line) LIKE '%\\msbuild.exe' OR LOWER(job_cmd_line) LIKE '%\\installutil.exe' OR LOWER(job_cmd_line) LIKE '%\\certutil.exe' OR LOWER(job_cmd_line) LIKE '%\\bitsadmin.exe' OR LOWER(job_cmd_line) LIKE '%\\msiexec.exe' OR LOWER(job_cmd_line) LIKE '%\\curl.exe') OR LOWER(job_cmd_line) LIKE '%powershell%' OR LOWER(job_cmd_line) LIKE '%mshta%' OR LOWER(job_cmd_line) LIKE '%rundll32%' OR (LOWER(job_cmd_line) LIKE '%\\users\\%' OR LOWER(job_cmd_line) LIKE '%\\programdata\\%' OR LOWER(job_cmd_line) LIKE '%\\windows\\temp\\%' OR LOWER(job_cmd_line) LIKE '%\\perflogs\\%' OR LOWER(job_cmd_line) LIKE '%\\$recycle.bin\\%'))",
+        "label": "Scheduled tasks running scripts or user-space binaries",
+        "target": "endpoint",
+        "source": "hb_scheduled_job",
+        "reads": [
+          "time",
+          "device_hostname",
+          "actor_user_name",
+          "job_name",
+          "job_cmd_line",
+          "job_user_name"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "A task created after the near-miss that runs a script host or a user-space binary.",
+        "silence": "not_evidence_of_absence",
+        "role": "triage"
+      },
+      "parents": [
+        {
+          "id": "near-miss-triage"
+        }
+      ]
+    },
+    {
+      "id": "follow-through-verdict",
+      "type": "analytic",
+      "label": "Follow-through verdict",
+      "config": {
+        "description": "Decide per near-miss whether the attacker reached the objective anyway.",
+        "objective": "For each near-miss from near-miss-triage, put the host's rows from the four follow-through steps in time order from the ASR event. Decide whether the objective the blocked action served was reached by another route, and for audit-mode events, what followed the action that was allowed. Treat a host with no telemetry in these steps as unknown.",
+        "context": [
+          "near-miss-triage",
+          "credential-theft-alternatives",
+          "indirect-execution-alternatives",
+          "remote-service-creation",
+          "scheduled-task-creation"
+        ],
+        "tools": [
+          "endpoint",
+          "hb-endpoint-control"
+        ],
+        "success_criteria": "A verdict per near-miss of reached, attempted only, or benign, with a timeline citing rows.",
+        "cite": "required",
+        "max_iterations": 4
+      },
+      "parents": [
+        {
+          "id": "credential-theft-alternatives",
+          "kind": "merge"
+        },
+        {
+          "id": "indirect-execution-alternatives",
+          "kind": "merge"
+        },
+        {
+          "id": "remote-service-creation",
+          "kind": "merge"
+        },
+        {
+          "id": "scheduled-task-creation",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "description": "Act where the attacker got through.",
+        "checkpoint_type": "mandatory",
+        "condition": "follow-through-verdict finds at least one near-miss whose objective was reached by another route, or an audit-mode event that was followed by attacker activity",
+        "question": "follow-through-verdict finds at least one near-miss whose objective was reached by another route, or an audit-mode event that was followed by attacker activity",
+        "fuzzy": true,
+        "confidence": "high",
+        "judge": "hunter",
+        "blind_spot": "follow-through-telemetry"
+      },
+      "parents": [
+        {
+          "id": "follow-through-verdict"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate the host",
+      "config": {
+        "description": "Stop the intrusion that the ASR rule only slowed.",
+        "instructions": "Isolate the host. Where the objective was credential theft, treat every account that logged on to the host since the first ASR event as exposed and reset its password through the identity team.",
+        "action_approval": "required",
+        "target": "endpoint"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "description": "Confirm and trace back to the start.",
+        "instructions": "Find how the triggering process got there: the document, script or tool, and the account. Check the other hosts that account used during the window, and whether the same rule fired there.",
+        "assignee": "analyst"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "description": "Record results and tune.",
+        "instructions": "Record near-misses and outcomes. For rules that only audited on hosts with near-misses, raise a change to move them to enforcement. Add confirmed benign triggers to asr_noise_processes so the next run starts cleaner.",
+        "assignee": "analyst"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

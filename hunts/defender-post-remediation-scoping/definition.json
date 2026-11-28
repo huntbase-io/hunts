@@ -1,0 +1,858 @@
+{
+  "hunt": {
+    "name": "After Defender Remediates: What Changed and Where Else It Is",
+    "description": "When Defender reports a threat as remediated, the usual response stops there. But the same file often arrived on other hosts, where a different variant, an exclusion or the attacker's own clean-up kept it from being detected. Defender's database, mpenginedb.db, holds what is needed to check: the registry values and system files remediation changed, with the malicious values and hashes, the engine's threat records, and a hash cache of files it scanned that keeps entries after the file is deleted.\n\nThis hunt starts from Defender's remediations, reads those records on the remediated hosts through the defender_mpengine osquery extension, and has an agent turn them into hashes and registry values. It then sweeps the fleet for them: the hash cache on every host, process telemetry, registry telemetry, and a count of rare autostart values for persistence that was renamed.\n\nThe outcome is a list of hosts where the malware is still present, hosts where it was and is gone, and remediated hosts where it came back.",
+    "meta": {
+      "type": "investigation",
+      "name": "After Defender Remediates: What Changed and Where Else It Is",
+      "labels": [
+        "hunt",
+        "attack.t1070.004",
+        "attack.t1547.001",
+        "attack.t1543.003",
+        "attack.t1570",
+        "defense evasion",
+        "execution",
+        "lateral movement",
+        "persistence",
+        "hb-endpoint-control"
+      ],
+      "tlp": "clear",
+      "severity": "medium",
+      "hypothesis": "Malware that Microsoft Defender remediated on one host also reached other hosts where Defender did not detect it or where the attacker deleted it first, and its persistence and file hashes are recoverable from Defender's remediation and hash caches.",
+      "rationale": "Run after any Defender remediation of a trojan, backdoor or hacktool, not adware. Paste the remediated hosts into scope_hosts for the first parallel steps, then fill artefact_hashes and persistence_value_names from artefact-extraction before the fleet sweep, which runs across the whole estate.",
+      "analysis": "The sweep values do not exist until the remediated host's records are read, and deciding whether a hash-cache hit means present, past or nothing takes the process and registry context around it.",
+      "hunt": {
+        "trigger": "incident-followup",
+        "methodology": "structured-hypothesis-driven",
+        "applicability": "environment-specific",
+        "handoff": "keep-as-periodic-hunt",
+        "justification": "A remediation on one host is the cheapest lead an organisation gets, and treating it as the end of the incident is how the same malware stays on the hosts Defender missed."
+      },
+      "references": [
+        {
+          "name": "Protokol-7 \u2014 Defender's hidden flight recorder: mpenginedb.db",
+          "url": "https://protokol-7.github.io/dfir/2026/11/10/defenders-hidden-flight-recorder-mpenginedb.html"
+        },
+        {
+          "name": "osquery-defender-extension (defender_mpengine_* tables)",
+          "url": "https://github.com/rakeshrm/osquery-defender-extension"
+        },
+        {
+          "name": "Protokol-7 \u2014 mpenginedb_parser (deleted-row recovery, full timeline)",
+          "url": "https://github.com/Protokol-7/mpenginedb_parser"
+        }
+      ],
+      "guardrails": {
+        "telemetry": "untrusted",
+        "evidence": "citation_required",
+        "missing_data": "not_benign",
+        "claims": "no_unsupported"
+      },
+      "series": {
+        "slug": "defender-mpenginedb-flight-recorder",
+        "index": 5,
+        "total": 5,
+        "title": "Hunting with Defender's Flight Recorder (mpenginedb.db)"
+      },
+      "related": [
+        {
+          "hunt": "defender-weakening-tamper-asr-exclusions",
+          "relation": "sibling",
+          "reason": "An exclusion or a stopped engine is a common reason Defender missed the other hosts."
+        }
+      ],
+      "scenario": {
+        "summary": "Malware lands on several hosts, sets persistence and may patch system files. Defender detects and remediates it on one host; on others it is missed or the attacker deletes the files first.",
+        "stages": [
+          {
+            "slug": "payload-on-disk",
+            "name": "Malware written and run",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "Detected file",
+              "RecentThreatsOnMachine entries"
+            ]
+          },
+          {
+            "slug": "persistence-set",
+            "name": "Persistence set in the registry",
+            "tactic": "persistence",
+            "techniques": [
+              "T1547.001",
+              "T1543.003"
+            ],
+            "observables": [
+              "Run, Winlogon or service values in SystemRegistryCache old_data"
+            ]
+          },
+          {
+            "slug": "system-file-tamper",
+            "name": "System files patched",
+            "tactic": "persistence",
+            "observables": [
+              "SystemFileCache infected and clean hashes"
+            ]
+          },
+          {
+            "slug": "spread-to-other-hosts",
+            "name": "Spread to other hosts",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1570"
+            ],
+            "observables": [
+              "Same hash or persistence value on other hosts"
+            ]
+          },
+          {
+            "slug": "attacker-cleanup",
+            "name": "Attacker deletes files",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1070.004"
+            ],
+            "observables": [
+              "Hash in FileHashes with no file on disk"
+            ]
+          }
+        ]
+      },
+      "coverage": [
+        {
+          "stage": "payload-on-disk",
+          "status": "covered",
+          "steps": [
+            "threat-records-on-host",
+            "fleet-hash-cache-sweep",
+            "fleet-process-hash-sweep"
+          ]
+        },
+        {
+          "stage": "persistence-set",
+          "status": "covered",
+          "steps": [
+            "registry-values-restored",
+            "fleet-persistence-sweep",
+            "rare-autostart-values"
+          ]
+        },
+        {
+          "stage": "system-file-tamper",
+          "status": "covered",
+          "steps": [
+            "system-files-restored"
+          ]
+        },
+        {
+          "stage": "spread-to-other-hosts",
+          "status": "covered",
+          "steps": [
+            "fleet-hash-cache-sweep",
+            "fleet-process-hash-sweep",
+            "fleet-persistence-sweep"
+          ]
+        },
+        {
+          "stage": "attacker-cleanup",
+          "status": "covered",
+          "steps": [
+            "fleet-hash-cache-sweep"
+          ]
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "extension-not-answering",
+          "requires": "the defender_mpengine osquery extension loaded by osqueryd (running as SYSTEM) on every Windows host, with Microsoft Defender Antivirus as the active engine and defender_mpengine_status.error empty",
+          "question": "Did Defender record anything on hosts where the extension is missing, cannot decrypt the database, or Defender is passive behind another antivirus?",
+          "risk": "Those hosts return no rows, which looks the same as a clean host. An attacker who has removed or stopped Defender also leaves an empty or stale database.",
+          "owner": "Endpoint engineering",
+          "remediation": "Deploy the extension through extensions.load on all Windows hosts and alert on defender_mpengine_status rows with a non-empty error."
+        },
+        {
+          "id": "remediation-caches-unverified",
+          "stage": "persistence-set",
+          "requires": "SystemRegistryCache and SystemFileCache rows from real remediations, and a decoder checked against them",
+          "question": "What did the malware change that Defender put back?",
+          "risk": "These tables were empty on every host the extension was tested on; their columns follow the live schema but no real row has been decoded yet, and reg_operation is undocumented. Treat the step as best effort."
+        },
+        {
+          "id": "hash-cache-has-no-path",
+          "stage": "attacker-cleanup",
+          "requires": "MFT or USN journal data to resolve volume serial and MFT entry to a path",
+          "question": "Where on disk was the file the hash cache remembers?",
+          "risk": "The hash cache proves a host held the file, not where or when it went, and covers only files real-time protection scanned in about the last two weeks."
+        },
+        {
+          "id": "detection-forwarding",
+          "requires": "Defender detections (events 1116/1117 or MDE alerts) in hb_detection_finding",
+          "question": "Which hosts did Defender remediate?",
+          "risk": "Without forwarding the scoping step is empty; run threat-records-on-host across the estate instead."
+        }
+      ],
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine. Defender keeps roughly two weeks in mpenginedb.db."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts to focus the follow-up queries on, as osquery reports their hostname; empty runs them across the estate."
+        },
+        "artefact_hashes": {
+          "type": "list[hash]",
+          "default": [],
+          "description": "SHA-256, SHA-1 or MD5 of the remediated files, from artefact-extraction.",
+          "from": {
+            "kind": "incident",
+            "ref": "artefact-extraction step of this hunt"
+          }
+        },
+        "persistence_value_names": {
+          "type": "list[string]",
+          "default": [],
+          "description": "Registry value names the malware set, from artefact-extraction."
+        }
+      },
+      "targets": {
+        "endpoint": {
+          "category": "endpoint",
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "hunter": {
+          "agent": true,
+          "name": "Hunt agent"
+        },
+        "analyst": {
+          "role": "analyst",
+          "name": "Tier-2 analyst"
+        },
+        "hb-endpoint-control": {
+          "category": "endpoint",
+          "name": "osquery with the Defender MpEngineDb extension (Huntbase Endpoint Control)",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          }
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "name": "Huntbase",
+            "org": "huntbase.io"
+          }
+        ],
+        "generated": {
+          "by": "hand-authored-with-claude",
+          "from": "https://protokol-7.github.io/dfir/2026/11/10/defenders-hidden-flight-recorder-mpenginedb.html",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "claude-opus-5-5"
+        }
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "rationale": "Malware that Microsoft Defender remediated on one host also reached other hosts where Defender did not detect it or where the attacker deleted it first, and its persistence and file hashes are recoverable from Defender's remediation and hash caches.",
+        "tags": [],
+        "scoping_notes": "Run after any Defender remediation of a trojan, backdoor or hacktool, not adware. Paste the remediated hosts into scope_hosts for the first parallel steps, then fill artefact_hashes and persistence_value_names from artefact-extraction before the fleet sweep, which runs across the whole estate.",
+        "beyond_detection": "The sweep values do not exist until the remediated host's records are read, and deciding whether a hash-cache hit means present, past or nothing takes the process and registry context around it.",
+        "blind_spots": [
+          {
+            "id": "extension-not-answering",
+            "requires": "the defender_mpengine osquery extension loaded by osqueryd (running as SYSTEM) on every Windows host, with Microsoft Defender Antivirus as the active engine and defender_mpengine_status.error empty",
+            "question": "Did Defender record anything on hosts where the extension is missing, cannot decrypt the database, or Defender is passive behind another antivirus?",
+            "risk": "Those hosts return no rows, which looks the same as a clean host. An attacker who has removed or stopped Defender also leaves an empty or stale database.",
+            "owner": "Endpoint engineering",
+            "remediation": "Deploy the extension through extensions.load on all Windows hosts and alert on defender_mpengine_status rows with a non-empty error."
+          },
+          {
+            "id": "remediation-caches-unverified",
+            "stage": "persistence-set",
+            "requires": "SystemRegistryCache and SystemFileCache rows from real remediations, and a decoder checked against them",
+            "question": "What did the malware change that Defender put back?",
+            "risk": "These tables were empty on every host the extension was tested on; their columns follow the live schema but no real row has been decoded yet, and reg_operation is undocumented. Treat the step as best effort."
+          },
+          {
+            "id": "hash-cache-has-no-path",
+            "stage": "attacker-cleanup",
+            "requires": "MFT or USN journal data to resolve volume serial and MFT entry to a path",
+            "question": "Where on disk was the file the hash cache remembers?",
+            "risk": "The hash cache proves a host held the file, not where or when it went, and covers only files real-time protection scanned in about the last two weeks."
+          },
+          {
+            "id": "detection-forwarding",
+            "requires": "Defender detections (events 1116/1117 or MDE alerts) in hb_detection_finding",
+            "question": "Which hosts did Defender remediate?",
+            "risk": "Without forwarding the scoping step is empty; run threat-records-on-host across the estate instead."
+          }
+        ],
+        "coverage": [
+          {
+            "stage": "payload-on-disk",
+            "status": "covered",
+            "steps": [
+              "threat-records-on-host",
+              "fleet-hash-cache-sweep",
+              "fleet-process-hash-sweep"
+            ]
+          },
+          {
+            "stage": "persistence-set",
+            "status": "covered",
+            "steps": [
+              "registry-values-restored",
+              "fleet-persistence-sweep",
+              "rare-autostart-values"
+            ]
+          },
+          {
+            "stage": "system-file-tamper",
+            "status": "covered",
+            "steps": [
+              "system-files-restored"
+            ]
+          },
+          {
+            "stage": "spread-to-other-hosts",
+            "status": "covered",
+            "steps": [
+              "fleet-hash-cache-sweep",
+              "fleet-process-hash-sweep",
+              "fleet-persistence-sweep"
+            ]
+          },
+          {
+            "stage": "attacker-cleanup",
+            "status": "covered",
+            "steps": [
+              "fleet-hash-cache-sweep"
+            ]
+          }
+        ],
+        "series": {
+          "slug": "defender-mpenginedb-flight-recorder",
+          "index": 5,
+          "total": 5,
+          "title": "Hunting with Defender's Flight Recorder (mpenginedb.db)"
+        }
+      }
+    },
+    {
+      "id": "remediated-detections",
+      "type": "query",
+      "label": "Defender remediations in the window",
+      "config": {
+        "description": "Start from what Defender cleaned: its detections in the window, with the threat, the file and the outcome. These hosts are the starting point.",
+        "content": "SELECT device_hostname, time, malware_name, finding_title, file_path, process_path, disposition, finding_status, user_name FROM hb_detection_finding WHERE time >= datetime('now', '-{{lookback_days}} days') AND (LOWER(COALESCE(metadata_product, '')) LIKE '%defender%' OR LOWER(COALESCE(provider, '')) LIKE '%defender%')",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_detection_finding",
+        "role": "scoping",
+        "expected_signal": "Detections with a remediated or quarantined disposition. Paste their hosts into scope_hosts. Empty when Defender detections are not forwarded; run the next step across the estate instead."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, malware_name, finding_title, file_path, process_path, disposition, finding_status, user_name FROM hb_detection_finding WHERE time >= datetime('now', '-{{lookback_days}} days') AND (LOWER(COALESCE(metadata_product, '')) LIKE '%defender%' OR LOWER(COALESCE(provider, '')) LIKE '%defender%')",
+        "label": "Defender remediations in the window",
+        "target": "endpoint",
+        "source": "hb_detection_finding",
+        "reads": [
+          "time",
+          "provider",
+          "finding_title",
+          "finding_status",
+          "disposition",
+          "malware_name",
+          "file_path",
+          "process_path",
+          "user_name",
+          "device_hostname",
+          "metadata_product"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Detections with a remediated or quarantined disposition. Paste their hosts into scope_hosts. Empty when Defender detections are not forwarded; run the next step across the estate instead.",
+        "silence": "not_evidence_of_absence",
+        "role": "scoping"
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ]
+    },
+    {
+      "id": "threat-records-on-host",
+      "type": "query",
+      "label": "Threats and dropped executables on the host",
+      "config": {
+        "description": "Read the engine's own threat records and the executables it saw dropped and run, which name the process images involved even when the detection did not.",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, queue_type, entry_key, pid, process_start, CASE WHEN json_valid(entry_value) THEN json_extract(entry_value, '$.Process_Img') END AS image, insert_time FROM defender_mpengine_rolling_queues WHERE queue_type IN ('recent_threats', 'dropped_executable') AND insert_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || (SELECT hostname FROM system_info) || ',') > 0)",
+        "dsl": "osquery",
+        "source": "hb-endpoint-control",
+        "surface": "defender_mpengine_rolling_queues",
+        "role": "enrichment",
+        "expected_signal": "Behavior:Win32/... names with the image they were raised against, and dropped paths. Images other than the detected file are part of the chain.",
+        "product": "hb-endpoint-control",
+        "extension": "hb-endpoint-control"
+      },
+      "primitive_config": {
+        "dsl": "osquery",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, queue_type, entry_key, pid, process_start, CASE WHEN json_valid(entry_value) THEN json_extract(entry_value, '$.Process_Img') END AS image, insert_time FROM defender_mpengine_rolling_queues WHERE queue_type IN ('recent_threats', 'dropped_executable') AND insert_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || (SELECT hostname FROM system_info) || ',') > 0)",
+        "label": "Threats and dropped executables on the host",
+        "target": "hb-endpoint-control",
+        "source": "defender_mpengine_rolling_queues",
+        "reads": [
+          "queue_type",
+          "entry_key",
+          "entry_value",
+          "pid",
+          "process_start",
+          "insert_time"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Behavior:Win32/... names with the image they were raised against, and dropped paths. Images other than the detected file are part of the chain.",
+        "silence": "not_evidence_of_absence",
+        "target_extension": "hb-endpoint-control",
+        "role": "enrichment"
+      },
+      "parents": [
+        {
+          "id": "remediated-detections"
+        }
+      ]
+    },
+    {
+      "id": "registry-values-restored",
+      "type": "query",
+      "label": "Registry values Defender put back",
+      "config": {
+        "description": "Read the registry values remediation changed, before and after. The value before is what the malware wrote: its persistence or configuration.",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, instance_time, reg_path, reg_operation, old_type_name, old_data, old_data_hex, new_type_name, new_data FROM defender_mpengine_system_registry_cache WHERE instance_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || (SELECT hostname FROM system_info) || ',') > 0)",
+        "dsl": "osquery",
+        "source": "hb-endpoint-control",
+        "surface": "defender_mpengine_system_registry_cache",
+        "role": "enrichment",
+        "expected_signal": "Run keys, services, Winlogon or policy values with the malicious data in old_data. reg_operation is an undocumented code.",
+        "product": "hb-endpoint-control",
+        "extension": "hb-endpoint-control"
+      },
+      "primitive_config": {
+        "dsl": "osquery",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, instance_time, reg_path, reg_operation, old_type_name, old_data, old_data_hex, new_type_name, new_data FROM defender_mpengine_system_registry_cache WHERE instance_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || (SELECT hostname FROM system_info) || ',') > 0)",
+        "label": "Registry values Defender put back",
+        "target": "hb-endpoint-control",
+        "source": "defender_mpengine_system_registry_cache",
+        "reads": [
+          "instance_time",
+          "reg_path",
+          "reg_operation",
+          "old_type_name",
+          "old_data",
+          "old_data_hex",
+          "new_type_name",
+          "new_data"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Run keys, services, Winlogon or policy values with the malicious data in old_data. reg_operation is an undocumented code.",
+        "silence": "not_evidence_of_absence",
+        "target_extension": "hb-endpoint-control",
+        "role": "enrichment"
+      },
+      "parents": [
+        {
+          "id": "remediated-detections"
+        }
+      ]
+    },
+    {
+      "id": "system-files-restored",
+      "type": "query",
+      "label": "System files Defender restored",
+      "config": {
+        "description": "Read the system files remediation replaced, with the infected and clean hashes.",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, instance_time, system_file_path, infected_file_sha, clean_file_sha FROM defender_mpengine_system_file_cache WHERE instance_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || (SELECT hostname FROM system_info) || ',') > 0)",
+        "dsl": "osquery",
+        "source": "hb-endpoint-control",
+        "surface": "defender_mpengine_system_file_cache",
+        "role": "enrichment",
+        "expected_signal": "A patched or replaced Windows binary, with the infected hash to search for elsewhere.",
+        "product": "hb-endpoint-control",
+        "extension": "hb-endpoint-control"
+      },
+      "primitive_config": {
+        "dsl": "osquery",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, instance_time, system_file_path, infected_file_sha, clean_file_sha FROM defender_mpengine_system_file_cache WHERE instance_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || (SELECT hostname FROM system_info) || ',') > 0)",
+        "label": "System files Defender restored",
+        "target": "hb-endpoint-control",
+        "source": "defender_mpengine_system_file_cache",
+        "reads": [
+          "instance_time",
+          "system_file_path",
+          "infected_file_sha",
+          "clean_file_sha"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "A patched or replaced Windows binary, with the infected hash to search for elsewhere.",
+        "silence": "not_evidence_of_absence",
+        "target_extension": "hb-endpoint-control",
+        "role": "enrichment"
+      },
+      "parents": [
+        {
+          "id": "remediated-detections"
+        }
+      ]
+    },
+    {
+      "id": "artefact-extraction",
+      "type": "analytic",
+      "label": "Extract the artefacts to sweep for",
+      "config": {
+        "description": "Turn the remediated hosts' records into values to search the fleet for.",
+        "objective": "From the detections, threat records, restored registry values and restored system files, list the artefacts: file hashes (detected files, infected_file_sha, hashes of dropped images where known), registry value names and data the malware wrote, and image paths. Note any host where a restored value has the malicious data again, which means remediation did not hold.",
+        "context": [
+          "remediated-detections",
+          "threat-records-on-host",
+          "registry-values-restored",
+          "system-files-restored"
+        ],
+        "tools": [
+          "endpoint",
+          "hb-endpoint-control"
+        ],
+        "success_criteria": "Values to paste into artefact_hashes and persistence_value_names, citing rows, and the hosts where remediation did not hold.",
+        "cite": "required",
+        "max_iterations": 4
+      },
+      "parents": [
+        {
+          "id": "threat-records-on-host",
+          "kind": "merge"
+        },
+        {
+          "id": "registry-values-restored",
+          "kind": "merge"
+        },
+        {
+          "id": "system-files-restored",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "fleet-hash-cache-sweep",
+      "type": "query",
+      "label": "Defender's hash cache across the fleet",
+      "config": {
+        "description": "Search every host's real-time protection hash cache for the artefact hashes. The cache keeps hashes of files Defender scanned even after the file is deleted, so it finds hosts where the attacker cleaned up.",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, sha256, sha1, md5, volume_serial, mft_entry, mft_sequence, usn, instance_time FROM defender_mpengine_file_hashes WHERE instr(',' || LOWER('{{artefact_hashes}}') || ',', ',' || LOWER(sha256) || ',') > 0 OR instr(',' || LOWER('{{artefact_hashes}}') || ',', ',' || LOWER(sha1) || ',') > 0 OR instr(',' || LOWER('{{artefact_hashes}}') || ',', ',' || LOWER(md5) || ',') > 0",
+        "dsl": "osquery",
+        "source": "hb-endpoint-control",
+        "surface": "defender_mpengine_file_hashes",
+        "role": "triage",
+        "expected_signal": "Hosts other than the remediated ones that held an artefact. mft_entry and volume_serial locate the file in the MFT; there is no path.",
+        "product": "hb-endpoint-control",
+        "extension": "hb-endpoint-control"
+      },
+      "primitive_config": {
+        "dsl": "osquery",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, sha256, sha1, md5, volume_serial, mft_entry, mft_sequence, usn, instance_time FROM defender_mpengine_file_hashes WHERE instr(',' || LOWER('{{artefact_hashes}}') || ',', ',' || LOWER(sha256) || ',') > 0 OR instr(',' || LOWER('{{artefact_hashes}}') || ',', ',' || LOWER(sha1) || ',') > 0 OR instr(',' || LOWER('{{artefact_hashes}}') || ',', ',' || LOWER(md5) || ',') > 0",
+        "label": "Defender's hash cache across the fleet",
+        "target": "hb-endpoint-control",
+        "source": "defender_mpengine_file_hashes",
+        "reads": [
+          "instance_time",
+          "volume_serial",
+          "mft_entry",
+          "mft_sequence",
+          "usn",
+          "md5",
+          "sha1",
+          "sha256"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Hosts other than the remediated ones that held an artefact. mft_entry and volume_serial locate the file in the MFT; there is no path.",
+        "silence": "not_evidence_of_absence",
+        "target_extension": "hb-endpoint-control",
+        "role": "triage"
+      },
+      "parents": [
+        {
+          "id": "artefact-extraction"
+        }
+      ]
+    },
+    {
+      "id": "fleet-process-hash-sweep",
+      "type": "query",
+      "label": "Artefact hashes executing across the fleet",
+      "config": {
+        "description": "Find hosts where an artefact ran, from process telemetry.",
+        "content": "SELECT device_hostname, time, user_name, parent_process_name, process_name, process_cmd_line, process_hash_sha256 FROM hb_process_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND instr(',' || LOWER('{{artefact_hashes}}') || ',', ',' || LOWER(process_hash_sha256) || ',') > 0",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_process_activity",
+        "role": "triage",
+        "expected_signal": "Execution on a host Defender did not remediate."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, user_name, parent_process_name, process_name, process_cmd_line, process_hash_sha256 FROM hb_process_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND instr(',' || LOWER('{{artefact_hashes}}') || ',', ',' || LOWER(process_hash_sha256) || ',') > 0",
+        "label": "Artefact hashes executing across the fleet",
+        "target": "endpoint",
+        "source": "hb_process_activity",
+        "reads": [
+          "time",
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "process_hash_sha256",
+          "parent_process_name",
+          "user_name"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Execution on a host Defender did not remediate.",
+        "silence": "not_evidence_of_absence",
+        "role": "triage"
+      },
+      "parents": [
+        {
+          "id": "artefact-extraction"
+        }
+      ]
+    },
+    {
+      "id": "fleet-persistence-sweep",
+      "type": "query",
+      "label": "The malware's registry values across the fleet",
+      "config": {
+        "description": "Find hosts where the same persistence value names were written.",
+        "content": "SELECT device_hostname, time, reg_key_path, reg_value_name, reg_value_data, process_name, actor_user_name FROM hb_registry_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND instr(',' || LOWER('{{persistence_value_names}}') || ',', ',' || LOWER(reg_value_name) || ',') > 0",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_registry_activity",
+        "role": "triage",
+        "expected_signal": "The same value names on other hosts. Silence means only that these names were not reused; see rare-autostart-values."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, reg_key_path, reg_value_name, reg_value_data, process_name, actor_user_name FROM hb_registry_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND instr(',' || LOWER('{{persistence_value_names}}') || ',', ',' || LOWER(reg_value_name) || ',') > 0",
+        "label": "The malware's registry values across the fleet",
+        "target": "endpoint",
+        "source": "hb_registry_activity",
+        "reads": [
+          "time",
+          "device_hostname",
+          "actor_user_name",
+          "reg_key_path",
+          "reg_value_name",
+          "reg_value_data",
+          "process_name"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "The same value names on other hosts. Silence means only that these names were not reused; see rare-autostart-values.",
+        "silence": "not_evidence_of_absence",
+        "role": "triage"
+      },
+      "parents": [
+        {
+          "id": "artefact-extraction"
+        }
+      ]
+    },
+    {
+      "id": "rare-autostart-values",
+      "type": "query",
+      "label": "Rare autostart values",
+      "config": {
+        "description": "Stack every autostart value written in the window by name and data across the fleet, so renamed persistence from the same family still stands out.",
+        "content": "SELECT LOWER(reg_value_name) AS value_name, reg_value_data, COUNT(DISTINCT device_hostname) AS hosts, GROUP_CONCAT(DISTINCT device_hostname) AS host_list, MIN(time) AS first_seen FROM hb_registry_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND (LOWER(reg_key_path) LIKE '%\\currentversion\\run%' OR LOWER(reg_key_path) LIKE '%\\winlogon%' OR LOWER(reg_key_path) LIKE '%\\image file execution options\\%' OR (LOWER(reg_key_path) LIKE '%\\system\\currentcontrolset\\services\\%' AND LOWER(reg_value_name) IN ('imagepath', 'servicedll'))) GROUP BY LOWER(reg_value_name), reg_value_data HAVING COUNT(DISTINCT device_hostname) < 3",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_registry_activity",
+        "role": "baseline",
+        "expected_signal": "Values whose data has the same shape as the restored ones (same folder, same launcher, random-looking names) on other hosts."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT LOWER(reg_value_name) AS value_name, reg_value_data, COUNT(DISTINCT device_hostname) AS hosts, GROUP_CONCAT(DISTINCT device_hostname) AS host_list, MIN(time) AS first_seen FROM hb_registry_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND (LOWER(reg_key_path) LIKE '%\\currentversion\\run%' OR LOWER(reg_key_path) LIKE '%\\winlogon%' OR LOWER(reg_key_path) LIKE '%\\image file execution options\\%' OR (LOWER(reg_key_path) LIKE '%\\system\\currentcontrolset\\services\\%' AND LOWER(reg_value_name) IN ('imagepath', 'servicedll'))) GROUP BY LOWER(reg_value_name), reg_value_data HAVING COUNT(DISTINCT device_hostname) < 3",
+        "label": "Rare autostart values",
+        "target": "endpoint",
+        "source": "hb_registry_activity",
+        "reads": [
+          "time",
+          "device_hostname",
+          "reg_key_path",
+          "reg_value_name",
+          "reg_value_data"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Values whose data has the same shape as the restored ones (same folder, same launcher, random-looking names) on other hosts.",
+        "silence": "not_evidence_of_absence",
+        "prevalence": {
+          "key": [
+            "value_name",
+            "reg_value_data"
+          ],
+          "by": "device_hostname",
+          "rare_below": 3
+        },
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "role": "baseline"
+      },
+      "parents": [
+        {
+          "id": "artefact-extraction"
+        }
+      ]
+    },
+    {
+      "id": "spread-verdict",
+      "type": "analytic",
+      "label": "Spread verdict",
+      "config": {
+        "description": "Decide where else the malware is or was.",
+        "objective": "List every host other than the remediated ones with an artefact hash in the Defender hash cache or in process telemetry, the same persistence value, or a rare autostart value shaped like the restored ones. For each, say whether the artefact is likely still present (running, persistence in place) or was there and is gone (hash cache only).",
+        "context": [
+          "artefact-extraction",
+          "fleet-hash-cache-sweep",
+          "fleet-process-hash-sweep",
+          "fleet-persistence-sweep",
+          "rare-autostart-values"
+        ],
+        "tools": [
+          "endpoint",
+          "hb-endpoint-control"
+        ],
+        "success_criteria": "A per-host list of present, past or none, citing rows, and the remediated hosts where remediation did not hold.",
+        "cite": "required",
+        "max_iterations": 4
+      },
+      "parents": [
+        {
+          "id": "fleet-hash-cache-sweep",
+          "kind": "merge"
+        },
+        {
+          "id": "fleet-process-hash-sweep",
+          "kind": "merge"
+        },
+        {
+          "id": "fleet-persistence-sweep",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-autostart-values",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "description": "Act on hosts where the malware is still present.",
+        "checkpoint_type": "mandatory",
+        "condition": "spread-verdict finds the malware present on at least one host Defender did not remediate, or remediation did not hold on a remediated host",
+        "question": "spread-verdict finds the malware present on at least one host Defender did not remediate, or remediation did not hold on a remediated host",
+        "fuzzy": true,
+        "confidence": "high",
+        "judge": "hunter",
+        "blind_spot": "remediation-caches-unverified"
+      },
+      "parents": [
+        {
+          "id": "spread-verdict"
+        }
+      ]
+    },
+    {
+      "id": "isolate-and-scan",
+      "type": "action",
+      "label": "Isolate and rescan",
+      "config": {
+        "description": "Stop the spread and clean the hosts Defender missed.",
+        "instructions": "Collect each host's Scans folder, then isolate it and run a full Defender scan with current definitions. Remove persistence values that the scan leaves in place.",
+        "action_approval": "required",
+        "target": "endpoint"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "description": "Confirm and find the entry point.",
+        "instructions": "For hosts found only in the hash cache, locate the file in the MFT by volume serial and MFT entry, or the USN journal, to learn its path and when it went. Decrypt the collected Scans folders with Protokol-7's mpenginedb_parser, which recovers rows Defender has since dropped. Find the earliest host and how the malware got there.",
+        "assignee": "analyst"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-and-scan"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "description": "Record results.",
+        "instructions": "Record the affected hosts and whether each is clean. Keep the artefact hashes and value names with the incident so the sweep can be repeated after the next remediation.",
+        "assignee": "analyst"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

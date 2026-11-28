@@ -1,0 +1,549 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Supply chain attacks on core AI libraries like LiteLLM bypass perimeter defenses by using trusted package mirrors and CI/CD pipelines. Protecting developer secrets is critical to preventing follow-on cloud intrusions."
+      },
+      "name": "LiteLLM 1.107.0 Supply Chain Compromise and Credential Harvesting",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1195.002",
+        "attack.t1083",
+        "attack.t1555",
+        "credential access",
+        "execution",
+        "exfiltration",
+        "initial access",
+        "persistence"
+      ],
+      "series": {
+        "slug": "inside-the-litellm-1-107-0-supply-chain-compromise-credential-theft-through-python-startup-hooks",
+        "index": 1,
+        "title": "Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks",
+        "total": 2
+      },
+      "related": [
+        {
+          "hunt": "python-startup-hook-persistence",
+          "reason": "This hunt focuses on initial package presence and credential harvesting; the mechanics of startup persistence are handled in the sibling hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule for the LiteLLM version is necessary but noisy. This hunt provides the behavioral context\u2014stack-counting Python credential access and finding hidden payload markers\u2014to confirm exploitation versus mere installation.",
+      "coverage": [
+        {
+          "stage": "malicious-package-distribution",
+          "steps": [
+            "scope-litellm-install"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-harvesting",
+          "steps": [
+            "rare-python-file-access",
+            "malicious-marker-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "python-startup-hook-persistence",
+          "reason": "Belongs to another part of the 'Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "remote-code-loader-execution",
+          "reason": "Belongs to another part of the 'Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks' series.",
+          "status": "out_of_scope"
+        },
+        {
+          "stage": "data-exfiltration",
+          "reason": "Belongs to another part of the 'Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks' series.",
+          "status": "out_of_scope"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Compromised Package Distribution",
+            "slug": "malicious-package-distribution",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195"
+            ],
+            "observables": [
+              "litellm==1.107.0",
+              "Berri-AI/litellm (lookalike repository)"
+            ]
+          },
+          {
+            "name": "Python Startup Hook Persistence",
+            "slug": "python-startup-hook-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1574"
+            ],
+            "observables": [
+              "cook.pth",
+              "cook.py",
+              "sitecustomize.py",
+              "litellm-1.107.0.data/purelib/"
+            ]
+          },
+          {
+            "name": "Credential and Sensitive Data Collection",
+            "slug": "credential-harvesting",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555",
+              "T1083"
+            ],
+            "observables": [
+              "PRIVCOLLECT_ACTIVE environment variable",
+              "/tmp/.pc_once_72129118c59f5636c0bb",
+              ".aws/credentials",
+              ".azure/accessTokens.json",
+              ".kube/config",
+              ".ssh/id_rsa",
+              "Prisma database queries against LiteLLM proxy"
+            ]
+          },
+          {
+            "name": "Remote Code Loader Execution",
+            "slug": "remote-code-loader-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.006"
+            ],
+            "observables": [
+              "/tmp/remote_code_loader.lock",
+              "GitHub domain.txt lookup",
+              "HTTP GET /codepy"
+            ]
+          },
+          {
+            "name": "Encrypted Data Exfiltration",
+            "slug": "data-exfiltration",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041"
+            ],
+            "observables": [
+              ".pc_e_ temporary directories",
+              "data.bin",
+              "key.bin",
+              "hdr.json",
+              "www.litellm.dev/healthcheck",
+              "X-SHA256 HTTP header",
+              "application/octet-stream"
+            ]
+          }
+        ],
+        "summary": "The LiteLLM 1.107.0 supply chain compromise involved a malicious package release that deployed Python startup hooks (.pth files and sitecustomize.py) to achieve automatic execution. Once activated, the payload harvested a wide range of credentials from cloud providers, developer tools, and browsers, while maintaining a remote code loader to execute additional instructions from attacker-controlled infrastructure."
+      },
+      "severity": "high",
+      "rationale": "Prioritize developer workstations, CI/CD runners, and AI gateway servers. These environments are most likely to contain both the LiteLLM package and high-value long-lived credentials.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has distributed a compromised version of LiteLLM (1.107.0) that uses Python startup hooks to execute a credential harvester upon any Python invocation, targeting cloud, SSH, and browser secrets.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts from the scoping step to focus the hunt; leave empty to run fleet-wide."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Number of days of file activity history to examine."
+        },
+        "litellm_version": {
+          "from": {
+            "ref": "msrc-blog-litellm",
+            "kind": "article",
+            "observed": "2026-10-23"
+          },
+          "type": "string",
+          "default": "1.107.0",
+          "description": "The specific compromised version of LiteLLM to hunt for."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/10/23/inside-the-litellm-1-107-0-supply-chain-compromise-credential-theft-through-python-startup-hooks/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/10/23/inside-the-litellm-1-107-0-supply-chain-compromise-credential-theft-through-python-startup-hooks/",
+          "name": "Microsoft Security Blog \u2014 Inside the LiteLLM 1.107.0 supply chain compromise"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "missing-file-telemetry",
+          "risk": "If only file creation or execution is logged, the hunt identifies presence and markers but cannot confirm the theft of secrets.",
+          "owner": "Endpoint Security Engineering",
+          "stage": "credential-harvesting",
+          "question": "whether the Python process successfully read the content of the credential files",
+          "requires": "Detailed file read auditing (e.g. Linux auditd or Sysmon EventID 1) for non-binary configuration files.",
+          "remediation": "Enable file-level audit logging for ~/.aws, ~/.ssh, and ~/.kube directories."
+        },
+        {
+          "id": "ephemeral-environments",
+          "risk": "Supply chain compromise often targets ephemeral build environments that traditional snapshot-based inventory may not capture.",
+          "owner": "Cloud/DevOps Team",
+          "stage": "malicious-package-distribution",
+          "question": "whether a CI agent or short-lived build worker was infected and destroyed before a scan",
+          "requires": "Real-time or event-driven software inventory for short-lived containers.",
+          "remediation": "Integrate software composition analysis (SCA) into the CI pipeline to block builds containing known malicious versions."
+        }
+      ]
+    },
+    "name": "LiteLLM 1.107.0 Supply Chain Compromise and Credential Harvesting",
+    "description": "This hunt targets the LiteLLM 1.107.0 supply chain compromise, where malicious code was distributed via PyPI. The adversary uses Python startup hooks to execute the PRIVCOLLECT harvester. The hunt identifies installed copies of the compromised package and searches for evidence of unauthorized access to cloud, SSH, and browser credentials. An agent triages findings from software inventory and file activity to confirm active exploitation, and an analyst rotates compromised secrets."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "series": {
+          "slug": "inside-the-litellm-1-107-0-supply-chain-compromise-credential-theft-through-python-startup-hooks",
+          "index": 1,
+          "title": "Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks",
+          "total": 2
+        },
+        "coverage": [
+          {
+            "stage": "malicious-package-distribution",
+            "steps": [
+              "scope-litellm-install"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-harvesting",
+            "steps": [
+              "rare-python-file-access",
+              "malicious-marker-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "python-startup-hook-persistence",
+            "reason": "Belongs to another part of the 'Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "remote-code-loader-execution",
+            "reason": "Belongs to another part of the 'Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks' series.",
+            "status": "out_of_scope"
+          },
+          {
+            "stage": "data-exfiltration",
+            "reason": "Belongs to another part of the 'Inside the LiteLLM 1.107.0 supply chain compromise: Credential theft through Python startup hooks' series.",
+            "status": "out_of_scope"
+          }
+        ],
+        "rationale": "An intruder has distributed a compromised version of LiteLLM (1.107.0) that uses Python startup hooks to execute a credential harvester upon any Python invocation, targeting cloud, SSH, and browser secrets.",
+        "blind_spots": [
+          {
+            "id": "missing-file-telemetry",
+            "risk": "If only file creation or execution is logged, the hunt identifies presence and markers but cannot confirm the theft of secrets.",
+            "owner": "Endpoint Security Engineering",
+            "stage": "credential-harvesting",
+            "question": "whether the Python process successfully read the content of the credential files",
+            "requires": "Detailed file read auditing (e.g. Linux auditd or Sysmon EventID 1) for non-binary configuration files.",
+            "remediation": "Enable file-level audit logging for ~/.aws, ~/.ssh, and ~/.kube directories."
+          },
+          {
+            "id": "ephemeral-environments",
+            "risk": "Supply chain compromise often targets ephemeral build environments that traditional snapshot-based inventory may not capture.",
+            "owner": "Cloud/DevOps Team",
+            "stage": "malicious-package-distribution",
+            "question": "whether a CI agent or short-lived build worker was infected and destroyed before a scan",
+            "requires": "Real-time or event-driven software inventory for short-lived containers.",
+            "remediation": "Integrate software composition analysis (SCA) into the CI pipeline to block builds containing known malicious versions."
+          }
+        ],
+        "scoping_notes": "Prioritize developer workstations, CI/CD runners, and AI gateway servers. These environments are most likely to contain both the LiteLLM package and high-value long-lived credentials.",
+        "beyond_detection": "A standard detection rule for the LiteLLM version is necessary but noisy. This hunt provides the behavioral context\u2014stack-counting Python credential access and finding hidden payload markers\u2014to confirm exploitation versus mere installation."
+      }
+    },
+    {
+      "id": "scope-litellm-install",
+      "type": "query",
+      "label": "Scope LiteLLM 1.107.0 installations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) = 'litellm' AND package_version = '{{litellm_version}}'",
+        "surface": "hb_software_inventory",
+        "description": "Identify all hosts where the compromised LiteLLM version is currently installed.",
+        "expected_signal": "A list of hostnames and paths where the compromised version exists. Silence means the package was not detected on any enrolled host."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope LiteLLM 1.107.0 installations",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE LOWER(package_name) = 'litellm' AND package_version = '{{litellm_version}}'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames and paths where the compromised version exists. Silence means the package was not detected on any enrolled host.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-24"
+      }
+    },
+    {
+      "id": "rare-python-file-access",
+      "type": "query",
+      "label": "Rare Python file access to credentials",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(file_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS events FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/.aws/credentials%' OR LOWER(file_path) LIKE '%.aws\\\\credentials%' OR LOWER(file_path) LIKE '%/.ssh/id_%' OR LOWER(file_path) LIKE '%.ssh\\\\id_%' OR LOWER(file_path) LIKE '%/.kube/config%' OR LOWER(file_path) LIKE '%.kube\\\\config%') AND LOWER(process_name) LIKE '%python%' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY path HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_file_activity",
+        "description": "Use stack-counting to identify Python processes accessing sensitive paths.",
+        "expected_signal": "A Python process reading cloud or SSH secrets on only a few hosts. Rarity combined with the presence of the LiteLLM package is highly suspicious."
+      },
+      "parents": [
+        {
+          "id": "scope-litellm-install"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare Python file access to credentials",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(file_path) AS path, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS events FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/.aws/credentials%' OR LOWER(file_path) LIKE '%.aws\\\\credentials%' OR LOWER(file_path) LIKE '%/.ssh/id_%' OR LOWER(file_path) LIKE '%.ssh\\\\id_%' OR LOWER(file_path) LIKE '%/.kube/config%' OR LOWER(file_path) LIKE '%.kube\\\\config%') AND LOWER(process_name) LIKE '%python%' AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY path HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A Python process reading cloud or SSH secrets on only a few hosts. Rarity combined with the presence of the LiteLLM package is highly suspicious.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "file_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-10-24"
+      }
+    },
+    {
+      "id": "malicious-marker-activity",
+      "type": "query",
+      "label": "Malicious marker and staging activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/.pc_once_%' OR LOWER(file_path) LIKE '%.pc_once_%' OR LOWER(file_path) LIKE '%/.pc_e_%' OR LOWER(file_path) LIKE '%.pc_e_%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_file_activity",
+        "description": "Identify specific markers of the PRIVCOLLECT payload.",
+        "expected_signal": "Creation of the .pc_once marker or .pc_e temporary directories. These are high-fidelity indicators of the malicious collector running."
+      },
+      "parents": [
+        {
+          "id": "scope-litellm-install"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Malicious marker and staging activity",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, file_path, time FROM hb_file_activity WHERE (LOWER(file_path) LIKE '%/.pc_once_%' OR LOWER(file_path) LIKE '%.pc_once_%' OR LOWER(file_path) LIKE '%/.pc_e_%' OR LOWER(file_path) LIKE '%.pc_e_%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation of the .pc_once marker or .pc_e temporary directories. These are high-fidelity indicators of the malicious collector running.",
+        "verified": "dry-run",
+        "verified_at": "2026-10-24"
+      }
+    },
+    {
+      "id": "triage-compromise",
+      "type": "analytic",
+      "label": "Triage compromise evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "scope-litellm-install",
+          "rare-python-file-access",
+          "malicious-marker-activity"
+        ],
+        "objective": "Determine if any host with the LiteLLM 1.107.0 package shows behavioral evidence of the PRIVCOLLECT credential harvester.",
+        "description": "Evaluate whether the findings indicate a successful harvest.",
+        "max_iterations": 4,
+        "expected_signal": "A per-host verdict citing specific file paths and package evidence.",
+        "success_criteria": "A per-host verdict of malicious | suspicious | benign citing rows and paths."
+      },
+      "parents": [
+        {
+          "id": "rare-python-file-access",
+          "kind": "merge"
+        },
+        {
+          "id": "malicious-marker-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host showing both markers and rare credential access",
+        "condition": "the triage verdict is malicious for at least one host showing both markers and rare credential access",
+        "blind_spot": "missing-file-telemetry",
+        "confidence": "high",
+        "description": "Direct the workflow based on the agent verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-compromise"
+        }
+      ]
+    },
+    {
+      "id": "contain-and-rebuild",
+      "type": "action",
+      "label": "Contain and rebuild environment",
+      "config": {
+        "target": "endpoint",
+        "description": "Neutralize the threat by isolating the host and removing the compromised Python environment.",
+        "instructions": "Isolate the host from the network. Terminate all running Python processes immediately. Wipe the affected Python environment (site-packages) and rebuild from a verified clean LiteLLM version (1.107.1 or later). Ensure cook.pth, cook.py, and sitecustomize.py are removed.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "manual-review",
+      "type": "task",
+      "label": "Manual analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify findings for suspicious or indeterminate hosts.",
+        "instructions": "Review the file access paths from the prevalence step. Confirm if the 'python' process involved matches the installation directory of LiteLLM. Rotate every secret stored in the identified files (AWS keys, SSH keys, etc.) for confirmed malicious hosts."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-and-rebuild"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the final state and any remaining exposure.",
+        "instructions": "Record the total number of hosts where the package was found and how many showed behavioral evidence. Document evidence of absence for hosts that had the package but no markers."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "manual-review"
+        }
+      ]
+    }
+  ]
+}

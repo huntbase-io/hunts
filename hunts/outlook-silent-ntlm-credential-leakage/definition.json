@@ -1,0 +1,445 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "CVE-2026-124194 is an actively exploited-in-the-wild vulnerability that enables silent credential theft. NTLM hash leakage allows for offline cracking and relay attacks, representing a high risk to the identity security of the enterprise."
+      },
+      "name": "Outlook Silent NTLM Credential Leakage",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1203",
+        "attack.t1204.002",
+        "attack.t1187",
+        "credential access",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "ntlm-relay-attempt-detection",
+          "reason": "This hunt focuses on the outbound leakage originating from Outlook; detecting the internal use of those stolen hashes is a separate forensic problem handled by authentication monitoring.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A static rule for Outlook connections to port 445 provides only a partial picture. This hunt correlates vulnerability status from the inventory plane with network prevalence baselining to distinguish legitimate Office 365 traffic from targeted credential beaconing.",
+      "coverage": [
+        {
+          "stage": "outlook-vulnerability-exploitation",
+          "steps": [
+            "find-vulnerable-outlook-assets"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "forced-ntlm-authentication-leak",
+          "steps": [
+            "stack-outlook-external-ips",
+            "detect-suspicious-outlook-egress"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Opening of Malicious File in Outlook",
+            "slug": "outlook-vulnerability-exploitation",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1203",
+              "T1204.002"
+            ],
+            "observables": [
+              "outlook.exe",
+              "specially crafted malicious file",
+              "CVE-2026-124194"
+            ]
+          },
+          {
+            "name": "Forced NTLM Authentication Leak",
+            "slug": "forced-ntlm-authentication-leak",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1187"
+            ],
+            "observables": [
+              "NTLM v2 hash",
+              "outbound SMB connection on port 445",
+              "outbound HTTP/WebDAV connection",
+              "attacker-controlled location"
+            ]
+          }
+        ],
+        "summary": "Attackers exploit CVE-2026-124194, a spoofing vulnerability in Microsoft Outlook, by sending a specially crafted malicious file. When a user opens the file, Outlook silently initiates an outbound connection to an external attacker-controlled server, resulting in the leakage of the user's NTLMv2 hash for credential theft or relay."
+      },
+      "severity": "high",
+      "rationale": "The hunt should prioritize hosts running Windows with classic Outlook. If hb_vulnerability_finding is unavailable, use hb_software_inventory to identify hosts with Outlook versions older than the November 2026 patch cycle.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker is exploiting CVE-2026-124194 by forcing Outlook to initiate outbound SMB connections to an external listener, silently leaking the user's NTLM v2 hash upon opening a crafted file.",
+      "parameters": {
+        "cve_id": {
+          "from": {
+            "ref": "rapid7-patch-tuesday-nov-2026",
+            "kind": "article",
+            "observed": "2026-11-10"
+          },
+          "type": "string",
+          "default": "CVE-2026-124194",
+          "description": "The specific CVE identifier for the Outlook spoofing vulnerability."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2026-11-10"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the search; leave empty to hunt across the whole estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-retention",
+            "kind": "manual",
+            "observed": "2026-11-10"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/em-patch-tuesday-november-2026",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/em-patch-tuesday-november-2026",
+          "name": "Rapid7 \u2014 Patch Tuesday - November 2026"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "limited-network-telemetry",
+          "risk": "A successful hash theft via port 445 may occur without a corresponding log entry on unmonitored systems.",
+          "stage": "forced-ntlm-authentication-leak",
+          "question": "whether Outlook attempted a leak from a host where EDR or network logging is disabled",
+          "requires": "hb_network_connection from all scoped hosts"
+        },
+        {
+          "id": "webdav-fallback-visibility",
+          "risk": "While port 445 is the primary target, the vulnerability may attempt WebDAV fallback; this traffic is difficult to distinguish from legitimate web browsing without specialized inspection.",
+          "stage": "forced-ntlm-authentication-leak",
+          "question": "whether Outlook utilized WebDAV over port 80 or 443 to leak hashes",
+          "requires": "Deep Packet Inspection or Proxy logs"
+        }
+      ]
+    },
+    "name": "Outlook Silent NTLM Credential Leakage",
+    "description": "This hunt identifies Windows assets vulnerable to the silent spoofing vulnerability CVE-2026-124194 and monitors for the primary indicator of exploitation: Outlook initiating outbound connections on port 445 (SMB) to non-private IP addresses. The flow first identifies vulnerable hosts using scanner findings, baselines legitimate Outlook network activity to identify rare external destinations, and then focuses specifically on high-risk SMB egress that suggests forced authentication for hash theft."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "outlook-vulnerability-exploitation",
+            "steps": [
+              "find-vulnerable-outlook-assets"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "forced-ntlm-authentication-leak",
+            "steps": [
+              "stack-outlook-external-ips",
+              "detect-suspicious-outlook-egress"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker is exploiting CVE-2026-124194 by forcing Outlook to initiate outbound SMB connections to an external listener, silently leaking the user's NTLM v2 hash upon opening a crafted file.",
+        "blind_spots": [
+          {
+            "id": "limited-network-telemetry",
+            "risk": "A successful hash theft via port 445 may occur without a corresponding log entry on unmonitored systems.",
+            "stage": "forced-ntlm-authentication-leak",
+            "question": "whether Outlook attempted a leak from a host where EDR or network logging is disabled",
+            "requires": "hb_network_connection from all scoped hosts"
+          },
+          {
+            "id": "webdav-fallback-visibility",
+            "risk": "While port 445 is the primary target, the vulnerability may attempt WebDAV fallback; this traffic is difficult to distinguish from legitimate web browsing without specialized inspection.",
+            "stage": "forced-ntlm-authentication-leak",
+            "question": "whether Outlook utilized WebDAV over port 80 or 443 to leak hashes",
+            "requires": "Deep Packet Inspection or Proxy logs"
+          }
+        ],
+        "scoping_notes": "The hunt should prioritize hosts running Windows with classic Outlook. If hb_vulnerability_finding is unavailable, use hb_software_inventory to identify hosts with Outlook versions older than the November 2026 patch cycle.",
+        "beyond_detection": "A static rule for Outlook connections to port 445 provides only a partial picture. This hunt correlates vulnerability status from the inventory plane with network prevalence baselining to distinguish legitimate Office 365 traffic from targeted credential beaconing."
+      }
+    },
+    {
+      "id": "find-vulnerable-outlook-assets",
+      "type": "query",
+      "label": "Identify vulnerable Outlook hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT resource_uid, device_uid, affected_package_version, severity, collected_at FROM hb_vulnerability_finding WHERE cve_uid = '{{cve_id}}' AND status != 'suppressed'",
+        "surface": "hb_vulnerability_finding",
+        "description": "Locate assets where vulnerability scanners have confirmed the presence of CVE-2026-124194 to focus analysis on at-risk endpoints.",
+        "expected_signal": "A list of unique IDs and versions for exposed assets. Silence suggests the patch is applied or the scanner has not yet detected the vulnerability."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable Outlook hosts",
+        "reads": [
+          "resource_uid",
+          "device_uid",
+          "affected_package_version",
+          "severity",
+          "collected_at"
+        ],
+        "source": "hb_vulnerability_finding",
+        "target": "endpoint",
+        "content": "SELECT resource_uid, device_uid, affected_package_version, severity, collected_at FROM hb_vulnerability_finding WHERE cve_uid = '{{cve_id}}' AND status != 'suppressed'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of unique IDs and versions for exposed assets. Silence suggests the patch is applied or the scanner has not yet detected the vulnerability.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "stack-outlook-external-ips",
+      "type": "query",
+      "label": "Baseline Outlook external destinations",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%outlook.exe' OR LOWER(process_path) LIKE '%outlook.exe') AND direction = 'outbound' AND NOT (dst_endpoint_ip LIKE '10.%' OR dst_endpoint_ip LIKE '172.%' OR dst_endpoint_ip LIKE '192.168.%' OR dst_endpoint_ip LIKE '127.%' OR dst_endpoint_ip LIKE '169.254.%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY dst_endpoint_ip HAVING host_count <= 3 ORDER BY host_count ASC",
+        "surface": "hb_network_connection",
+        "description": "Stack-count outbound destinations from Outlook to external IPs to identify rare endpoints that might be attacker-controlled listeners.",
+        "expected_signal": "A list of external IPs contacted by Outlook on very few hosts. Legitimate Microsoft services should show high host counts."
+      },
+      "parents": [
+        {
+          "id": "find-vulnerable-outlook-assets"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Baseline Outlook external destinations",
+        "reads": [
+          "dst_endpoint_ip",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT dst_endpoint_ip, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen, MAX(time) AS last_seen FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%outlook.exe' OR LOWER(process_path) LIKE '%outlook.exe') AND direction = 'outbound' AND NOT (dst_endpoint_ip LIKE '10.%' OR dst_endpoint_ip LIKE '172.%' OR dst_endpoint_ip LIKE '192.168.%' OR dst_endpoint_ip LIKE '127.%' OR dst_endpoint_ip LIKE '169.254.%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) GROUP BY dst_endpoint_ip HAVING host_count <= 3 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of external IPs contacted by Outlook on very few hosts. Legitimate Microsoft services should show high host counts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "detect-suspicious-outlook-egress",
+      "type": "query",
+      "label": "Detect forced SMB authentication",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%outlook.exe' OR LOWER(process_path) LIKE '%outlook.exe') AND dst_endpoint_port = 445 AND NOT (dst_endpoint_ip LIKE '10.%' OR dst_endpoint_ip LIKE '172.%' OR dst_endpoint_ip LIKE '192.168.%' OR dst_endpoint_ip LIKE '127.%' OR dst_endpoint_ip LIKE '169.254.%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_network_connection",
+        "description": "Focus on the specific behavioral signature of hash theft: Outlook connecting to an external IP on port 445 (SMB).",
+        "expected_signal": "Any row showing Outlook connecting to an external SMB listener is highly suspicious and indicative of forced NTLM authentication."
+      },
+      "parents": [
+        {
+          "id": "stack-outlook-external-ips"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Detect forced SMB authentication",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%outlook.exe' OR LOWER(process_path) LIKE '%outlook.exe') AND dst_endpoint_port = 445 AND NOT (dst_endpoint_ip LIKE '10.%' OR dst_endpoint_ip LIKE '172.%' OR dst_endpoint_ip LIKE '192.168.%' OR dst_endpoint_ip LIKE '127.%' OR dst_endpoint_ip LIKE '169.254.%') AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "evidence_of_absence",
+        "expected": "Any row showing Outlook connecting to an external SMB listener is highly suspicious and indicative of forced NTLM authentication.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "triage-leakage-verdict",
+      "type": "analytic",
+      "label": "Evaluate exposure and behavioral evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "find-vulnerable-outlook-assets",
+          "stack-outlook-external-ips",
+          "detect-suspicious-outlook-egress"
+        ],
+        "objective": "Determine which hosts are vulnerable to CVE-2026-124194 and exhibit the forced authentication signature of outbound port 445 connections to rare external destinations.",
+        "description": "Correlate vulnerability status with unusual outbound SMB traffic to identify hosts likely targeted for credential theft.",
+        "max_iterations": 5,
+        "expected_signal": "A verdict for each host correlating their vulnerability state with any rare or suspicious network behavior.",
+        "success_criteria": "A per-host verdict of 'vulnerable-and-exploited', 'vulnerable-only', or 'benign' based on the presence of the vulnerability and outbound SMB telemetry."
+      },
+      "parents": [
+        {
+          "id": "detect-suspicious-outlook-egress"
+        }
+      ]
+    },
+    {
+      "id": "route-on-triage",
+      "type": "checkpoint",
+      "label": "Route on triage results",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage-leakage-verdict confirms exploitation behavior (rare outbound SMB) on at least one host",
+        "condition": "the triage-leakage-verdict confirms exploitation behavior (rare outbound SMB) on at least one host",
+        "blind_spot": "limited-network-telemetry",
+        "confidence": "high",
+        "description": "Direct the workflow to remediation review if exploitation evidence exists, or close-out if only general exposure is identified.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-leakage-verdict"
+        }
+      ]
+    },
+    {
+      "id": "remediation-review",
+      "type": "task",
+      "label": "Remediation and perimeter verification",
+      "config": {
+        "assignee": "analyst",
+        "description": "Address confirmed exploitation attempts and ensure perimeter blocks are active.",
+        "instructions": "Review the external IP destinations identified in the triage verdict. If they are unaffiliated with corporate services, prioritize the November 2026 Outlook updates on those hosts. Ensure that the network perimeter is explicitly blocking outbound port 445 (SMB) and 137-139 (NetBIOS) to external destinations."
+      },
+      "parents": [
+        {
+          "id": "route-on-triage",
+          "branch": "on_supports"
+        },
+        {
+          "id": "route-on-triage",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-triage",
+          "branch": "on_unavailable"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Exposure audit close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document the exposure status across the estate when no exploitation evidence was found.",
+        "instructions": "Record the number of vulnerable assets identified. If no suspicious SMB activity was found, recommend that patching for CVE-2026-124194 be prioritized in the standard maintenance window to reduce the exposure window."
+      },
+      "parents": [
+        {
+          "id": "route-on-triage",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

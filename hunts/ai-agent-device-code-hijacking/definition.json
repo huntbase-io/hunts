@@ -1,0 +1,679 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "AI coding agents have privileged access to source code and local terminals. A hijacked agent session can result in immediate IP theft and lateral movement onto developer machines, making a proactive hunt for phished authorizations a high-priority business requirement."
+      },
+      "name": "AI Coding Agent Device Code Hijacking",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1566.002",
+        "attack.t1528",
+        "attack.t1190",
+        "collection",
+        "credential access",
+        "execution",
+        "initial access"
+      ],
+      "related": [
+        {
+          "hunt": "m365-device-code-phishing",
+          "reason": "This hunt is specific to GitHub AI agents; general M365 device code phishing is handled by a separate sibling hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A standard detection might fire on a GitHub login from an unusual IP, but it would not distinguish between a dev on a new VPN and an attacker. This hunt uses the phishing lure (HTTP visit) as a temporal pivot to confirm the authorization was coerced, and then correlates it with the unique 'parent=copilot-agent' behavioral signal on the endpoint.",
+      "coverage": [
+        {
+          "stage": "spearphishing-link-delivery",
+          "steps": [
+            "lure-page-visits"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "device-code-authorization",
+          "steps": [
+            "rare-github-logins",
+            "authorization-read"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "agent-remote-steering",
+          "steps": [
+            "agent-command-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "cloud-repository-access",
+          "steps": [
+            "cloud-resource-manipulation"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Spearphishing Link Delivery",
+            "slug": "spearphishing-link-delivery",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1566.002"
+            ],
+            "observables": [
+              "github.com/login/device",
+              "Lure via Microsoft Teams message",
+              "Lure via Email",
+              "Pretext of IT request or Copilot license check"
+            ]
+          },
+          {
+            "name": "Device Code Authorization",
+            "slug": "device-code-authorization",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1528"
+            ],
+            "observables": [
+              "OAuth device flow",
+              "GitHub Copilot CLI public client ID",
+              "Requested scopes: repo, read:user, read:org, gist, codespace",
+              "Approval from IP address differing from requesting client IP"
+            ]
+          },
+          {
+            "name": "AI Agent Remote Steering",
+            "slug": "agent-remote-steering",
+            "tactic": "execution",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "Copilot CLI remote control enabled",
+              "Agent running commands on user machine",
+              "Interactive session steering",
+              "Anomalous parent-child process relationship involving copilot-agent"
+            ]
+          },
+          {
+            "name": "Cloud Repository Access",
+            "slug": "cloud-repository-access",
+            "tactic": "collection",
+            "techniques": [
+              "T1528"
+            ],
+            "observables": [
+              "Accessing private repositories via OAuth token",
+              "Reading synchronized Copilot CLI sessions",
+              "Modification of AI memory via /memory command",
+              "Enumeration of organization resources"
+            ]
+          }
+        ],
+        "summary": "Attackers leverage device code phishing to trick users into authorizing OAuth tokens for AI coding agents like GitHub Copilot CLI. This authorized access enables the attacker to remotely steer active agent sessions, inject malicious instructions into the agent's memory, and exfiltrate source code from private repositories."
+      },
+      "severity": "medium",
+      "rationale": "Focus on systems where the developer-focused 'gh' or 'copilot' binaries are present in software inventory. If the organization uses a centralized proxy, the HTTP activity should be examined there to capture lure visits from all hosts.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker has hijacked an AI coding agent by phishing a device code from a developer, obtaining an OAuth token to steer local terminal sessions and exfiltrate private repository data.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined",
+            "kind": "manual",
+            "observed": "2026-11-17"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus on; leave empty to hunt across the entire estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2026-11-17"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "device_login_urls": {
+          "from": {
+            "ref": "msrc-blog",
+            "kind": "article",
+            "observed": "2026-11-17"
+          },
+          "type": "list[url]",
+          "default": [
+            "github.com/login/device"
+          ],
+          "description": "Legitimate device login URLs used in phishing lures."
+        },
+        "copilot_client_ids": {
+          "from": {
+            "ref": "github-oauth-docs",
+            "kind": "manual",
+            "observed": "2026-11-17"
+          },
+          "type": "list[string]",
+          "default": [
+            "Iv1.b50115654fd18491"
+          ],
+          "description": "OAuth Client IDs for known AI agents like GitHub Copilot CLI."
+        },
+        "shell_interpreters": {
+          "from": {
+            "ref": "standard-shells",
+            "kind": "manual",
+            "observed": "2026-11-17"
+          },
+          "type": "list[string]",
+          "default": [
+            "cmd.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "bash",
+            "sh"
+          ],
+          "description": "Common shell interpreters launched by coding agents during steering."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.microsoft.com/en-us/security/blog/2026/11/17/the-risks-of-device-code-authentication-for-ai-coding-agents/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/11/17/the-risks-of-device-code-authentication-for-ai-coding-agents/",
+          "name": "The risks of device code authentication for AI coding agents"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-cloud-api-telemetry",
+          "risk": "Without GitHub audit logs, we can identify the theft but not the scope of data loss, leaving IP theft unquantified.",
+          "owner": "Cloud Infrastructure Team",
+          "stage": "cloud-repository-access",
+          "question": "Which specific private repositories were exfiltrated by the phished token?",
+          "requires": "hb_cloud_api_activity with GitHub connector",
+          "remediation": "Enable the GitHub Enterprise Cloud connector in Microsoft Defender for Cloud Apps."
+        },
+        {
+          "id": "agent-shell-truncation",
+          "risk": "If the EDR truncates long command lines, the specific steering commands (including exfiltration URLs or secondary lures) may be hidden.",
+          "owner": "Endpoint Security Team",
+          "stage": "agent-remote-steering",
+          "question": "Were sensitive credentials passed into the steered terminal sessions?",
+          "requires": "Full process command line capture",
+          "remediation": "Increase the process command-line capture length to 2048 characters."
+        }
+      ]
+    },
+    "name": "AI Coding Agent Device Code Hijacking",
+    "description": "This hunt targets the abuse of OAuth device flows where an attacker lures a user into authorizing a legitimate application client like GitHub Copilot CLI. The hunt follows a phased flow: first scoping to hosts with coding agents, then identifying lure-page visits and anomalous authentication from unusual IPs, and finally hunting for the resulting local command execution and cloud repository enumeration. By correlating the phishing lure with the resulting agent behavior, the hunt distinguishes legitimate developer workflow from a remote takeover."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "spearphishing-link-delivery",
+            "steps": [
+              "lure-page-visits"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "device-code-authorization",
+            "steps": [
+              "rare-github-logins",
+              "authorization-read"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "agent-remote-steering",
+            "steps": [
+              "agent-command-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "cloud-repository-access",
+            "steps": [
+              "cloud-resource-manipulation"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker has hijacked an AI coding agent by phishing a device code from a developer, obtaining an OAuth token to steer local terminal sessions and exfiltrate private repository data.",
+        "blind_spots": [
+          {
+            "id": "no-cloud-api-telemetry",
+            "risk": "Without GitHub audit logs, we can identify the theft but not the scope of data loss, leaving IP theft unquantified.",
+            "owner": "Cloud Infrastructure Team",
+            "stage": "cloud-repository-access",
+            "question": "Which specific private repositories were exfiltrated by the phished token?",
+            "requires": "hb_cloud_api_activity with GitHub connector",
+            "remediation": "Enable the GitHub Enterprise Cloud connector in Microsoft Defender for Cloud Apps."
+          },
+          {
+            "id": "agent-shell-truncation",
+            "risk": "If the EDR truncates long command lines, the specific steering commands (including exfiltration URLs or secondary lures) may be hidden.",
+            "owner": "Endpoint Security Team",
+            "stage": "agent-remote-steering",
+            "question": "Were sensitive credentials passed into the steered terminal sessions?",
+            "requires": "Full process command line capture",
+            "remediation": "Increase the process command-line capture length to 2048 characters."
+          }
+        ],
+        "scoping_notes": "Focus on systems where the developer-focused 'gh' or 'copilot' binaries are present in software inventory. If the organization uses a centralized proxy, the HTTP activity should be examined there to capture lure visits from all hosts.",
+        "beyond_detection": "A standard detection might fire on a GitHub login from an unusual IP, but it would not distinguish between a dev on a new VPN and an attacker. This hunt uses the phishing lure (HTTP visit) as a temporal pivot to confirm the authorization was coerced, and then correlates it with the unique 'parent=copilot-agent' behavioral signal on the endpoint."
+      }
+    },
+    {
+      "id": "scope-copilot-hosts",
+      "type": "query",
+      "label": "Identify hosts with AI coding agents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%copilot%' OR LOWER(package_name) LIKE '%gh-cli%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Define the hunt scope by identifying systems where GitHub Copilot or similar CLI tools are installed.",
+        "expected_signal": "A list of hostnames belonging to developers or systems using AI tools. Silence means no such software was recorded by package managers."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify hosts with AI coding agents",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%copilot%' OR LOWER(package_name) LIKE '%gh-cli%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames belonging to developers or systems using AI tools. Silence means no such software was recorded by package managers.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "lure-page-visits",
+      "type": "query",
+      "label": "Visits to device code verification pages",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_full, user_agent, time FROM hb_http_activity WHERE (instr(',' || '{{device_login_urls}}' || ',', ',' || LOWER(url_hostname) || LOWER(url_path) || ',') > 0 OR instr(',' || '{{device_login_urls}}' || ',', ',' || LOWER(url_full) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Find users who navigated to the legitimate GitHub device login page, which is the required user action for the phishing attack.",
+        "expected_signal": "Rows indicate a user followed a link to enter a device code. Silence means no one visited the login page from an enrolled host."
+      },
+      "parents": [
+        {
+          "id": "scope-copilot-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Visits to device code verification pages",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "url_full",
+          "user_agent",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT device_hostname, src_endpoint_ip, url_full, user_agent, time FROM hb_http_activity WHERE (instr(',' || '{{device_login_urls}}' || ',', ',' || LOWER(url_hostname) || LOWER(url_path) || ',') > 0 OR instr(',' || '{{device_login_urls}}' || ',', ',' || LOWER(url_full) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Rows indicate a user followed a link to enter a device code. Silence means no one visited the login page from an enrolled host.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "rare-github-logins",
+      "type": "query",
+      "label": "Rare GitHub sign-ins by IP",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "identity",
+        "content": "SELECT src_endpoint_ip, actor_user_name, app_id, COUNT(DISTINCT device_hostname) as hosts, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_auth_signin WHERE provider = 'github' AND (LOWER(dst_endpoint_name) LIKE '%copilot%' OR instr(',' || '{{copilot_client_ids}}' || ',', ',' || app_id || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, actor_user_name, app_id HAVING hosts <= 3",
+        "surface": "hb_auth_signin",
+        "description": "Identify GitHub sign-ins using AI agent clients that originate from rare source IPs, potentially representing an attacker finishing the OAuth flow.",
+        "expected_signal": "A sign-in from an IP address not common for a given user or client ID. Fleet-wide IPs used by many users are suppressed."
+      },
+      "parents": [
+        {
+          "id": "scope-copilot-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare GitHub sign-ins by IP",
+        "reads": [
+          "src_endpoint_ip",
+          "actor_user_name",
+          "app_id",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT src_endpoint_ip, actor_user_name, app_id, COUNT(DISTINCT device_hostname) as hosts, MIN(time) as first_seen, MAX(time) as last_seen FROM hb_auth_signin WHERE provider = 'github' AND (LOWER(dst_endpoint_name) LIKE '%copilot%' OR instr(',' || '{{copilot_client_ids}}' || ',', ',' || app_id || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY src_endpoint_ip, actor_user_name, app_id HAVING hosts <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A sign-in from an IP address not common for a given user or client ID. Fleet-wide IPs used by many users are suppressed.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "src_endpoint_ip"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "authorization-read",
+      "type": "analytic",
+      "label": "Analyze authorization context",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "scope-copilot-hosts",
+          "lure-page-visits",
+          "rare-github-logins"
+        ],
+        "objective": "Determine if any sign-in from a rare IP was preceded by a visit to the GitHub device login page on a host associated with the same user, suggesting the user authorized an attacker's client.",
+        "description": "Evaluate whether the HTTP visits and the rare sign-ins suggest a phished device code flow.",
+        "max_iterations": 4,
+        "expected_signal": "A list of users and IPs suspected of hijacking a device flow, citing time proximity between the lure visit and the login.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per user/host with cited evidence."
+      },
+      "parents": [
+        {
+          "id": "lure-page-visits",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-github-logins",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "agent-command-execution",
+      "type": "query",
+      "label": "Remote steering via coding agent",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%copilot-agent%' OR LOWER(parent_process_name) LIKE '%gh-copilot%') AND instr(',' || '{{shell_interpreters}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the agent running local shell commands, which confirms the attacker is steering the active terminal session remotely.",
+        "expected_signal": "Shell processes spawned by the AI agent. Legitimate use exists (e.g., a dev asking the agent to run a test), so correlation with the suspicious sign-in is critical."
+      },
+      "parents": [
+        {
+          "id": "authorization-read"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Remote steering via coding agent",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(parent_process_name) LIKE '%copilot-agent%' OR LOWER(parent_process_name) LIKE '%gh-copilot%') AND instr(',' || '{{shell_interpreters}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Shell processes spawned by the AI agent. Legitimate use exists (e.g., a dev asking the agent to run a test), so correlation with the suspicious sign-in is critical.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "cloud-resource-manipulation",
+      "type": "query",
+      "label": "GitHub repository and memory access",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, resource_name, src_endpoint_ip, time FROM hb_cloud_api_activity WHERE provider = 'github' AND (LOWER(api_operation) LIKE '%repository%' OR LOWER(api_operation) LIKE '%memory%' OR LOWER(api_operation) LIKE '%gist%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Find evidence of the attacker using the phished token to enumerate private repositories or modify the agent's memory to poison future interactions.",
+        "expected_signal": "API activity targeting private code or the agent's memory store. High volume of repository enumeration from the rare IP identified earlier is a strong hit."
+      },
+      "parents": [
+        {
+          "id": "authorization-read"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "GitHub repository and memory access",
+        "reads": [
+          "actor_user_name",
+          "api_operation",
+          "resource_name",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT actor_user_name, api_operation, resource_name, src_endpoint_ip, time FROM hb_cloud_api_activity WHERE provider = 'github' AND (LOWER(api_operation) LIKE '%repository%' OR LOWER(api_operation) LIKE '%memory%' OR LOWER(api_operation) LIKE '%gist%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "API activity targeting private code or the agent's memory store. High volume of repository enumeration from the rare IP identified earlier is a strong hit.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "intrusion-verdict",
+      "type": "analytic",
+      "label": "Final intrusion assessment",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "identity",
+          "web"
+        ],
+        "context": [
+          "authorization-read",
+          "agent-command-execution",
+          "cloud-resource-manipulation"
+        ],
+        "objective": "Determine if an attacker successfully hijacked a coding agent session. Consider the verdict from the authorization analysis together with shell activity and cloud API resource access.",
+        "description": "Synthesize the early-stage authorization findings with the follow-on behavioral evidence to reach a final verdict.",
+        "max_iterations": 6,
+        "expected_signal": "A high-confidence malicious verdict where the full chain from phishing to steering is present.",
+        "success_criteria": "A final verdict citing the phished account, the source IP of the attacker, and the confirmed impact (steering or exfiltration)."
+      },
+      "parents": [
+        {
+          "id": "agent-command-execution",
+          "kind": "merge"
+        },
+        {
+          "id": "cloud-resource-manipulation",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-response",
+      "type": "checkpoint",
+      "label": "Route based on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the intrusion-verdict is malicious for at least one user",
+        "condition": "the intrusion-verdict is malicious for at least one user",
+        "blind_spot": "no-cloud-api-telemetry",
+        "confidence": "high",
+        "description": "Determine if the findings require immediate automated response or manual analyst review.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "intrusion-verdict"
+        }
+      ]
+    },
+    {
+      "id": "revoke-token",
+      "type": "action",
+      "label": "Revoke GitHub OAuth tokens",
+      "config": {
+        "target": "identity",
+        "description": "Sever the attacker's connection by revoking the phished OAuth authorization.",
+        "instructions": "Revoke the authorized OAuth application for the affected user in the GitHub Enterprise admin panel, specifically focusing on Copilot CLI or the identified app_id.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-response",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst forensic review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Conduct a manual investigation to determine the extent of repository access and local machine impact.",
+        "instructions": "Examine the GitHub audit logs for every repository accessed by the token. Inspect the host for any persistence (e.g., new cron jobs or SSH keys) dropped during the period the agent was steered."
+      },
+      "parents": [
+        {
+          "id": "route-response",
+          "branch": "default"
+        },
+        {
+          "id": "route-response",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "revoke-token"
+        }
+      ]
+    },
+    {
+      "id": "hunt-close-out",
+      "type": "task",
+      "label": "Hunt close-out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and update baselines for legitimate coding agent behavior.",
+        "instructions": "Record the legitimate source IPs and common command patterns used by the coding agent to reduce false positives in future detections. Close the hunt report."
+      },
+      "parents": [
+        {
+          "id": "route-response",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

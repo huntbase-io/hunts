@@ -1,0 +1,463 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Ingress Tool Transfer is the precursor to most post-exploitation stages; stopping an adversary from bringing their toolkit into the environment breaks the attack chain."
+      },
+      "name": "Suspicious ingress tool transfer via native utilities",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1105"
+      ],
+      "related": [
+        {
+          "hunt": "script-based-ingress-transfer",
+          "reason": "Adversaries may use Python, Perl or Ruby to perform similar downloads, which requires script-block monitoring.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule for curl or wget is too noisy for a cloud fleet. This hunt uses fleet-wide prevalence to baseline normal automation and employs an agent to filter out known platform services, prioritizing only the rarest transfer behaviors.",
+      "coverage": [
+        {
+          "stage": "ingress-tool-transfer-via-native-utilities",
+          "steps": [
+            "scope-utility-inventory",
+            "rare-utility-executions",
+            "external-utility-connections",
+            "agent-triage"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Ingress Tool Transfer via Curl or Wget",
+            "slug": "ingress-tool-transfer-via-native-utilities",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1105"
+            ],
+            "observables": [
+              "process.name IN (\"curl\", \"wget\")",
+              "process.args containing URLs",
+              "process.command_line",
+              "process.title",
+              "destination_host IP 168.63.129.16",
+              "destination_host IP 169.254.169.254",
+              "destination_host domains like acs-mirror.azureedge.net, packages.aks.azure.com, api.github.com",
+              "process.parent.executable"
+            ]
+          }
+        ],
+        "summary": "Adversaries leverage common Linux utilities such as curl and wget to download malicious tools or payloads into compromised cloud environments. This technique, classified as Ingress Tool Transfer (T1105), is often blended into legitimate cloud automation and CI/CD activity, requiring deterministic filtering and behavior-based triage."
+      },
+      "severity": "medium",
+      "rationale": "Start with Linux cloud workloads and Kubernetes node groups; widen to CI/CD runners if network noise is low.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using native Linux or macOS utilities like curl or wget to download malicious payloads from external infrastructure, hiding their activity within the high volume of legitimate cloud automation.",
+      "parameters": {
+        "rare_below": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-07-23"
+          },
+          "type": "number",
+          "default": "5",
+          "description": "The maximum number of hosts a command line can appear on to be considered rare."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2026-07-23"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hosts to narrow the hunt."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-07-23"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "cloud_metadata_ips": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-07-23"
+          },
+          "type": "list[ip]",
+          "default": [
+            "169.254.169.254",
+            "168.63.129.16"
+          ],
+          "description": "Cloud metadata and platform IPs to ignore in network telemetry."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/esql-completion-curl-wget-detection-triage",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/esql-completion-curl-wget-detection-triage",
+          "name": "How Elasticsearch ES|QL COMPLETION turns noisy curl and wget rules into high-fidelity cloud security alerts"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-network-process-mapping",
+          "risk": "On some systems, network telemetry may lack the process identifier, forcing the analyst to correlate based on timestamp, which is less reliable.",
+          "owner": "Infrastructure Team",
+          "stage": "ingress-tool-transfer-via-native-utilities",
+          "question": "Can we definitively link a network connection to a specific curl process?",
+          "requires": "hb_network_connection with pid mapping",
+          "remediation": "Enable eBPF-based socket instrumentation on all Linux hosts."
+        },
+        {
+          "id": "obfuscated-utility-names",
+          "risk": "If an adversary renames curl or wget, this hunt will not observe the activity. We rely on the process name being unchanged.",
+          "owner": "Detection Engineering",
+          "stage": "ingress-tool-transfer-via-native-utilities",
+          "question": "Was the utility renamed to avoid detection?",
+          "requires": "hb_process_activity with original_file_name",
+          "remediation": "Incorporate PE/ELF original filename metadata into the process activity surface."
+        }
+      ]
+    },
+    "name": "Suspicious ingress tool transfer via native utilities",
+    "description": "This hunt identifies suspicious file transfers performed by native utilities. It starts by scoping the estate to hosts with these utilities installed, then applies a dual-surface fan-out to identify rare command lines and verify network connections that target external IPs instead of standard cloud metadata and platform services. An agent triages the results to distinguish genuine threats from expected automation like package updates or CI/CD tasks."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "ingress-tool-transfer-via-native-utilities",
+            "steps": [
+              "scope-utility-inventory",
+              "rare-utility-executions",
+              "external-utility-connections",
+              "agent-triage"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using native Linux or macOS utilities like curl or wget to download malicious payloads from external infrastructure, hiding their activity within the high volume of legitimate cloud automation.",
+        "blind_spots": [
+          {
+            "id": "no-network-process-mapping",
+            "risk": "On some systems, network telemetry may lack the process identifier, forcing the analyst to correlate based on timestamp, which is less reliable.",
+            "owner": "Infrastructure Team",
+            "stage": "ingress-tool-transfer-via-native-utilities",
+            "question": "Can we definitively link a network connection to a specific curl process?",
+            "requires": "hb_network_connection with pid mapping",
+            "remediation": "Enable eBPF-based socket instrumentation on all Linux hosts."
+          },
+          {
+            "id": "obfuscated-utility-names",
+            "risk": "If an adversary renames curl or wget, this hunt will not observe the activity. We rely on the process name being unchanged.",
+            "owner": "Detection Engineering",
+            "stage": "ingress-tool-transfer-via-native-utilities",
+            "question": "Was the utility renamed to avoid detection?",
+            "requires": "hb_process_activity with original_file_name",
+            "remediation": "Incorporate PE/ELF original filename metadata into the process activity surface."
+          }
+        ],
+        "scoping_notes": "Start with Linux cloud workloads and Kubernetes node groups; widen to CI/CD runners if network noise is low.",
+        "beyond_detection": "A standard detection rule for curl or wget is too noisy for a cloud fleet. This hunt uses fleet-wide prevalence to baseline normal automation and employs an agent to filter out known platform services, prioritizing only the rarest transfer behaviors."
+      }
+    },
+    {
+      "id": "scope-utility-inventory",
+      "type": "query",
+      "label": "Scope: Identify hosts with transfer utilities",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%curl%' OR LOWER(package_name) LIKE '%wget%'",
+        "surface": "hb_software_inventory",
+        "description": "Identify the subset of the estate where curl or wget are installed to narrow the scope of the behavioral queries.",
+        "expected_signal": "A list of hosts that have the target utilities in their package inventory. No rows mean the utilities are not managed via standard package managers."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope: Identify hosts with transfer utilities",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE LOWER(package_name) LIKE '%curl%' OR LOWER(package_name) LIKE '%wget%'",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts that have the target utilities in their package inventory. No rows mean the utilities are not managed via standard package managers.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-utility-executions",
+      "type": "query",
+      "label": "Rare utility command lines",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT process_cmd_line, user_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS runs, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) = 'curl' OR LOWER(process_name) LIKE '%/wget' OR LOWER(process_name) = 'wget') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING hosts < {{rare_below}} ORDER BY hosts, runs",
+        "surface": "hb_process_activity",
+        "description": "Identify curl and wget executions that are rare across the fleet, suggesting manual activity rather than common automation.",
+        "expected_signal": "A list of rare command lines; entries appearing on only one host are high interest. Silence proves that all utility executions are fleet-wide automation."
+      },
+      "parents": [
+        {
+          "id": "scope-utility-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Rare utility command lines",
+        "reads": [
+          "process_cmd_line",
+          "user_name",
+          "device_hostname",
+          "time",
+          "process_name"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_cmd_line, user_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS runs, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) = 'curl' OR LOWER(process_name) LIKE '%/wget' OR LOWER(process_name) = 'wget') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_cmd_line HAVING hosts < {{rare_below}} ORDER BY hosts, runs",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of rare command lines; entries appearing on only one host are high interest. Silence proves that all utility executions are fleet-wide automation.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_cmd_line"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "external-utility-connections",
+      "type": "query",
+      "label": "Utility connections to non-cloud IPs",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) = 'curl' OR LOWER(process_name) LIKE '%/wget' OR LOWER(process_name) = 'wget') AND NOT (instr(',' || '{{cloud_metadata_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify utility network connections that target external IPs instead of standard cloud platform services.",
+        "expected_signal": "Connections from curl or wget to unexpected external IPs. Silence suggests utilities are only used for internal or platform communications."
+      },
+      "parents": [
+        {
+          "id": "scope-utility-inventory"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Utility connections to non-cloud IPs",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT device_hostname, process_name, dst_endpoint_ip, dst_endpoint_port, time FROM hb_network_connection WHERE (LOWER(process_name) LIKE '%/curl' OR LOWER(process_name) = 'curl' OR LOWER(process_name) LIKE '%/wget' OR LOWER(process_name) = 'wget') AND NOT (instr(',' || '{{cloud_metadata_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Connections from curl or wget to unexpected external IPs. Silence suggests utilities are only used for internal or platform communications.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "agent-triage",
+      "type": "analytic",
+      "label": "Agent: Triage tool transfer",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "rare-utility-executions",
+          "external-utility-connections"
+        ],
+        "objective": "Determine if the observed curl/wget activity represents an adversary transferring tools. Weight rare command lines combined with external network connections as high risk, but ignore standard package mirrors or known cloud service endpoints.",
+        "description": "Determine if the combined process and network evidence indicates malicious activity or legitimate automation.",
+        "max_iterations": 4,
+        "expected_signal": "A structured per-host verdict on whether the utility activity is suspicious.",
+        "success_criteria": "A structured verdict (malicious | suspicious | benign) per host, citing specific command lines and destination IPs."
+      },
+      "parents": [
+        {
+          "id": "rare-utility-executions",
+          "kind": "merge"
+        },
+        {
+          "id": "external-utility-connections",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the agent-triage verdict is malicious for at least one host",
+        "condition": "the agent-triage verdict is malicious for at least one host",
+        "blind_spot": "no-network-process-mapping",
+        "confidence": "high",
+        "description": "Isolate the host if the agent confirms a tool transfer.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "agent-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Action: Isolate endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further tool usage by isolating the affected host.",
+        "instructions": "Isolate the endpoint and begin incident response to identify the nature of the downloaded file.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Task: Analyst verification",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify the agent's findings and update filters.",
+        "instructions": "Review the agent's verdict and cited rows. If the activity is legitimate automation, update the cloud_metadata_ips or add a new exclusion filter to the query. If malicious, escalate to the IR team."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Task: Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and record tuning notes.",
+        "instructions": "Record the hunt results. If high-fidelity rare executions were identified, promote the rare-utility-executions query to a permanent detection rule."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

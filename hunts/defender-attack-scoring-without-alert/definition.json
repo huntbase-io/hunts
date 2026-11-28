@@ -1,0 +1,770 @@
+{
+  "hunt": {
+    "name": "Processes Defender Scored but Never Alerted On",
+    "description": "Defender does more reasoning than it reports. For each process it keeps a running list of the ATT&CK techniques its behaviour monitoring attributed, for example T1003.001 against a renamed procdump or T1547.001 against a rundll32, and it raises a detection only when the score crosses a threshold. Everything below the threshold stays in the attack-scoring queues of mpenginedb.db and is never shown.\n\nThis hunt reads those queues on every Windows host through the defender_mpengine osquery extension, joins each PID to the running process, and stacks the image and technique sets across the fleet so that software scored everywhere drops away. It then removes processes Defender did act on, using the host's own threat records, low-fidelity cloud lookups and the detections forwarded to the SIEM. The rest is a list of processes Defender suspected and never mentioned.\n\nEach of those is put back in its process tree and checked for the files it wrote before an agent and an analyst decide what it was. The queues keep about an hour, so the hunt is most useful run often, or over results the pack query has been collecting.",
+    "meta": {
+      "type": "investigation",
+      "name": "Processes Defender Scored but Never Alerted On",
+      "labels": [
+        "hunt",
+        "attack.t1003.001",
+        "attack.t1055",
+        "attack.t1059.001",
+        "attack.t1218.011",
+        "attack.t1547.001",
+        "attack.t1053.005",
+        "command and control",
+        "credential access",
+        "defense evasion",
+        "execution",
+        "persistence",
+        "hb-endpoint-control"
+      ],
+      "tlp": "clear",
+      "severity": "medium",
+      "hypothesis": "An intruder's tooling on a Windows host performed credential access, injection, persistence or defence-evasion behaviour that Microsoft Defender attributed to the process as ATT&CK techniques, but stayed below the threshold for a detection, so nothing reached Protection History or the SIEM.",
+      "rationale": "Run across all Windows hosts, as often as practical: the technique queues keep about an hour. Where the pack query defender_mpengine_process_techniques has been scheduled, run the triage over its stored results for the full lookback. Paste the hosts alert-gap-triage names into scope_hosts before the lineage steps.",
+      "analysis": "The attack-scoring rows are by definition below the threshold Defender alerts on, and most of them are benign software. Making use of them needs a fleet comparison, a check against what did alert, and the process tree around each PID, none of which a rule can supply.",
+      "hunt": {
+        "trigger": "detection-gap",
+        "methodology": "structured-hypothesis-driven",
+        "applicability": "environment-specific",
+        "handoff": "keep-as-periodic-hunt",
+        "justification": "Defender is the only behavioural sensor on many Windows fleets that do not license Defender for Endpoint, and its sub-threshold reasoning is otherwise thrown away."
+      },
+      "references": [
+        {
+          "name": "Protokol-7 \u2014 Defender's hidden flight recorder: mpenginedb.db",
+          "url": "https://protokol-7.github.io/dfir/2026/11/10/defenders-hidden-flight-recorder-mpenginedb.html"
+        },
+        {
+          "name": "osquery-defender-extension (defender_mpengine_* tables)",
+          "url": "https://github.com/rakeshrm/osquery-defender-extension"
+        },
+        {
+          "name": "Protokol-7 \u2014 mpenginedb_parser (deleted-row recovery, full timeline)",
+          "url": "https://github.com/Protokol-7/mpenginedb_parser"
+        }
+      ],
+      "guardrails": {
+        "telemetry": "untrusted",
+        "evidence": "citation_required",
+        "missing_data": "not_benign",
+        "claims": "no_unsupported"
+      },
+      "series": {
+        "slug": "defender-mpenginedb-flight-recorder",
+        "index": 2,
+        "total": 5,
+        "title": "Hunting with Defender's Flight Recorder (mpenginedb.db)"
+      },
+      "related": [
+        {
+          "hunt": "defender-unsigned-payloads-sideloading",
+          "relation": "sibling",
+          "reason": "Follows Defender's path tags for the unsigned payloads that scored processes often start from."
+        },
+        {
+          "hunt": "defender-weakening-tamper-asr-exclusions",
+          "relation": "sibling",
+          "reason": "Checks the engine is running and not weakened, which this hunt depends on."
+        }
+      ],
+      "scenario": {
+        "summary": "Tooling runs on a Windows host and performs credential access, injection, persistence or defence evasion. Defender attributes ATT&CK techniques to the process but stays below its alert threshold, so the activity is recorded only in its attack-scoring queues.",
+        "stages": [
+          {
+            "slug": "suspicious-tool-execution",
+            "name": "Tool or LOLBin executes",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1218.011"
+            ],
+            "observables": [
+              "Tech-pid:<pid>,ProcessStart:<filetime> queues",
+              "Process_Img in a user-writable path"
+            ]
+          },
+          {
+            "slug": "credential-access-behaviour",
+            "name": "Credential access behaviour",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1003.001"
+            ],
+            "observables": [
+              "T1003.001 attributed to a non-security process",
+              ".dmp file written"
+            ]
+          },
+          {
+            "slug": "persistence-behaviour",
+            "name": "Persistence behaviour",
+            "tactic": "persistence",
+            "techniques": [
+              "T1547.001",
+              "T1053.005"
+            ],
+            "observables": [
+              "T1547.001 or T1053.005 attributed"
+            ]
+          },
+          {
+            "slug": "injection-and-evasion",
+            "name": "Injection and evasion",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1055"
+            ],
+            "observables": [
+              "T1055 attributed",
+              "LowFi signature hits"
+            ]
+          },
+          {
+            "slug": "command-and-control",
+            "name": "Command and control",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1071.001"
+            ],
+            "observables": [
+              "Outbound connections from the scored process"
+            ]
+          }
+        ]
+      },
+      "coverage": [
+        {
+          "stage": "suspicious-tool-execution",
+          "status": "covered",
+          "steps": [
+            "scored-processes",
+            "scored-process-lineage"
+          ]
+        },
+        {
+          "stage": "credential-access-behaviour",
+          "status": "covered",
+          "steps": [
+            "scored-processes",
+            "scored-process-file-writes"
+          ]
+        },
+        {
+          "stage": "persistence-behaviour",
+          "status": "covered",
+          "steps": [
+            "scored-processes"
+          ]
+        },
+        {
+          "stage": "injection-and-evasion",
+          "status": "covered",
+          "steps": [
+            "scored-processes",
+            "lowfi-cloud-lookups"
+          ]
+        },
+        {
+          "stage": "command-and-control",
+          "status": "out_of_scope",
+          "reason": "Network connections of the scored process are not examined; pivot to network telemetry for confirmed hosts."
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "extension-not-answering",
+          "requires": "the defender_mpengine osquery extension loaded by osqueryd (running as SYSTEM) on every Windows host, with Microsoft Defender Antivirus as the active engine and defender_mpengine_status.error empty",
+          "question": "Did Defender record anything on hosts where the extension is missing, cannot decrypt the database, or Defender is passive behind another antivirus?",
+          "risk": "Those hosts return no rows, which looks the same as a clean host. An attacker who has removed or stopped Defender also leaves an empty or stale database.",
+          "owner": "Endpoint engineering",
+          "remediation": "Deploy the extension through extensions.load on all Windows hosts and alert on defender_mpengine_status rows with a non-empty error."
+        },
+        {
+          "id": "scoring-queue-ttl",
+          "stage": "credential-access-behaviour",
+          "requires": "the pack query defender_mpengine_process_techniques scheduled every 30 minutes, with its results kept",
+          "question": "What did Defender score more than an hour ago?",
+          "risk": "Technique queue entries expire after about an hour. A live run sees only the last hour, so a burst of activity yesterday leaves no scoring rows."
+        },
+        {
+          "id": "alert-forwarding",
+          "requires": "Defender detections (Defender events 1116/1117 or MDE alerts) in hb_detection_finding",
+          "question": "Did a scored process alert somewhere this hunt cannot see?",
+          "risk": "Without forwarding, 'never alerted' rests on the host's own threat queue only, and a process can be marked silent when it did alert."
+        },
+        {
+          "id": "scoring-semantics",
+          "requires": "Microsoft documentation of how attack scoring attributes techniques and where the alert threshold sits",
+          "question": "Why was this technique attributed, and how close was it to an alert?",
+          "risk": "The attribution is Defender's opinion and is not documented; the hunt treats it as a lead, never as proof."
+        }
+      ],
+      "parameters": {
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine. Defender keeps roughly two weeks in mpenginedb.db."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Hosts to focus the follow-up queries on, as osquery reports their hostname; empty runs them across the estate."
+        },
+        "high_signal_techniques": {
+          "type": "list[string]",
+          "default": [
+            "T1003",
+            "T1003.001",
+            "T1055",
+            "T1055.012",
+            "T1562.001",
+            "T1547.001",
+            "T1053.005",
+            "T1543.003",
+            "T1047",
+            "T1021.002",
+            "T1218.011",
+            "T1059.001"
+          ],
+          "description": "ATT&CK techniques that move a scored process up the list when Defender attributes them."
+        }
+      },
+      "targets": {
+        "endpoint": {
+          "category": "endpoint",
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "telemetry": [
+            "endpoint"
+          ]
+        },
+        "hunter": {
+          "agent": true,
+          "name": "Hunt agent"
+        },
+        "analyst": {
+          "role": "analyst",
+          "name": "Tier-2 analyst"
+        },
+        "hb-endpoint-control": {
+          "category": "endpoint",
+          "name": "osquery with the Defender MpEngineDb extension (Huntbase Endpoint Control)",
+          "huntbase": {
+            "product": "hb-endpoint-control"
+          }
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "name": "Huntbase",
+            "org": "huntbase.io"
+          }
+        ],
+        "generated": {
+          "by": "hand-authored-with-claude",
+          "from": "https://protokol-7.github.io/dfir/2026/11/10/defenders-hidden-flight-recorder-mpenginedb.html",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "claude-opus-5-5"
+        }
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "rationale": "An intruder's tooling on a Windows host performed credential access, injection, persistence or defence-evasion behaviour that Microsoft Defender attributed to the process as ATT&CK techniques, but stayed below the threshold for a detection, so nothing reached Protection History or the SIEM.",
+        "tags": [],
+        "scoping_notes": "Run across all Windows hosts, as often as practical: the technique queues keep about an hour. Where the pack query defender_mpengine_process_techniques has been scheduled, run the triage over its stored results for the full lookback. Paste the hosts alert-gap-triage names into scope_hosts before the lineage steps.",
+        "beyond_detection": "The attack-scoring rows are by definition below the threshold Defender alerts on, and most of them are benign software. Making use of them needs a fleet comparison, a check against what did alert, and the process tree around each PID, none of which a rule can supply.",
+        "blind_spots": [
+          {
+            "id": "extension-not-answering",
+            "requires": "the defender_mpengine osquery extension loaded by osqueryd (running as SYSTEM) on every Windows host, with Microsoft Defender Antivirus as the active engine and defender_mpengine_status.error empty",
+            "question": "Did Defender record anything on hosts where the extension is missing, cannot decrypt the database, or Defender is passive behind another antivirus?",
+            "risk": "Those hosts return no rows, which looks the same as a clean host. An attacker who has removed or stopped Defender also leaves an empty or stale database.",
+            "owner": "Endpoint engineering",
+            "remediation": "Deploy the extension through extensions.load on all Windows hosts and alert on defender_mpengine_status rows with a non-empty error."
+          },
+          {
+            "id": "scoring-queue-ttl",
+            "stage": "credential-access-behaviour",
+            "requires": "the pack query defender_mpengine_process_techniques scheduled every 30 minutes, with its results kept",
+            "question": "What did Defender score more than an hour ago?",
+            "risk": "Technique queue entries expire after about an hour. A live run sees only the last hour, so a burst of activity yesterday leaves no scoring rows."
+          },
+          {
+            "id": "alert-forwarding",
+            "requires": "Defender detections (Defender events 1116/1117 or MDE alerts) in hb_detection_finding",
+            "question": "Did a scored process alert somewhere this hunt cannot see?",
+            "risk": "Without forwarding, 'never alerted' rests on the host's own threat queue only, and a process can be marked silent when it did alert."
+          },
+          {
+            "id": "scoring-semantics",
+            "requires": "Microsoft documentation of how attack scoring attributes techniques and where the alert threshold sits",
+            "question": "Why was this technique attributed, and how close was it to an alert?",
+            "risk": "The attribution is Defender's opinion and is not documented; the hunt treats it as a lead, never as proof."
+          }
+        ],
+        "coverage": [
+          {
+            "stage": "suspicious-tool-execution",
+            "status": "covered",
+            "steps": [
+              "scored-processes",
+              "scored-process-lineage"
+            ]
+          },
+          {
+            "stage": "credential-access-behaviour",
+            "status": "covered",
+            "steps": [
+              "scored-processes",
+              "scored-process-file-writes"
+            ]
+          },
+          {
+            "stage": "persistence-behaviour",
+            "status": "covered",
+            "steps": [
+              "scored-processes"
+            ]
+          },
+          {
+            "stage": "injection-and-evasion",
+            "status": "covered",
+            "steps": [
+              "scored-processes",
+              "lowfi-cloud-lookups"
+            ]
+          },
+          {
+            "stage": "command-and-control",
+            "status": "out_of_scope",
+            "reason": "Network connections of the scored process are not examined; pivot to network telemetry for confirmed hosts."
+          }
+        ],
+        "series": {
+          "slug": "defender-mpenginedb-flight-recorder",
+          "index": 2,
+          "total": 5,
+          "title": "Hunting with Defender's Flight Recorder (mpenginedb.db)"
+        }
+      }
+    },
+    {
+      "id": "scored-processes",
+      "type": "query",
+      "label": "Processes Defender attributed techniques to",
+      "config": {
+        "description": "Read the attack-scoring queues: for each process, the ATT&CK techniques Defender attributed to it or that it inherited from its parent, keyed by PID and start time, joined to the running process where the PID and start time still match. Defender keeps these entries for about an hour, so this is a view of the last hour unless the pack query has been collecting them.",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, r.pid, r.process_start, CASE WHEN json_valid(r.entry_value) THEN json_extract(r.entry_value, '$.Process_Img') END AS scored_image, COUNT(DISTINCT r.technique_id) AS technique_count, GROUP_CONCAT(DISTINCT r.technique_id) AS techniques, SUM(CASE WHEN instr(',' || LOWER('{{high_signal_techniques}}') || ',', ',' || LOWER(r.technique_id) || ',') > 0 THEN 1 ELSE 0 END) AS high_signal_hits, MAX(CASE WHEN r.queue_type = 'inherited_techniques' THEN 1 ELSE 0 END) AS inherited, MIN(r.insert_time) AS first_scored, MAX(r.insert_time) AS last_scored, p.path AS live_path, p.cmdline AS live_cmdline, p.parent AS live_parent_pid FROM defender_mpengine_rolling_queues r LEFT JOIN processes p ON p.pid = r.pid AND ABS(p.start_time - r.process_start) <= 2 WHERE r.queue_type IN ('techniques', 'inherited_techniques') AND r.technique_id != '' GROUP BY r.pid, r.process_start ORDER BY high_signal_hits DESC, technique_count DESC",
+        "dsl": "osquery",
+        "source": "hb-endpoint-control",
+        "surface": "defender_mpengine_rolling_queues",
+        "role": "baseline",
+        "expected_signal": "Installers, updaters and management agents are scored every day and appear on many hosts with the same techniques. A user-space image, or a LOLBin with credential-access, injection or persistence techniques on one or two hosts, is the lead. live_path is empty once the process has exited.",
+        "product": "hb-endpoint-control",
+        "extension": "hb-endpoint-control"
+      },
+      "primitive_config": {
+        "dsl": "osquery",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, r.pid, r.process_start, CASE WHEN json_valid(r.entry_value) THEN json_extract(r.entry_value, '$.Process_Img') END AS scored_image, COUNT(DISTINCT r.technique_id) AS technique_count, GROUP_CONCAT(DISTINCT r.technique_id) AS techniques, SUM(CASE WHEN instr(',' || LOWER('{{high_signal_techniques}}') || ',', ',' || LOWER(r.technique_id) || ',') > 0 THEN 1 ELSE 0 END) AS high_signal_hits, MAX(CASE WHEN r.queue_type = 'inherited_techniques' THEN 1 ELSE 0 END) AS inherited, MIN(r.insert_time) AS first_scored, MAX(r.insert_time) AS last_scored, p.path AS live_path, p.cmdline AS live_cmdline, p.parent AS live_parent_pid FROM defender_mpengine_rolling_queues r LEFT JOIN processes p ON p.pid = r.pid AND ABS(p.start_time - r.process_start) <= 2 WHERE r.queue_type IN ('techniques', 'inherited_techniques') AND r.technique_id != '' GROUP BY r.pid, r.process_start ORDER BY high_signal_hits DESC, technique_count DESC",
+        "label": "Processes Defender attributed techniques to",
+        "target": "hb-endpoint-control",
+        "source": "defender_mpengine_rolling_queues",
+        "reads": [
+          "queue_type",
+          "entry_value",
+          "technique_id",
+          "pid",
+          "process_start",
+          "insert_time",
+          "path"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Installers, updaters and management agents are scored every day and appear on many hosts with the same techniques. A user-space image, or a LOLBin with credential-access, injection or persistence techniques on one or two hosts, is the lead. live_path is empty once the process has exited.",
+        "silence": "not_evidence_of_absence",
+        "prevalence": {
+          "key": [
+            "scored_image",
+            "techniques"
+          ],
+          "by": "device_hostname",
+          "rare_below": 3
+        },
+        "target_extension": "hb-endpoint-control",
+        "role": "baseline"
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ]
+    },
+    {
+      "id": "defender-threat-records",
+      "type": "query",
+      "label": "Threats Defender recorded on the host",
+      "config": {
+        "description": "Read the RecentThreatsOnMachine queue: the behaviour detections the engine named, with the PID and image they were raised against. A scored process with a threat record was noticed; one without was not.",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, entry_key AS threat_name, pid, process_start, CASE WHEN json_valid(entry_value) THEN json_extract(entry_value, '$.Process_Img') END AS image, insert_time FROM defender_mpengine_rolling_queues WHERE queue_type = 'recent_threats' AND insert_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400)",
+        "dsl": "osquery",
+        "source": "hb-endpoint-control",
+        "surface": "defender_mpengine_rolling_queues",
+        "role": "enrichment",
+        "expected_signal": "Behavior:Win32/... names against specific PIDs. Matching pid and process_start to scored-processes shows which scored processes Defender did act on.",
+        "product": "hb-endpoint-control",
+        "extension": "hb-endpoint-control"
+      },
+      "primitive_config": {
+        "dsl": "osquery",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, entry_key AS threat_name, pid, process_start, CASE WHEN json_valid(entry_value) THEN json_extract(entry_value, '$.Process_Img') END AS image, insert_time FROM defender_mpengine_rolling_queues WHERE queue_type = 'recent_threats' AND insert_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400)",
+        "label": "Threats Defender recorded on the host",
+        "target": "hb-endpoint-control",
+        "source": "defender_mpengine_rolling_queues",
+        "reads": [
+          "queue_type",
+          "entry_key",
+          "entry_value",
+          "pid",
+          "process_start",
+          "insert_time"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Behavior:Win32/... names against specific PIDs. Matching pid and process_start to scored-processes shows which scored processes Defender did act on.",
+        "silence": "not_evidence_of_absence",
+        "target_extension": "hb-endpoint-control",
+        "role": "enrichment"
+      },
+      "parents": [
+        {
+          "id": "scored-processes"
+        }
+      ]
+    },
+    {
+      "id": "lowfi-cloud-lookups",
+      "type": "query",
+      "label": "Low-fidelity signature hits sent to the cloud",
+      "config": {
+        "description": "List files that matched a low-fidelity signature and were sent for an asynchronous cloud verdict. These are Defender's maybes; Protokol-7 found hashcat modules here.",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, file_name, sig_seq, sig_sha, sig_is_sync, instance_time FROM defender_mpengine_lowfi_async WHERE instance_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400)",
+        "dsl": "osquery",
+        "source": "hb-endpoint-control",
+        "surface": "defender_mpengine_lowfi_async",
+        "role": "enrichment",
+        "expected_signal": "A LowFi hit on the scored image, or on a file beside it, strengthens the lead. Signature sequence numbers are not documented.",
+        "product": "hb-endpoint-control",
+        "extension": "hb-endpoint-control"
+      },
+      "primitive_config": {
+        "dsl": "osquery",
+        "content": "SELECT (SELECT hostname FROM system_info) AS device_hostname, file_name, sig_seq, sig_sha, sig_is_sync, instance_time FROM defender_mpengine_lowfi_async WHERE instance_time >= (CAST(strftime('%s', 'now') AS INTEGER) - {{lookback_days}} * 86400)",
+        "label": "Low-fidelity signature hits sent to the cloud",
+        "target": "hb-endpoint-control",
+        "source": "defender_mpengine_lowfi_async",
+        "reads": [
+          "instance_time",
+          "file_name",
+          "sig_seq",
+          "sig_sha",
+          "sig_is_sync"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "A LowFi hit on the scored image, or on a file beside it, strengthens the lead. Signature sequence numbers are not documented.",
+        "silence": "not_evidence_of_absence",
+        "target_extension": "hb-endpoint-control",
+        "role": "enrichment"
+      },
+      "parents": [
+        {
+          "id": "scored-processes"
+        }
+      ]
+    },
+    {
+      "id": "defender-detections-reported",
+      "type": "query",
+      "label": "Defender detections that reached the SIEM",
+      "config": {
+        "description": "List the Defender detections forwarded from these hosts in the window, to tell scored processes that alerted from those that did not.",
+        "content": "SELECT device_hostname, time, finding_title, malware_name, file_path, process_path, disposition, severity, metadata_product FROM hb_detection_finding WHERE time >= datetime('now', '-{{lookback_days}} days') AND (LOWER(COALESCE(metadata_product, '')) LIKE '%defender%' OR LOWER(COALESCE(provider, '')) LIKE '%defender%')",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_detection_finding",
+        "role": "enrichment",
+        "expected_signal": "Detections with a process_path or file_path matching a scored image mean the process alerted. No rows from a host with scored processes is either a real gap or detections not being forwarded."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, finding_title, malware_name, file_path, process_path, disposition, severity, metadata_product FROM hb_detection_finding WHERE time >= datetime('now', '-{{lookback_days}} days') AND (LOWER(COALESCE(metadata_product, '')) LIKE '%defender%' OR LOWER(COALESCE(provider, '')) LIKE '%defender%')",
+        "label": "Defender detections that reached the SIEM",
+        "target": "endpoint",
+        "source": "hb_detection_finding",
+        "reads": [
+          "time",
+          "provider",
+          "finding_title",
+          "severity",
+          "disposition",
+          "malware_name",
+          "file_path",
+          "process_path",
+          "device_hostname",
+          "metadata_product"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Detections with a process_path or file_path matching a scored image mean the process alerted. No rows from a host with scored processes is either a real gap or detections not being forwarded.",
+        "silence": "not_evidence_of_absence",
+        "role": "enrichment"
+      },
+      "parents": [
+        {
+          "id": "scored-processes"
+        }
+      ]
+    },
+    {
+      "id": "alert-gap-triage",
+      "type": "analytic",
+      "label": "Scored but silent",
+      "config": {
+        "description": "Keep the scored processes nothing alerted on, ranked.",
+        "objective": "For each scored process, decide whether Defender raised anything about it: a threat record with the same pid and process_start, a detection on the same host for the same image near the same time, or a LowFi hit on the image. Keep those with none. Rank them by high_signal_hits, by rarity of the image and technique set across the fleet, by whether the image is in a user-writable folder or is a LOLBin, and by inherited techniques, which mean a scored parent started it.",
+        "context": [
+          "scored-processes",
+          "defender-threat-records",
+          "lowfi-cloud-lookups",
+          "defender-detections-reported"
+        ],
+        "tools": [
+          "endpoint",
+          "hb-endpoint-control"
+        ],
+        "success_criteria": "A ranked list of host, pid, start time, image and techniques for scored processes with no alert, citing rows; the hosts to paste into scope_hosts.",
+        "cite": "required",
+        "max_iterations": 4
+      },
+      "parents": [
+        {
+          "id": "defender-threat-records",
+          "kind": "merge"
+        },
+        {
+          "id": "lowfi-cloud-lookups",
+          "kind": "merge"
+        },
+        {
+          "id": "defender-detections-reported",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "scored-process-lineage",
+      "type": "query",
+      "label": "Process lineage on scored hosts",
+      "config": {
+        "description": "Recover parent, command line, user and hash for user-space and LOLBin processes on the scored hosts, including ones that have exited, to put each scored PID in its process tree.",
+        "content": "SELECT device_hostname, time, pid, parent_pid, parent_process_name, parent_process_cmd_line, process_name, process_cmd_line, user_name, integrity_level, process_hash_sha256 FROM hb_process_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ((LOWER(process_name) LIKE '%\\users\\%' OR LOWER(process_name) LIKE '%\\programdata\\%' OR LOWER(process_name) LIKE '%\\windows\\temp\\%' OR LOWER(process_name) LIKE '%\\perflogs\\%' OR LOWER(process_name) LIKE '%\\$recycle.bin\\%') OR (LOWER(process_name) LIKE '%\\powershell.exe' OR LOWER(process_name) LIKE '%\\pwsh.exe' OR LOWER(process_name) LIKE '%\\cmd.exe' OR LOWER(process_name) LIKE '%\\wscript.exe' OR LOWER(process_name) LIKE '%\\cscript.exe' OR LOWER(process_name) LIKE '%\\mshta.exe' OR LOWER(process_name) LIKE '%\\rundll32.exe' OR LOWER(process_name) LIKE '%\\regsvr32.exe' OR LOWER(process_name) LIKE '%\\msbuild.exe' OR LOWER(process_name) LIKE '%\\installutil.exe' OR LOWER(process_name) LIKE '%\\certutil.exe' OR LOWER(process_name) LIKE '%\\bitsadmin.exe' OR LOWER(process_name) LIKE '%\\msiexec.exe' OR LOWER(process_name) LIKE '%\\curl.exe'))",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_process_activity",
+        "role": "enrichment",
+        "expected_signal": "The scored PID with its parent and command line. An Office, browser or archive-tool parent, or an encoded or download command line, supports the lead."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, pid, parent_pid, parent_process_name, parent_process_cmd_line, process_name, process_cmd_line, user_name, integrity_level, process_hash_sha256 FROM hb_process_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ((LOWER(process_name) LIKE '%\\users\\%' OR LOWER(process_name) LIKE '%\\programdata\\%' OR LOWER(process_name) LIKE '%\\windows\\temp\\%' OR LOWER(process_name) LIKE '%\\perflogs\\%' OR LOWER(process_name) LIKE '%\\$recycle.bin\\%') OR (LOWER(process_name) LIKE '%\\powershell.exe' OR LOWER(process_name) LIKE '%\\pwsh.exe' OR LOWER(process_name) LIKE '%\\cmd.exe' OR LOWER(process_name) LIKE '%\\wscript.exe' OR LOWER(process_name) LIKE '%\\cscript.exe' OR LOWER(process_name) LIKE '%\\mshta.exe' OR LOWER(process_name) LIKE '%\\rundll32.exe' OR LOWER(process_name) LIKE '%\\regsvr32.exe' OR LOWER(process_name) LIKE '%\\msbuild.exe' OR LOWER(process_name) LIKE '%\\installutil.exe' OR LOWER(process_name) LIKE '%\\certutil.exe' OR LOWER(process_name) LIKE '%\\bitsadmin.exe' OR LOWER(process_name) LIKE '%\\msiexec.exe' OR LOWER(process_name) LIKE '%\\curl.exe'))",
+        "label": "Process lineage on scored hosts",
+        "target": "endpoint",
+        "source": "hb_process_activity",
+        "reads": [
+          "time",
+          "device_hostname",
+          "pid",
+          "process_name",
+          "process_cmd_line",
+          "process_hash_sha256",
+          "parent_pid",
+          "parent_process_name",
+          "parent_process_cmd_line",
+          "user_name",
+          "integrity_level"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "The scored PID with its parent and command line. An Office, browser or archive-tool parent, or an encoded or download command line, supports the lead.",
+        "silence": "not_evidence_of_absence",
+        "role": "enrichment"
+      },
+      "parents": [
+        {
+          "id": "alert-gap-triage"
+        }
+      ]
+    },
+    {
+      "id": "scored-process-file-writes",
+      "type": "query",
+      "label": "Files written by user-space and LOLBin processes",
+      "config": {
+        "description": "Find the dumps, payloads and scripts these processes wrote. A .dmp written by a process scored for T1003.001 is a credential dump.",
+        "content": "SELECT device_hostname, time, process_name, process_cmd_line, file_path, file_hash_sha256 FROM hb_file_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ((LOWER(process_name) LIKE '%\\users\\%' OR LOWER(process_name) LIKE '%\\programdata\\%' OR LOWER(process_name) LIKE '%\\windows\\temp\\%' OR LOWER(process_name) LIKE '%\\perflogs\\%' OR LOWER(process_name) LIKE '%\\$recycle.bin\\%') OR (LOWER(process_name) LIKE '%\\powershell.exe' OR LOWER(process_name) LIKE '%\\pwsh.exe' OR LOWER(process_name) LIKE '%\\cmd.exe' OR LOWER(process_name) LIKE '%\\wscript.exe' OR LOWER(process_name) LIKE '%\\cscript.exe' OR LOWER(process_name) LIKE '%\\mshta.exe' OR LOWER(process_name) LIKE '%\\rundll32.exe' OR LOWER(process_name) LIKE '%\\regsvr32.exe' OR LOWER(process_name) LIKE '%\\msbuild.exe' OR LOWER(process_name) LIKE '%\\installutil.exe' OR LOWER(process_name) LIKE '%\\certutil.exe' OR LOWER(process_name) LIKE '%\\bitsadmin.exe' OR LOWER(process_name) LIKE '%\\msiexec.exe' OR LOWER(process_name) LIKE '%\\curl.exe')) AND (LOWER(file_path) LIKE '%.dmp' OR LOWER(file_path) LIKE '%.exe' OR LOWER(file_path) LIKE '%.dll' OR LOWER(file_path) LIKE '%.ps1' OR LOWER(file_path) LIKE '%.bat' OR LOWER(file_path) LIKE '%.vbs' OR LOWER(file_path) LIKE '%.js' OR LOWER(file_path) LIKE '%.hta' OR LOWER(file_path) LIKE '%.zip')",
+        "dsl": "sqlite",
+        "source": "endpoint",
+        "surface": "hb_file_activity",
+        "role": "enrichment",
+        "expected_signal": "Files whose writer matches a scored image. Silence is common where file creation is not collected."
+      },
+      "primitive_config": {
+        "dsl": "sqlite",
+        "content": "SELECT device_hostname, time, process_name, process_cmd_line, file_path, file_hash_sha256 FROM hb_file_activity WHERE time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND ((LOWER(process_name) LIKE '%\\users\\%' OR LOWER(process_name) LIKE '%\\programdata\\%' OR LOWER(process_name) LIKE '%\\windows\\temp\\%' OR LOWER(process_name) LIKE '%\\perflogs\\%' OR LOWER(process_name) LIKE '%\\$recycle.bin\\%') OR (LOWER(process_name) LIKE '%\\powershell.exe' OR LOWER(process_name) LIKE '%\\pwsh.exe' OR LOWER(process_name) LIKE '%\\cmd.exe' OR LOWER(process_name) LIKE '%\\wscript.exe' OR LOWER(process_name) LIKE '%\\cscript.exe' OR LOWER(process_name) LIKE '%\\mshta.exe' OR LOWER(process_name) LIKE '%\\rundll32.exe' OR LOWER(process_name) LIKE '%\\regsvr32.exe' OR LOWER(process_name) LIKE '%\\msbuild.exe' OR LOWER(process_name) LIKE '%\\installutil.exe' OR LOWER(process_name) LIKE '%\\certutil.exe' OR LOWER(process_name) LIKE '%\\bitsadmin.exe' OR LOWER(process_name) LIKE '%\\msiexec.exe' OR LOWER(process_name) LIKE '%\\curl.exe')) AND (LOWER(file_path) LIKE '%.dmp' OR LOWER(file_path) LIKE '%.exe' OR LOWER(file_path) LIKE '%.dll' OR LOWER(file_path) LIKE '%.ps1' OR LOWER(file_path) LIKE '%.bat' OR LOWER(file_path) LIKE '%.vbs' OR LOWER(file_path) LIKE '%.js' OR LOWER(file_path) LIKE '%.hta' OR LOWER(file_path) LIKE '%.zip')",
+        "label": "Files written by user-space and LOLBin processes",
+        "target": "endpoint",
+        "source": "hb_file_activity",
+        "reads": [
+          "time",
+          "device_hostname",
+          "file_path",
+          "file_hash_sha256",
+          "process_name",
+          "process_cmd_line"
+        ],
+        "verified": "dry-run",
+        "verified_at": "2026-11-19",
+        "expected": "Files whose writer matches a scored image. Silence is common where file creation is not collected.",
+        "silence": "not_evidence_of_absence",
+        "role": "enrichment"
+      },
+      "parents": [
+        {
+          "id": "alert-gap-triage"
+        }
+      ]
+    },
+    {
+      "id": "scored-process-verdict",
+      "type": "analytic",
+      "label": "Scored process verdict",
+      "config": {
+        "description": "Decide what each silent scored process was.",
+        "objective": "For each process from alert-gap-triage, decide whether it is malicious, suspicious or benign using its lineage, command line, files written and the techniques Defender attributed. A signed vendor binary in Program Files scored for the same techniques on many hosts is benign; a process that wrote a .dmp after a T1003.001 attribution is malicious.",
+        "context": [
+          "alert-gap-triage",
+          "scored-process-lineage",
+          "scored-process-file-writes"
+        ],
+        "tools": [
+          "endpoint",
+          "hb-endpoint-control"
+        ],
+        "success_criteria": "A verdict per scored process citing rows from each step, and the image and technique pairs judged benign.",
+        "cite": "required",
+        "max_iterations": 4
+      },
+      "parents": [
+        {
+          "id": "scored-process-lineage",
+          "kind": "merge"
+        },
+        {
+          "id": "scored-process-file-writes",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "description": "Act on malicious processes; send unclear ones to a person.",
+        "checkpoint_type": "mandatory",
+        "condition": "scored-process-verdict finds at least one malicious scored process",
+        "question": "scored-process-verdict finds at least one malicious scored process",
+        "fuzzy": true,
+        "confidence": "high",
+        "judge": "hunter",
+        "blind_spot": "scoring-queue-ttl"
+      },
+      "parents": [
+        {
+          "id": "scored-process-verdict"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate the host",
+      "config": {
+        "description": "Stop the process's activity while preserving evidence.",
+        "instructions": "Copy C:\\ProgramData\\Microsoft\\Windows Defender\\Scans and take a memory image first. Then isolate the host, and terminate the scored process if it is still running.",
+        "action_approval": "required",
+        "target": "endpoint"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "description": "Confirm and extend the finding.",
+        "instructions": "Decrypt the copied Scans folder with the extension's --decrypt mode or Protokol-7's mpenginedb_parser to see the full queue history, including deleted rows. Review the accounts that ran the scored process and their other hosts, and check the scored image's hash across the estate.",
+        "assignee": "analyst"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "description": "Record results and make the next run see more than an hour.",
+        "instructions": "Record the scored processes and verdicts. Schedule the pack query defender_mpengine_process_techniques every 30 minutes, because the queues keep about an hour, and keep the benign image and technique pairs as a suppression list for the next run.",
+        "assignee": "analyst"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

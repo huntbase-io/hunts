@@ -1,0 +1,607 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "VSS manipulation is a critical precursor to both AD-wide credential theft and ransomware encryption. Because VSS activity is noisy, a multi-stage hunt that correlates lateral movement with shadow copy abuse is necessary to identify targeted intrusions while minimizing false positives from backup software."
+      },
+      "name": "VSS Manipulation and Lateral Movement Correlation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1021.001",
+        "attack.t1021.002",
+        "attack.t1003.003",
+        "attack.t1490",
+        "attack.t1486"
+      ],
+      "related": [
+        {
+          "hunt": "ntds-dit-theft-via-esentutl",
+          "reason": "Attackers may use esentutl.exe or other native tools to copy the AD database; this hunt focuses exclusively on the VSS abuse path.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule for 'vssadmin delete shadows' fires on every routine maintenance script. This hunt provides context by correlating PsExec movement, rare recon tools, and the VSS event over a 14-day window, allowing an analyst to see the intrusion timeline rather than an isolated, potentially benign event.",
+      "coverage": [
+        {
+          "stage": "lateral-movement-psexec",
+          "steps": [
+            "psexec-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "reconnaissance-discovery",
+          "steps": [
+            "recon-prevalence"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-access-ntds",
+          "steps": [
+            "vss-abuse-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "inhibit-recovery-vss",
+          "steps": [
+            "vss-abuse-commands"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "ransomware-impact",
+          "reason": "Bulk file encryption is an after-effect; this hunt aims to find the precursors (VSS inhibition) before encryption starts.",
+          "status": "not_visible"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Lateral Movement via PsExec",
+            "slug": "lateral-movement-psexec",
+            "tactic": "lateral-movement",
+            "techniques": [
+              "T1021.002"
+            ],
+            "observables": [
+              "psexec.exe",
+              "SYSTEM-level command shell processes",
+              "cmd.exe"
+            ]
+          },
+          {
+            "name": "Internal Reconnaissance",
+            "slug": "reconnaissance-discovery",
+            "tactic": "discovery",
+            "techniques": [
+              "T1021.001",
+              "T1018"
+            ],
+            "observables": [
+              "Enumeration of active Remote Desktop sessions",
+              "DNS enumeration commands",
+              "Reconnaissance against additional hosts",
+              "qwinsta",
+              "query user"
+            ]
+          },
+          {
+            "name": "NTDS.dit Extraction via VSS",
+            "slug": "credential-access-ntds",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1003.003"
+            ],
+            "observables": [
+              "vssadmin create shadow",
+              "ntds.dit",
+              "Active Directory database extraction from shadow copy"
+            ]
+          },
+          {
+            "name": "Inhibit System Recovery",
+            "slug": "inhibit-recovery-vss",
+            "tactic": "impact",
+            "techniques": [
+              "T1490"
+            ],
+            "observables": [
+              "vssadmin delete shadows /all /quiet",
+              "Shadow copy deletion via VSSAdmin"
+            ]
+          },
+          {
+            "name": "Data Encryption",
+            "slug": "ransomware-impact",
+            "tactic": "impact",
+            "techniques": [
+              "T1486"
+            ],
+            "observables": [
+              "Bulk file encryption",
+              "Ransomware detonation"
+            ]
+          }
+        ],
+        "summary": "Attackers leverage Volume Shadow Copy (VSS) to extract sensitive files like the Active Directory database (ntds.dit) and delete local backups prior to ransomware deployment. Effective detection requires correlating these VSS activities with lateral movement via PsExec and internal reconnaissance."
+      },
+      "severity": "medium",
+      "rationale": "Focus on domain controllers and high-value servers first. Admin workstations will naturally show high recon tool usage; prioritize servers where VSS manipulation is not part of the standard backup workflow.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker has moved laterally into the environment and is abusing Volume Shadow Copy Service utilities to either steal the Active Directory database or inhibit system recovery before a ransomware event.",
+      "parameters": {
+        "vss_names": {
+          "type": "list[string]",
+          "default": [
+            "vssadmin.exe",
+            "diskshadow.exe"
+          ],
+          "description": "Utilities used to manipulate volume shadow copies."
+        },
+        "recon_names": {
+          "type": "list[string]",
+          "default": [
+            "qwinsta.exe",
+            "query.exe",
+            "nslookup.exe"
+          ],
+          "description": "Tools for RDP session enumeration and DNS discovery."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the hunt; leave empty for the entire estate."
+        },
+        "psexec_names": {
+          "type": "list[string]",
+          "default": [
+            "psexec.exe",
+            "psexesvc.exe"
+          ],
+          "description": "Filenames associated with PsExec remote execution."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.huntress.com/blog/vss-abuse-explained",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.huntress.com/blog/vss-abuse-explained",
+          "name": "Huntress \u2014 How Attackers Abuse VSS, and How Huntress Detects It"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "vss-api-evasion",
+          "risk": "An attacker using a custom tool to call the VSS API directly would bypass the process-name-based detection of vssadmin.exe and diskshadow.exe.",
+          "stage": "inhibit-recovery-vss",
+          "question": "whether the attacker manipulated shadow copies via direct API calls",
+          "requires": "VSS provider COM/API monitoring"
+        },
+        {
+          "id": "ntds-copy-transparency",
+          "risk": "Many EDRs do not record file access events within temporary shadow volume mount points, making the actual theft of the database invisible even if the VSS creation is seen.",
+          "stage": "credential-access-ntds",
+          "question": "whether ntds.dit was copied from a mounted shadow volume",
+          "requires": "hb_file_activity with volume mount monitoring"
+        }
+      ]
+    },
+    "name": "VSS Manipulation and Lateral Movement Correlation",
+    "description": "This hunt identifies the progression from lateral movement (PsExec) and internal reconnaissance to the abuse of VSS utilities (vssadmin, diskshadow). While VSS activity is often part of routine backup or RMM workflows, this hunt correlates it with precursor activity\u2014remote service installation and session enumeration\u2014to distinguish malicious intent. By phasing the analysis, we first identify high-risk hosts exhibiting lateral movement and then examine them for subsequent credential theft or recovery inhibition."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "lateral-movement-psexec",
+            "steps": [
+              "psexec-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "reconnaissance-discovery",
+            "steps": [
+              "recon-prevalence"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-access-ntds",
+            "steps": [
+              "vss-abuse-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "inhibit-recovery-vss",
+            "steps": [
+              "vss-abuse-commands"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "ransomware-impact",
+            "reason": "Bulk file encryption is an after-effect; this hunt aims to find the precursors (VSS inhibition) before encryption starts.",
+            "status": "not_visible"
+          }
+        ],
+        "rationale": "An attacker has moved laterally into the environment and is abusing Volume Shadow Copy Service utilities to either steal the Active Directory database or inhibit system recovery before a ransomware event.",
+        "blind_spots": [
+          {
+            "id": "vss-api-evasion",
+            "risk": "An attacker using a custom tool to call the VSS API directly would bypass the process-name-based detection of vssadmin.exe and diskshadow.exe.",
+            "stage": "inhibit-recovery-vss",
+            "question": "whether the attacker manipulated shadow copies via direct API calls",
+            "requires": "VSS provider COM/API monitoring"
+          },
+          {
+            "id": "ntds-copy-transparency",
+            "risk": "Many EDRs do not record file access events within temporary shadow volume mount points, making the actual theft of the database invisible even if the VSS creation is seen.",
+            "stage": "credential-access-ntds",
+            "question": "whether ntds.dit was copied from a mounted shadow volume",
+            "requires": "hb_file_activity with volume mount monitoring"
+          }
+        ],
+        "scoping_notes": "Focus on domain controllers and high-value servers first. Admin workstations will naturally show high recon tool usage; prioritize servers where VSS manipulation is not part of the standard backup workflow.",
+        "beyond_detection": "A simple detection rule for 'vssadmin delete shadows' fires on every routine maintenance script. This hunt provides context by correlating PsExec movement, rare recon tools, and the VSS event over a 14-day window, allowing an analyst to see the intrusion timeline rather than an isolated, potentially benign event."
+      }
+    },
+    {
+      "id": "identify-servers",
+      "type": "query",
+      "label": "Identify domain controllers and servers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%server%' OR LOWER(package_name) LIKE '%active directory%') AND LOWER(vendor_name) LIKE '%microsoft%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_software_inventory",
+        "description": "Scope the hunt to Windows server infrastructure where ntds.dit or volume backups are most critical.",
+        "expected_signal": "A list of hostnames belonging to the server estate. Silence means no Windows servers were found in the inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify domain controllers and servers",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "vendor_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%server%' OR LOWER(package_name) LIKE '%active directory%') AND LOWER(vendor_name) LIKE '%microsoft%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames belonging to the server estate. Silence means no Windows servers were found in the inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "psexec-activity",
+      "type": "query",
+      "label": "PsExec remote execution activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(',' || '{{psexec_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "surface": "hb_process_activity",
+        "description": "Find instances of PsExec service installation or execution, common for moving to domain controllers.",
+        "expected_signal": "Process starts for psexesvc.exe or psexec.exe. Benign admin use is common, but should be rare on non-admin hosts."
+      },
+      "parents": [
+        {
+          "id": "identify-servers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "PsExec remote execution activity",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(',' || '{{psexec_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0)",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Process starts for psexesvc.exe or psexec.exe. Benign admin use is common, but should be rare on non-admin hosts.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "recon-prevalence",
+      "type": "query",
+      "label": "Prevalence of reconnaissance tools",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, GROUP_CONCAT(DISTINCT device_hostname) AS hosts FROM hb_process_activity WHERE instr(',' || '{{recon_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 5",
+        "surface": "hb_process_activity",
+        "description": "Stack-count the use of enumeration tools like qwinsta or nslookup to find outliers that deviate from standard admin hygiene.",
+        "expected_signal": "A list of hosts using recon tools rarely. High host counts likely indicate standard RMM inventory tasks."
+      },
+      "parents": [
+        {
+          "id": "identify-servers"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Prevalence of reconnaissance tools",
+        "reads": [
+          "process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS host_count, GROUP_CONCAT(DISTINCT device_hostname) AS hosts FROM hb_process_activity WHERE instr(',' || '{{recon_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING host_count <= 5",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "new_this_window"
+        },
+        "expected": "A list of hosts using recon tools rarely. High host counts likely indicate standard RMM inventory tasks.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Evaluate early-stage precursors",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "psexec-activity",
+          "recon-prevalence"
+        ],
+        "objective": "Summarize hosts where PsExec and rare reconnaissance tools (qwinsta/nslookup) were used in the same time window. Flag these as 'high-risk targets' for the next phase.",
+        "description": "Identify hosts showing a combination of lateral movement and recon outlier activity for follow-on VSS inspection.",
+        "max_iterations": 3,
+        "expected_signal": "A high-risk host list with cited process evidence.",
+        "success_criteria": "A per-host assessment of precursor activity."
+      },
+      "parents": [
+        {
+          "id": "psexec-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "recon-prevalence",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "vss-abuse-commands",
+      "type": "query",
+      "label": "VSS utility abuse commands",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(',' || '{{vss_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND (LOWER(process_cmd_line) LIKE '%shadow%' AND (LOWER(process_cmd_line) LIKE '%create%' OR LOWER(process_cmd_line) LIKE '%delete%')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect explicit commands to create shadow copies (credential theft) or delete them (ransomware impact).",
+        "expected_signal": "Command lines using vssadmin or diskshadow to manipulate snapshots. Silence does not prove absence if the attacker uses custom API calls."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "VSS utility abuse commands",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, user_name, time FROM hb_process_activity WHERE instr(',' || '{{vss_names}}' || ',', ',' || LOWER(process_name) || ',') > 0 AND (LOWER(process_cmd_line) LIKE '%shadow%' AND (LOWER(process_cmd_line) LIKE '%create%' OR LOWER(process_cmd_line) LIKE '%delete%')) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Command lines using vssadmin or diskshadow to manipulate snapshots. Silence does not prove absence if the attacker uses custom API calls.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "intrusion-chain-agent",
+      "type": "analytic",
+      "label": "Correlate intrusion chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "early-stage-triage",
+          "vss-abuse-commands"
+        ],
+        "objective": "Review the high-risk hosts from the first agent and determine if the VSS commands observed in 'vss-abuse-commands' occur within the same session or shortly after the lateral movement/recon. Cite the specific timeline per host.",
+        "description": "Analyze the progression from early-stage movement to VSS manipulation to distinguish attacks from routine maintenance.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict on whether the activity chain indicates a malicious presence.",
+        "success_criteria": "A verdict of malicious | suspicious | benign per host."
+      },
+      "parents": [
+        {
+          "id": "vss-abuse-commands"
+        }
+      ]
+    },
+    {
+      "id": "routing-decision",
+      "type": "checkpoint",
+      "label": "Route based on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the intrusion-chain-agent reports a malicious or suspicious sequence on at least one host",
+        "condition": "the intrusion-chain-agent reports a malicious or suspicious sequence on at least one host",
+        "blind_spot": "vss-api-evasion",
+        "confidence": "high",
+        "description": "Direct the hunt based on the agent's determination of an intrusion chain.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "intrusion-chain-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-endpoint",
+      "type": "action",
+      "label": "Isolate high-risk endpoint",
+      "config": {
+        "target": "endpoint",
+        "description": "Halt further progress of ransomware or credential exfiltration once the chain is confirmed.",
+        "instructions": "Isolate the host from the network immediately and preserve evidence for manual review.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "routing-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-confirmation",
+      "type": "task",
+      "label": "Manual analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the agent's correlation and check for signs of NTDS.dit or registry hive theft.",
+        "instructions": "Examine the hosts identified by the agent. Review process lineage starting from PsExec to VSS commands. Check for concurrent file activity on C:\\Windows\\NTDS\\ntds.dit or C:\\Windows\\System32\\config\\SAM."
+      },
+      "parents": [
+        {
+          "id": "routing-decision",
+          "branch": "default"
+        },
+        {
+          "id": "routing-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-endpoint"
+        }
+      ]
+    },
+    {
+      "id": "hunt-closure",
+      "type": "task",
+      "label": "Hunt closure and documentation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document negative results and any tuning notes for administrative VSS activity.",
+        "instructions": "Record the hosts that were scoped and the observed baseline for VSS activity. Note any routine scripts that caused noise for exclusion in future runs."
+      },
+      "parents": [
+        {
+          "id": "routing-decision",
+          "branch": "on_refutes"
+        }
+      ]
+    }
+  ]
+}

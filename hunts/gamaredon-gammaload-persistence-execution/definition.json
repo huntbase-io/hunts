@@ -1,0 +1,541 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "GammaLoad is the bridge between initial access and final payload delivery for Gamaredon. Detecting this stage allows for containment before espionage tools like GammaSteel are deployed. A negative result provides confidence that the environment is not staged for FSB-backed espionage."
+      },
+      "name": "Gamaredon GammaLoad Multi-stage Persistence and Execution",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1059.001",
+        "attack.t1090.003",
+        "attack.t1053.005",
+        "attack.t1041"
+      ],
+      "related": [
+        {
+          "hunt": "gamaredon-gammasteel-stealer-detection",
+          "reason": "GammaLoad is the delivery mechanism for the GammaSteel stealer analyzed in the next stage of the attack chain.",
+          "relation": "follows"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple detection rule might fire on encoded PowerShell. This hunt is superior because it correlates those behaviors with unique registry failover logic and DDR network patterns, providing a multi-surface view that identifies the persistent configuration used by the actor that static rules often miss.",
+      "coverage": [
+        {
+          "stage": "gammaload-vbs-discovery-c2",
+          "steps": [
+            "gammaload-registry-c2",
+            "gammaload-dns-ddr"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "gammaload-persistence-ads",
+          "steps": [
+            "gammaload-persistence-task"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "gammaload-powershell-loader",
+          "steps": [
+            "gammaload-persistence-task",
+            "triage-agent"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "VBScript Host Fingerprinting and C2 Discovery",
+            "slug": "gammaload-vbs-discovery-c2",
+            "tactic": "discovery",
+            "techniques": [
+              "T1059.001",
+              "T1090.003",
+              "T1041"
+            ],
+            "observables": [
+              "Registry keys: HKCU\\Console\\HistoryURL, HKCU\\Console\\WindowsResponby, HKCU\\Console\\CloudURL, HKCU\\Console\\IpURL",
+              "Domains: te.legra.ph, telegram.me, check-host.net",
+              "User-Agent separators: ##, !!, ??, ==, ::",
+              "Anomalous HTTP GET request with Content-Length: 2114",
+              "VBScript ExecuteGlobal() function",
+              "Fingerprinting of %COMPUTERNAME% and system drive serial number"
+            ]
+          },
+          {
+            "name": "Persistence via Scheduled Task and ADS",
+            "slug": "gammaload-persistence-ads",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.005"
+            ],
+            "observables": [
+              "File path: %TEMP%\\:divedz0f (Alternate Data Stream)",
+              "Scheduled task name: \\Windows\\ApplicationData\\DsSvcCleanup",
+              "Task frequency: every 11 minutes",
+              "Domain: dayobtvoyu.ru"
+            ]
+          },
+          {
+            "name": "Encoded PowerShell In-Memory Loader",
+            "slug": "gammaload-powershell-loader",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001"
+            ],
+            "observables": [
+              "Process command: powershell.exe -nol -nop -encodedcommand",
+              "Script method: [System.Net.ServicePointManager]::ServerCertificateValidationCallback",
+              "Script method: $webClient.DownloadString",
+              "XOR-decryption of downloaded payload",
+              "Execution of payload in-memory"
+            ]
+          }
+        ],
+        "summary": "Gamaredon (UAC-0010) uses the GammaLoad toolset, a multi-stage infection chain consisting of VBScript and PowerShell loaders. The malware fingerprints hosts, resolves C2 infrastructure via legitimate dead-drop services like Telegram and Telegraph, and maintains persistence using scheduled tasks that execute code stored in NTFS Alternate Data Streams."
+      },
+      "severity": "high",
+      "rationale": "This hunt targets the Windows fleet, where GammaLoad registry and task mechanisms operate. Focus first on workstations with direct internet access, as they are the primary targets for initial access and DDR-based C2 discovery.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has established persistent access using GammaLoad VBScripts that manage C2 configuration via registry keys in HKCU\\Console and execute via a high-frequency task invoking an Alternate Data Stream.",
+      "parameters": {
+        "ddr_domains": {
+          "from": {
+            "ref": "Sekoia GammaLoad",
+            "kind": "article",
+            "observed": "2026-01-23"
+          },
+          "type": "list[domain]",
+          "default": [
+            "te.legra.ph",
+            "telegram.me",
+            "check-host.net",
+            "www.huaweicloud.com",
+            "yggjf81487.workers.dev",
+            "selltosell.ru",
+            "trycloudflare.com",
+            "csxvl00328.workers.dev",
+            "dayobtvoyu.ru"
+          ],
+          "description": "Dead Drop Resolver and staging domains identified in the report."
+        },
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-scoping",
+            "kind": "manual",
+            "observed": "2026-01-23"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the hunt; leave empty for fleet-wide."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "standard-lookback",
+            "kind": "manual",
+            "observed": "2026-01-23"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://blog.sekoia.io/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload/",
+          "gates": [
+            "dry-run",
+            "lint"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://blog.sekoia.io/fsbs-matryoshka-2-3-gamaredons-gifts-that-keeps-unpacking-gammaload/",
+          "name": "Sekoia.io \u2014 FSB Matryoshka: Gamaredon GammaLoad"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "visibility-gap",
+          "risk": "A host with registry persistence but no active agent reporting will not be identified, leaving a persistent foothold for the adversary.",
+          "stage": "gammaload-vbs-discovery-c2",
+          "question": "whether GammaLoad has established persistence on hosts that do not report registry telemetry",
+          "requires": "endpoint agent reporting on the registry surface"
+        },
+        {
+          "id": "ads-telemetry-truncation",
+          "risk": "If the agent truncates the colon in the path or fails to report ADS execution within the task command line, the primary persistence mechanism remains invisible.",
+          "stage": "gammaload-persistence-ads",
+          "question": "whether the execution of an Alternate Data Stream is correctly logged by the endpoint telemetry provider",
+          "requires": "hb_scheduled_job reporting full ADS paths"
+        }
+      ]
+    },
+    "name": "Gamaredon GammaLoad Multi-stage Persistence and Execution",
+    "description": "GammaLoad is a modular VBScript loader used by Gamaredon (UAC-0010) for persistence and staging. It uses a failover mechanism for C2 discovery, storing active URLs in the Windows registry under HKCU\\Console and using Dead Drop Resolvers (DDR) such as Telegraph and Telegram. This hunt identifies specific registry artifacts, correlates them with DNS requests to staging domains, and detects the 11-minute scheduled task used to launch a third-stage PowerShell loader from an Alternate Data Stream. By fanning out across registry, persistence, and network surfaces, the hunt provides a complete view of the GammaLoad infection chain that evades simple detection rules."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "gammaload-vbs-discovery-c2",
+            "steps": [
+              "gammaload-registry-c2",
+              "gammaload-dns-ddr"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "gammaload-persistence-ads",
+            "steps": [
+              "gammaload-persistence-task"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "gammaload-powershell-loader",
+            "steps": [
+              "gammaload-persistence-task",
+              "triage-agent"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has established persistent access using GammaLoad VBScripts that manage C2 configuration via registry keys in HKCU\\Console and execute via a high-frequency task invoking an Alternate Data Stream.",
+        "blind_spots": [
+          {
+            "id": "visibility-gap",
+            "risk": "A host with registry persistence but no active agent reporting will not be identified, leaving a persistent foothold for the adversary.",
+            "stage": "gammaload-vbs-discovery-c2",
+            "question": "whether GammaLoad has established persistence on hosts that do not report registry telemetry",
+            "requires": "endpoint agent reporting on the registry surface"
+          },
+          {
+            "id": "ads-telemetry-truncation",
+            "risk": "If the agent truncates the colon in the path or fails to report ADS execution within the task command line, the primary persistence mechanism remains invisible.",
+            "stage": "gammaload-persistence-ads",
+            "question": "whether the execution of an Alternate Data Stream is correctly logged by the endpoint telemetry provider",
+            "requires": "hb_scheduled_job reporting full ADS paths"
+          }
+        ],
+        "scoping_notes": "This hunt targets the Windows fleet, where GammaLoad registry and task mechanisms operate. Focus first on workstations with direct internet access, as they are the primary targets for initial access and DDR-based C2 discovery.",
+        "beyond_detection": "A simple detection rule might fire on encoded PowerShell. This hunt is superior because it correlates those behaviors with unique registry failover logic and DDR network patterns, providing a multi-surface view that identifies the persistent configuration used by the actor that static rules often miss."
+      }
+    },
+    {
+      "id": "scope-windows-hosts",
+      "type": "query",
+      "label": "Scope Windows Hosts",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE LOWER(platform) = 'windows' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_devices",
+        "description": "Identify active Windows assets in the environment as the primary targets for GammaLoad.",
+        "expected_signal": "A list of Windows hostnames active within the window. Silence indicates no Windows hosts are enrolled or active, limiting the scope of this hunt."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope Windows Hosts",
+        "reads": [
+          "hostname",
+          "platform",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT hostname AS device_hostname FROM hb_devices WHERE LOWER(platform) = 'windows' AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of Windows hostnames active within the window. Silence indicates no Windows hosts are enrolled or active, limiting the scope of this hunt.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "gammaload-registry-c2",
+      "type": "query",
+      "label": "GammaLoad Registry C2 Configuration",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\console\\%' AND (LOWER(reg_value_data) LIKE 'http%' OR reg_value_data GLOB '*[0-9].[0-9]*') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_registry_activity",
+        "description": "Identify hosts where GammaLoad has cached its active C2 infrastructure in HKCU\\Console keys.",
+        "expected_signal": "Hosts with URL or IP address strings stored in the Console registry keys. Silence suggests no registry-based C2 caching occurred in the window."
+      },
+      "parents": [
+        {
+          "id": "scope-windows-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "GammaLoad Registry C2 Configuration",
+        "reads": [
+          "device_hostname",
+          "reg_target",
+          "reg_value_data",
+          "time"
+        ],
+        "source": "hb_registry_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, reg_target, reg_value_data, time FROM hb_registry_activity WHERE LOWER(reg_target) LIKE '%\\console\\%' AND (LOWER(reg_value_data) LIKE 'http%' OR reg_value_data GLOB '*[0-9].[0-9]*') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Hosts with URL or IP address strings stored in the Console registry keys. Silence suggests no registry-based C2 caching occurred in the window.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "gammaload-persistence-task",
+      "type": "query",
+      "label": "Persistence via Task and ADS",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, job_cmd_line, time FROM hb_scheduled_job WHERE (LOWER(job_cmd_line) LIKE '%\\temp\\:%' OR ((LOWER(job_cmd_line) LIKE '%cscript%' OR LOWER(job_cmd_line) LIKE '%wscript%') AND LOWER(job_cmd_line) LIKE '%\\temp\\%')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_scheduled_job",
+        "description": "Detect the high-frequency scheduled task used to execute the GammaLoad payload from an Alternate Data Stream.",
+        "expected_signal": "A scheduled task executing from a Temp path ADS or a script interpreter targeting the Temp directory. Silence provides evidence of absence for this specific persistence mechanism."
+      },
+      "parents": [
+        {
+          "id": "scope-windows-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Persistence via Task and ADS",
+        "reads": [
+          "device_hostname",
+          "job_cmd_line",
+          "time"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, job_cmd_line, time FROM hb_scheduled_job WHERE (LOWER(job_cmd_line) LIKE '%\\temp\\:%' OR ((LOWER(job_cmd_line) LIKE '%cscript%' OR LOWER(job_cmd_line) LIKE '%wscript%') AND LOWER(job_cmd_line) LIKE '%\\temp\\%')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A scheduled task executing from a Temp path ADS or a script interpreter targeting the Temp directory. Silence provides evidence of absence for this specific persistence mechanism.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "job_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "gammaload-dns-ddr",
+      "type": "query",
+      "label": "Staging and DDR DNS Activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(',' || '{{ddr_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "surface": "hb_dns_activity",
+        "description": "Identify network resolution of the legitimate services abused by GammaLoad for C2 discovery.",
+        "expected_signal": "DNS requests to Telegraph, Telegram, or Check-Host on the same hosts exhibiting registry or task persistence. Silence suggests no resolution of known DDR domains."
+      },
+      "parents": [
+        {
+          "id": "scope-windows-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Staging and DDR DNS Activity",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, COUNT(*) AS lookups, MIN(time) AS first_seen FROM hb_dns_activity WHERE (instr(',' || '{{ddr_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY device_hostname, query_hostname",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS requests to Telegraph, Telegram, or Check-Host on the same hosts exhibiting registry or task persistence. Silence suggests no resolution of known DDR domains.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "triage-agent",
+      "type": "analytic",
+      "label": "Triage GammaLoad Infection",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "gammaload-registry-c2",
+          "gammaload-persistence-task",
+          "gammaload-dns-ddr"
+        ],
+        "objective": "Correlate registry C2 storage, high-frequency scheduled tasks using Alternate Data Streams, and DNS resolution of Dead Drop domains to confirm active GammaLoad infection.",
+        "description": "Determine if the gathered evidence confirms a persistent GammaLoad infection on the identified hosts.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict that links registry storage, persistence triggers, and network beaconing into a single narrative.",
+        "success_criteria": "A verdict of malicious | suspicious | benign for each host, citing specific registry values and task command lines."
+      },
+      "parents": [
+        {
+          "id": "gammaload-registry-c2",
+          "kind": "merge"
+        },
+        {
+          "id": "gammaload-persistence-task",
+          "kind": "merge"
+        },
+        {
+          "id": "gammaload-dns-ddr",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on Verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage verdict is malicious for at least one host",
+        "condition": "the triage verdict is malicious for at least one host",
+        "blind_spot": "visibility-gap",
+        "confidence": "high",
+        "description": "Direct the workflow based on the triage findings.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-agent"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate Host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the threat and prevent further payload delivery.",
+        "instructions": "Isolate the host and prepare for forensic evidence collection.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "forensic-review",
+      "type": "task",
+      "label": "Forensic Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Acquire the malicious artifacts for further analysis of the subsequent GammaSteel stage.",
+        "instructions": "Collect the ADS content from %TEMP%\\:divedz0f and extract the C2 URLs from the HKCU\\Console keys. Inspect script logs for any XOR-decrypted final payloads."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and finalize the hunt.",
+        "instructions": "Record which hosts were impacted and the specific C2 indicators observed. Recommend promoting the HKCU\\Console URL storage query to a standing detection rule."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "forensic-review"
+        }
+      ]
+    }
+  ]
+}

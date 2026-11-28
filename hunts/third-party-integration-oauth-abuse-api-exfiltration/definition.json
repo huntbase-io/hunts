@@ -1,0 +1,585 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Third-party supply chain attacks like Klue abuse trusted integrations to bypass MFA and traditional perimeter controls. A negative result across the Salesforce environment provides vital assurance that sensitive CRM data remains secure."
+      },
+      "name": "Third-Party Integration OAuth Abuse and API Exfiltration",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1195",
+        "attack.t1190",
+        "attack.t1041",
+        "attack.t1090.003",
+        "attack.t1566"
+      ],
+      "related": [
+        {
+          "hunt": "salesforce-unauthorized-api-access",
+          "reason": "This hunt focuses specifically on the Klue integration compromise; broader API abuse patterns are handled by a generic hunt.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "identity": {
+          "name": "Identity / sign-in telemetry",
+          "category": "identity",
+          "telemetry": [
+            "identity"
+          ]
+        }
+      },
+      "analysis": "A simple rule might flag actor IPs, but this hunt stack-counts rare Python user agents and identifies the specific Salesforce query endpoint behavior that differentiates automated exfiltration from legitimate synchronization. By gating the expensive queries, it ensures an analyst only investigates leads with confirmed integration activity.",
+      "coverage": [
+        {
+          "stage": "initial-access-supply-chain-credential-abuse",
+          "steps": [
+            "lead-klue-integration-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-oauth-token-manipulation",
+          "steps": [
+            "lead-klue-integration-access"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "exfiltration-automated-api-querying",
+          "steps": [
+            "python-automated-api-activity",
+            "known-malicious-ip-connections"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Supply Chain Compromise via Dormant Credential",
+            "slug": "initial-access-supply-chain-credential-abuse",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1195",
+              "T1190"
+            ],
+            "observables": [
+              "application: 'Klue Battlecards'",
+              "connected_app_name: 'Klue Battlecards'"
+            ]
+          },
+          {
+            "name": "OAuth Refresh Token Abuse",
+            "slug": "persistence-oauth-token-manipulation",
+            "tactic": "persistence",
+            "techniques": [
+              "T1195"
+            ],
+            "observables": [
+              "login_sub_type: 'oauthrefreshtoken'",
+              "login_sub_type: 'OAuth Refresh Token'"
+            ]
+          },
+          {
+            "name": "Automated CRM Data Exfiltration",
+            "slug": "exfiltration-automated-api-querying",
+            "tactic": "exfiltration",
+            "techniques": [
+              "T1041",
+              "T1090.003"
+            ],
+            "observables": [
+              "138.226.246.94",
+              "212.86.125.24",
+              "213.111.148.90",
+              "94.154.32.160",
+              "Python-urllib/3.12",
+              "Python-urllib/3.14",
+              "5238",
+              "url_path: '/services/data/v59.0/query/'",
+              "common.exception.ApiException",
+              "QueryMore",
+              "Opportunity",
+              "Lead",
+              "Contact"
+            ]
+          }
+        ],
+        "summary": "The Icarus threat group compromised a dormant integration credential within Klue's infrastructure to harvest OAuth tokens for Salesforce and Gong. The attackers then utilized automated Python scripts to exfiltrate sensitive CRM data, including contacts and communications, through high-volume API queries."
+      },
+      "severity": "high",
+      "rationale": "The hypothesis focuses on supply-chain integration abuse within SaaS environments. Scoping begins by identifying any activity related to the Klue Battlecards integration, which is the primary beachhead. The hunt then narrows focus to hosts or proxies exhibiting connections to the reported IPs or using automation-heavy user agents.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has abused a dormant Klue integration to exfiltrate Salesforce data by leveraging compromised OAuth tokens to perform automated API harvesting.",
+      "parameters": {
+        "klue_ips": {
+          "from": {
+            "ref": "https://securitylabs.datadoghq.com/articles/detecting-the-klue-supply-chain-attack-in-salesforce/",
+            "kind": "article",
+            "observed": "2026-06-11"
+          },
+          "type": "list[ip]",
+          "default": [
+            "138.226.246.94",
+            "212.86.125.24",
+            "213.111.148.90",
+            "94.154.32.160"
+          ],
+          "description": "Threat actor IP addresses identified by Klue and Huntress."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the network search; leave empty for fleet-wide search."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "klue_user_agents": {
+          "from": {
+            "ref": "https://securitylabs.datadoghq.com/articles/detecting-the-klue-supply-chain-attack-in-salesforce/",
+            "kind": "article",
+            "observed": "2026-06-11"
+          },
+          "type": "list[string]",
+          "default": [
+            "Python-urllib/3.12",
+            "Python-urllib/3.14",
+            "5238"
+          ],
+          "description": "User agent strings observed during automated exfiltration."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://securitylabs.datadoghq.com/articles/detecting-the-klue-supply-chain-attack-in-salesforce/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://securitylabs.datadoghq.com/articles/detecting-the-klue-supply-chain-attack-in-salesforce/",
+          "name": "Datadog Security Labs \u2014 Detecting the Klue supply chain attack in Salesforce"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-auth-visibility",
+          "risk": "Anomalous authentication might be missed if the integration communicates through a gateway that does not log granular OAuth sub-types.",
+          "stage": "initial-access-supply-chain-credential-abuse",
+          "question": "whether the Klue integration used specific refresh token sub-types",
+          "requires": "Direct Salesforce LoginEvent logs with login_sub_type"
+        },
+        {
+          "id": "no-saas-visibility",
+          "risk": "While the hunt sees the exfiltration behavior, the precise inventory of stolen data requires native SaaS audit logs.",
+          "stage": "exfiltration-automated-api-querying",
+          "question": "exactly which fields and records were returned in failed versus successful queries",
+          "requires": "Salesforce RestApi message fields"
+        }
+      ]
+    },
+    "name": "Third-Party Integration OAuth Abuse and API Exfiltration",
+    "description": "The Klue supply chain attack demonstrates how dormant credentials in third-party integrations bypass traditional security perimeters. By compromising backend systems at Klue, the adversary gained access to OAuth tokens for Salesforce. The adversary then used these tokens to run automated API calls and exfiltrate sensitive CRM data. The hunt identifies anomalous authentication from the Klue integration followed by behavioral evidence of automated data harvesting. This hunt follows a gated flow to manage query costs. It begins by identifying sign-ins associated with the Klue Battlecards integration. If suspicious access is confirmed, the hunt fans out to look for known malicious IP addresses and behavioral signals of automated REST API querying, such as specific Python user-agents and access to Salesforce query endpoints."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-supply-chain-credential-abuse",
+            "steps": [
+              "lead-klue-integration-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-oauth-token-manipulation",
+            "steps": [
+              "lead-klue-integration-access"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "exfiltration-automated-api-querying",
+            "steps": [
+              "python-automated-api-activity",
+              "known-malicious-ip-connections"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has abused a dormant Klue integration to exfiltrate Salesforce data by leveraging compromised OAuth tokens to perform automated API harvesting.",
+        "blind_spots": [
+          {
+            "id": "no-auth-visibility",
+            "risk": "Anomalous authentication might be missed if the integration communicates through a gateway that does not log granular OAuth sub-types.",
+            "stage": "initial-access-supply-chain-credential-abuse",
+            "question": "whether the Klue integration used specific refresh token sub-types",
+            "requires": "Direct Salesforce LoginEvent logs with login_sub_type"
+          },
+          {
+            "id": "no-saas-visibility",
+            "risk": "While the hunt sees the exfiltration behavior, the precise inventory of stolen data requires native SaaS audit logs.",
+            "stage": "exfiltration-automated-api-querying",
+            "question": "exactly which fields and records were returned in failed versus successful queries",
+            "requires": "Salesforce RestApi message fields"
+          }
+        ],
+        "scoping_notes": "The hypothesis focuses on supply-chain integration abuse within SaaS environments. Scoping begins by identifying any activity related to the Klue Battlecards integration, which is the primary beachhead. The hunt then narrows focus to hosts or proxies exhibiting connections to the reported IPs or using automation-heavy user agents.",
+        "beyond_detection": "A simple rule might flag actor IPs, but this hunt stack-counts rare Python user agents and identifies the specific Salesforce query endpoint behavior that differentiates automated exfiltration from legitimate synchronization. By gating the expensive queries, it ensures an analyst only investigates leads with confirmed integration activity."
+      }
+    },
+    {
+      "id": "lead-klue-integration-access",
+      "type": "query",
+      "label": "Find authentication for the Klue integration",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "identity",
+        "content": "SELECT time, actor_user_name, src_endpoint_ip, dst_endpoint_name, auth_protocol, activity_name FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%klue%' OR LOWER(dst_endpoint_name) LIKE '%battlecard%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_auth_signin",
+        "description": "Identify any authentication attempts or successful sign-ins attributed to the Klue Battlecards application to establish if the integration is active.",
+        "expected_signal": "Authentication events naming the Klue application. A lack of rows suggests the integration is not reporting in this tenant and the hunt should stop."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Find authentication for the Klue integration",
+        "reads": [
+          "activity_name",
+          "actor_user_name",
+          "auth_protocol",
+          "dst_endpoint_name",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_auth_signin",
+        "target": "identity",
+        "content": "SELECT time, actor_user_name, src_endpoint_ip, dst_endpoint_name, auth_protocol, activity_name FROM hb_auth_signin WHERE (LOWER(dst_endpoint_name) LIKE '%klue%' OR LOWER(dst_endpoint_name) LIKE '%battlecard%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Authentication events naming the Klue application. A lack of rows suggests the integration is not reporting in this tenant and the hunt should stop.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "evaluate-lead",
+      "type": "analytic",
+      "label": "Evaluate lead authentication",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "identity",
+          "network",
+          "web"
+        ],
+        "context": [
+          "lead-klue-integration-access"
+        ],
+        "objective": "Determine if any authentication events involving the Klue integration appear suspicious, such as those originating from external or unexpected IPs.",
+        "description": "Determine if the integration sign-in patterns warrant an expensive investigation into network and HTTP activity.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the Klue authentication indicates anomalous usage.",
+        "success_criteria": "A verdict of suspicious if the Klue integration authenticates from IPs not associated with known legitimate synchronization sources."
+      },
+      "parents": [
+        {
+          "id": "lead-klue-integration-access"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-auth-finding",
+      "type": "checkpoint",
+      "label": "Gate on authentication finding",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the evaluate-lead verdict is suspicious for at least one host",
+        "condition": "the evaluate-lead verdict is suspicious for at least one host",
+        "blind_spot": "no-auth-visibility",
+        "confidence": "high",
+        "description": "Protect query budget by only running expensive exfiltration queries when suspicious authentication is identified.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "evaluate-lead"
+        }
+      ]
+    },
+    {
+      "id": "python-automated-api-activity",
+      "type": "query",
+      "label": "Automated Python API activity",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "web",
+        "content": "SELECT time, device_hostname, src_endpoint_ip, user_agent, url_path, status_code, COUNT(*) OVER (PARTITION BY user_agent) as ua_count FROM hb_http_activity WHERE (instr(',' || '{{klue_user_agents}}' || ',', ',' || user_agent || ',') > 0 OR LOWER(url_path) LIKE '%/services/data/%/query%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_http_activity",
+        "description": "Find HTTP requests using Python user agents targeting Salesforce query endpoints, which indicates automated harvesting.",
+        "expected_signal": "Spikes in requests to query endpoints using Python-urllib or the numeric 5238 user agent. A positive result is high confidence for automated activity."
+      },
+      "parents": [
+        {
+          "id": "gate-on-auth-finding",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Automated Python API activity",
+        "reads": [
+          "device_hostname",
+          "src_endpoint_ip",
+          "status_code",
+          "time",
+          "url_path",
+          "user_agent"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT time, device_hostname, src_endpoint_ip, user_agent, url_path, status_code, COUNT(*) OVER (PARTITION BY user_agent) as ua_count FROM hb_http_activity WHERE (instr(',' || '{{klue_user_agents}}' || ',', ',' || user_agent || ',') > 0 OR LOWER(url_path) LIKE '%/services/data/%/query%') AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Spikes in requests to query endpoints using Python-urllib or the numeric 5238 user agent. A positive result is high confidence for automated activity.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "user_agent"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "known-malicious-ip-connections",
+      "type": "query",
+      "label": "Connections to actor infrastructure",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "network",
+        "content": "SELECT time, device_hostname, src_endpoint_ip, dst_endpoint_ip, process_name FROM hb_network_connection WHERE instr(',' || '{{klue_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_network_connection",
+        "description": "Identify any host-to-host connections made to infrastructure confirmed as belonging to the adversary, scoped to previously identified hosts.",
+        "expected_signal": "Direct network connections to the actor's IP addresses. The presence of these connections on hosts associated with Klue activity confirms an intrusion."
+      },
+      "parents": [
+        {
+          "id": "gate-on-auth-finding",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Connections to actor infrastructure",
+        "reads": [
+          "device_hostname",
+          "dst_endpoint_ip",
+          "process_name",
+          "src_endpoint_ip",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT time, device_hostname, src_endpoint_ip, dst_endpoint_ip, process_name FROM hb_network_connection WHERE instr(',' || '{{klue_ips}}' || ',', ',' || dst_endpoint_ip || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Direct network connections to the actor's IP addresses. The presence of these connections on hosts associated with Klue activity confirms an intrusion.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "final-triage",
+      "type": "analytic",
+      "label": "Final triage",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "identity",
+          "network",
+          "web"
+        ],
+        "context": [
+          "evaluate-lead",
+          "python-automated-api-activity",
+          "known-malicious-ip-connections"
+        ],
+        "objective": "Determine if the combined evidence of Klue authentication, automated Python API requests, and connections to known malicious IPs indicates a data exfiltration campaign.",
+        "description": "Weigh the initial authentication lead against the behavioral and indicator-based evidence to confirm an intrusion.",
+        "max_iterations": 5,
+        "expected_signal": "A confirmed malicious verdict if the Klue integration and exfiltration signals coincide.",
+        "success_criteria": "A malicious verdict for any host showing suspicious Klue authentication followed by automated API harvesting patterns."
+      },
+      "parents": [
+        {
+          "id": "python-automated-api-activity",
+          "kind": "merge"
+        },
+        {
+          "id": "known-malicious-ip-connections",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-evidence",
+      "type": "checkpoint",
+      "label": "Route on evidence",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-triage verdict is malicious for at least one host",
+        "condition": "the final-triage verdict is malicious for at least one host",
+        "blind_spot": "no-saas-visibility",
+        "confidence": "high",
+        "description": "Trigger immediate containment if the final triage confirms malicious integration abuse.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-triage"
+        }
+      ]
+    },
+    {
+      "id": "contain-integration",
+      "type": "action",
+      "label": "Contain integration",
+      "config": {
+        "target": "identity",
+        "description": "Stop ongoing data exfiltration by revoking the compromised credentials.",
+        "instructions": "Revoke all OAuth tokens and refresh tokens associated with the Klue Battlecards connected application in Salesforce to prevent further API access.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-evidence",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the extent of the data access and coordinate remediation.",
+        "instructions": "Review the API activity logs to identify exactly which Salesforce objects were accessed (e.g., Opportunity, Contact). Coordinate with the legal team to determine if data breach notifications are required based on the sensitivity of the exfiltrated data."
+      },
+      "parents": [
+        {
+          "id": "gate-on-auth-finding",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-auth-finding",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-evidence",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-evidence",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-integration"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document results and provide final disposition.",
+        "instructions": "Document the investigation findings. If activity was confirmed, ensure the Klue integration remains disabled until its vendor confirms their backend systems are clean."
+      },
+      "parents": [
+        {
+          "id": "gate-on-auth-finding",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-on-evidence",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

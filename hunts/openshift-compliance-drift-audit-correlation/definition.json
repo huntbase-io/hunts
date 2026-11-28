@@ -1,0 +1,578 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Compliance drift in regulated environments is a primary indicator of cluster persistence; tracing it to an actor ensures security accountability."
+      },
+      "name": "OpenShift Compliance Drift and Audit Correlation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1610",
+        "attack.t1059.004",
+        "attack.t1613",
+        "attack.t1562",
+        "discovery",
+        "execution",
+        "impact"
+      ],
+      "related": [
+        {
+          "hunt": "kubernetes-rbac-tampering-investigation",
+          "reason": "This hunt correlates scan results; general RBAC monitoring requires a broader audit independent of compliance drift.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard rule alerts on a failed check; this hunt correlates findings from three surfaces (Compliance findings, API audit, and node-level Process) to identify the actor and timing, which no single rule can automate.",
+      "coverage": [
+        {
+          "stage": "unauthorized-resource-modification",
+          "steps": [
+            "audit-api-modifications",
+            "rare-cluster-ops"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "compliance-violation-detection",
+          "steps": [
+            "compliance-drift-lead"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "root-cause-investigation",
+          "steps": [
+            "triage-root-cause"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Unauthorized Cluster Resource Modification",
+            "slug": "unauthorized-resource-modification",
+            "tactic": "execution",
+            "techniques": [
+              "T1610",
+              "T1059.004"
+            ],
+            "observables": [
+              "API calls to create or patch 'pods', 'serviceaccounts', or 'rolebindings'",
+              "oc CLI commands targeting cluster configuration",
+              "Deployment of workloads with specs violating CIS Benchmarks or NIST 800-53 moderate controls",
+              "metadata.name",
+              "app.kubernetes.io"
+            ]
+          },
+          {
+            "name": "Compliance Violation Detection",
+            "slug": "compliance-violation-detection",
+            "tactic": "discovery",
+            "techniques": [
+              "T1613"
+            ],
+            "observables": [
+              "Resource results in 'compliancecheckresults.compliance.openshift.io'",
+              "Status changes to 'FAIL' in 'compliancescans.compliance.openshift.io'",
+              "Manual rule evaluation using Common Expression Language (CEL) custom rules",
+              "oc get compliancecheckresult",
+              "orchestrator.cluster.name"
+            ]
+          },
+          {
+            "name": "Root Cause Investigation and Remediation",
+            "slug": "root-cause-investigation",
+            "tactic": "impact",
+            "techniques": [
+              "T1562"
+            ],
+            "observables": [
+              "oc create token elastic-agent",
+              "API activity involving 'complianceremediations.compliance.openshift.io'",
+              "Correlation of 'actor_user_name' in Kubernetes audit logs with timestamps of failed checks",
+              "Automated annotation of manual rules via Elastic Workflows",
+              "pods.items.all",
+              "spec.id"
+            ]
+          }
+        ],
+        "summary": "An unauthorized or non-compliant configuration change in an OpenShift cluster triggers a policy violation detected by the Compliance Operator. Defenders use centralized telemetry to correlate these scan results with Kubernetes audit logs, tracing the root cause back to the responsible principal and specific resource modifications that caused the policy drift."
+      },
+      "severity": "medium",
+      "rationale": "Target clusters with high-severity failed scan results in hb_compliance_finding first. Use the associated node hostnames to narrow the scope of the rare process activity baseline.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "Unauthorized changes to OpenShift resources such as pods or service accounts trigger compliance violations that the hunt traces to a specific actor by correlating scan failures with Kubernetes API audit logs.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "analyst-defined-scope",
+            "kind": "manual",
+            "observed": "2024-11-19"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the node-level process baseline."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard-lookback",
+            "kind": "manual",
+            "observed": "2024-11-19"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine for audit and process telemetry."
+        },
+        "sensitive_resources": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/blog/openshift-compliance-elastic-agent-builder",
+            "kind": "article",
+            "observed": "2024-11-19"
+          },
+          "type": "list[string]",
+          "default": [
+            "pods",
+            "serviceaccounts",
+            "rolebindings",
+            "complianceremediations",
+            "clusterroles"
+          ],
+          "description": "Kubernetes resource types monitored for unauthorized modifications."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/blog/openshift-compliance-elastic-agent-builder",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/blog/openshift-compliance-elastic-agent-builder",
+          "name": "From posture to root cause: Investigate OpenShift compliance with Elastic Agent Builder"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "compliance-operator-down",
+          "risk": "A failed scan process results in zero reported failures in the lead query, leaving drift completely unobserved.",
+          "stage": "compliance-violation-detection",
+          "question": "Is the cluster passing, or is the compliance operator failing to report?",
+          "requires": "OpenShift Compliance Operator running and reporting to hb_compliance_finding"
+        },
+        {
+          "id": "insufficient-audit-detail",
+          "risk": "Audit logs that record the action but not the patch payload require live cluster inspection to confirm the drift cause.",
+          "stage": "unauthorized-resource-modification",
+          "question": "What specifically changed in the resource patch that triggered the violation?",
+          "requires": "hb_cloud_api_activity with full Kubernetes audit verbosity"
+        },
+        {
+          "id": "node-agent-coverage",
+          "risk": "Process execution on worker nodes remains invisible without node-level telemetry, masking interactive tampering.",
+          "stage": "unauthorized-resource-modification",
+          "question": "Was a CLI tool executed interactively on a node without an agent?",
+          "requires": "Elastic Agent coverage on every OpenShift node"
+        }
+      ]
+    },
+    "name": "OpenShift Compliance Drift and Audit Correlation",
+    "description": "This hunt identifies security posture drift in OpenShift environments by correlating Compliance Operator scan results with Kubernetes API audit logs and node-level process telemetry. It begins with a scoping query of the compliance findings to identify failures, then gates a more resource-intensive analysis of audit logs and rare process executions to determine the root cause of the unauthorized modification."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "unauthorized-resource-modification",
+            "steps": [
+              "audit-api-modifications",
+              "rare-cluster-ops"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "compliance-violation-detection",
+            "steps": [
+              "compliance-drift-lead"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "root-cause-investigation",
+            "steps": [
+              "triage-root-cause"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "Unauthorized changes to OpenShift resources such as pods or service accounts trigger compliance violations that the hunt traces to a specific actor by correlating scan failures with Kubernetes API audit logs.",
+        "blind_spots": [
+          {
+            "id": "compliance-operator-down",
+            "risk": "A failed scan process results in zero reported failures in the lead query, leaving drift completely unobserved.",
+            "stage": "compliance-violation-detection",
+            "question": "Is the cluster passing, or is the compliance operator failing to report?",
+            "requires": "OpenShift Compliance Operator running and reporting to hb_compliance_finding"
+          },
+          {
+            "id": "insufficient-audit-detail",
+            "risk": "Audit logs that record the action but not the patch payload require live cluster inspection to confirm the drift cause.",
+            "stage": "unauthorized-resource-modification",
+            "question": "What specifically changed in the resource patch that triggered the violation?",
+            "requires": "hb_cloud_api_activity with full Kubernetes audit verbosity"
+          },
+          {
+            "id": "node-agent-coverage",
+            "risk": "Process execution on worker nodes remains invisible without node-level telemetry, masking interactive tampering.",
+            "stage": "unauthorized-resource-modification",
+            "question": "Was a CLI tool executed interactively on a node without an agent?",
+            "requires": "Elastic Agent coverage on every OpenShift node"
+          }
+        ],
+        "scoping_notes": "Target clusters with high-severity failed scan results in hb_compliance_finding first. Use the associated node hostnames to narrow the scope of the rare process activity baseline.",
+        "beyond_detection": "A standard rule alerts on a failed check; this hunt correlates findings from three surfaces (Compliance findings, API audit, and node-level Process) to identify the actor and timing, which no single rule can automate."
+      }
+    },
+    {
+      "id": "compliance-drift-lead",
+      "type": "query",
+      "label": "Lead: Identify Failed Compliance Controls",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT resource_uid, resource_name, check_name, status, severity, framework_refs FROM hb_compliance_finding WHERE LOWER(provider) = 'openshift' AND LOWER(status) = 'fail'",
+        "surface": "hb_compliance_finding",
+        "description": "Find clusters and specific resources that have failed compliance checks according to the OpenShift Compliance Operator.",
+        "expected_signal": "Rows indicate failed CIS or NIST controls. Silence provides evidence that the operator reports no active violations across the estate."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Lead: Identify Failed Compliance Controls",
+        "reads": [
+          "resource_uid",
+          "resource_name",
+          "check_name",
+          "status",
+          "severity",
+          "framework_refs"
+        ],
+        "source": "hb_compliance_finding",
+        "target": "endpoint",
+        "content": "SELECT resource_uid, resource_name, check_name, status, severity, framework_refs FROM hb_compliance_finding WHERE LOWER(provider) = 'openshift' AND LOWER(status) = 'fail'",
+        "silence": "evidence_of_absence",
+        "expected": "Rows indicate failed CIS or NIST controls. Silence provides evidence that the operator reports no active violations across the estate.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-20"
+      }
+    },
+    {
+      "id": "analyze-compliance-status",
+      "type": "analytic",
+      "label": "Initial Assessment of Failures",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "compliance-drift-lead"
+        ],
+        "objective": "Summarize which clusters and resources have high-severity failures and provide a prioritized list for the gate decision.",
+        "description": "Evaluate whether the identified compliance failures represent a security risk worth investigating via expensive audit log analysis.",
+        "max_iterations": 3,
+        "expected_signal": "A summary of critical compliance gaps per cluster identifying which resources require root-cause investigation.",
+        "success_criteria": "A verdict on whether the failures justify audit correlation."
+      },
+      "parents": [
+        {
+          "id": "compliance-drift-lead"
+        }
+      ]
+    },
+    {
+      "id": "gate-on-violations",
+      "type": "checkpoint",
+      "label": "Gate: Proceed to Audit?",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the analysis shows active compliance failures on production clusters for sensitive resource types",
+        "condition": "the analysis shows active compliance failures on production clusters for sensitive resource types",
+        "blind_spot": "compliance-operator-down",
+        "confidence": "high",
+        "description": "Route the hunt to expensive audit queries only when the compliance lead shows active, relevant violations.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "analyze-compliance-status"
+        }
+      ]
+    },
+    {
+      "id": "audit-api-modifications",
+      "type": "query",
+      "label": "Kubernetes API Resource Modifications",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT time, actor_user_name, api_operation, resource_type, resource_name, cloud_account_uid, src_endpoint_ip FROM hb_cloud_api_activity WHERE provider = 'kubernetes' AND (LOWER(api_operation) = 'create' OR LOWER(api_operation) = 'patch') AND instr(',' || '{{sensitive_resources}}' || ',', ',' || LOWER(resource_type) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_cloud_api_activity",
+        "description": "Find recent create or patch operations on sensitive resources that likely caused the compliance drift.",
+        "expected_signal": "API activity identifying the actor who modified the resource. Signal is validated when it precedes the compliance scan failure."
+      },
+      "parents": [
+        {
+          "id": "gate-on-violations",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Kubernetes API Resource Modifications",
+        "reads": [
+          "time",
+          "actor_user_name",
+          "api_operation",
+          "resource_type",
+          "resource_name",
+          "cloud_account_uid",
+          "src_endpoint_ip"
+        ],
+        "source": "hb_cloud_api_activity",
+        "target": "endpoint",
+        "content": "SELECT time, actor_user_name, api_operation, resource_type, resource_name, cloud_account_uid, src_endpoint_ip FROM hb_cloud_api_activity WHERE provider = 'kubernetes' AND (LOWER(api_operation) = 'create' OR LOWER(api_operation) = 'patch') AND instr(',' || '{{sensitive_resources}}' || ',', ',' || LOWER(resource_type) || ',') > 0 AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "API activity identifying the actor who modified the resource. Signal is validated when it precedes the compliance scan failure.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-20"
+      }
+    },
+    {
+      "id": "rare-cluster-ops",
+      "type": "query",
+      "label": "Rare CLI Tool Execution on Nodes",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) = 'oc' OR LOWER(process_name) = 'kubectl') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING host_count < 3",
+        "surface": "hb_process_activity",
+        "description": "Identify rare interactive usage of cluster tools like oc or kubectl directly on nodes, indicating manual tampering.",
+        "expected_signal": "A rare process execution path for a cluster CLI tool. Silence suggests normal automated operations."
+      },
+      "parents": [
+        {
+          "id": "gate-on-violations",
+          "branch": "on_supports"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare CLI Tool Execution on Nodes",
+        "reads": [
+          "device_hostname",
+          "process_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT LOWER(process_path) AS path, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_process_activity WHERE (LOWER(process_name) = 'oc' OR LOWER(process_name) = 'kubectl') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY 1 HAVING host_count < 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A rare process execution path for a cluster CLI tool. Silence suggests normal automated operations.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_path"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-11-20"
+      }
+    },
+    {
+      "id": "triage-root-cause",
+      "type": "analytic",
+      "label": "Triage: Correlate Findings",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "analyze-compliance-status",
+          "audit-api-modifications",
+          "rare-cluster-ops"
+        ],
+        "objective": "Determine if any resource modification in the audit results explains a failed control found in the lead status assessment.",
+        "description": "Link the timing of the compliance failure with the specific API modification or rare CLI execution to identify the root cause.",
+        "max_iterations": 6,
+        "expected_signal": "A verdict citing specific rows that explain the compliance drift by correlating audit timing with scan failures.",
+        "success_criteria": "A per-cluster verdict identifying the actor and the infringing resource change."
+      },
+      "parents": [
+        {
+          "id": "audit-api-modifications",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-cluster-ops",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-remediation",
+      "type": "checkpoint",
+      "label": "Route to Remediation",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the triage links a specific unauthorized modification to the timing of a compliance failure with high confidence",
+        "condition": "the triage links a specific unauthorized modification to the timing of a compliance failure with high confidence",
+        "blind_spot": "insufficient-audit-detail",
+        "confidence": "high",
+        "description": "Decide whether to revert the unauthorized change based on the triage verdict.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-root-cause"
+        }
+      ]
+    },
+    {
+      "id": "apply-remediation",
+      "type": "action",
+      "label": "Revert Resource Modification",
+      "config": {
+        "target": "endpoint",
+        "description": "Use the OpenShift Compliance Operator or direct API commands to revert the unauthorized resource state.",
+        "instructions": "Revert the unauthorized pod, service account, or rolebinding configuration. If a compliance remediation object exists for the failed check, apply it.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-remediation",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst Review",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review the actor's intent and verify that the remediation was successful.",
+        "instructions": "Verify the actor_user_name in audit logs against internal change requests. Ensure the scan status for the cluster moves back to PASS."
+      },
+      "parents": [
+        {
+          "id": "gate-on-violations",
+          "branch": "default"
+        },
+        {
+          "id": "gate-on-violations",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-remediation",
+          "branch": "default"
+        },
+        {
+          "id": "route-remediation",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "apply-remediation"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close Out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Document findings and determine if a permanent detection rule is needed for the observed drift pattern.",
+        "instructions": "Record the specific resource and actor that caused the drift. If the modification was a common vector, promote the audit query to a detection rule."
+      },
+      "parents": [
+        {
+          "id": "gate-on-violations",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "route-remediation",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

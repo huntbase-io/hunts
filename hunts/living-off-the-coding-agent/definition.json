@@ -1,0 +1,635 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Signed coding agents are highly trusted but have the capability to execute arbitrary code and tunnels; confirming their children are benign is an essential verification for developer estates."
+      },
+      "name": "Living off the coding agent: Tunnels and LaunchAgents",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1218",
+        "attack.t1572",
+        "attack.t1133",
+        "attack.t1555.001",
+        "attack.t1566"
+      ],
+      "related": [
+        {
+          "hunt": "macos-tcc-bypass-via-signed-binary",
+          "reason": "Both hunts deal with abuse of signed binaries on macOS to perform high-privilege actions.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A simple rule for 'zsh under Claude' would fire hundreds of times a day for developers. This hunt uses a phased approach to read the context of those shells, looking for the specific combination of ephemeral tunnels and LaunchAgent persistence that separates intrusion from development automation.",
+      "coverage": [
+        {
+          "stage": "agent-parented-shell-execution",
+          "steps": [
+            "agent-child-shells",
+            "mcp-script-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-auth-over-tunnel-broker",
+          "steps": [
+            "agent-child-shells"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "reverse-tunnel-establishment",
+          "steps": [
+            "tunnel-dns-activity"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "persistence-via-launchagent",
+          "steps": [
+            "rare-launchagent-persistence"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "Proxy Execution via Coding Agent",
+            "slug": "agent-parented-shell-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1218"
+            ],
+            "observables": [
+              "Claude Code",
+              "Cursor",
+              "zsh as child of coding agent",
+              "--allow-dangerously-skip-permissions",
+              "python3 /tmp/mcp_clean_landers.py",
+              "cat > ~./claude/projects/*/memory/MEMORY.md"
+            ]
+          },
+          {
+            "name": "Credentialed HTTP via Tunnel Brokers",
+            "slug": "credential-auth-over-tunnel-broker",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1555.001",
+              "T1572"
+            ],
+            "observables": [
+              "curl -X POST",
+              "lhr.life",
+              "localhost.run",
+              "*.trycloudflare.com",
+              "user=...&password=... in command line",
+              "Status strings: \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430",
+              "Keychain dump filtered for OAuth material"
+            ]
+          },
+          {
+            "name": "Reverse Tunneling for Service Exposure",
+            "slug": "reverse-tunnel-establishment",
+            "tactic": "command-and-control",
+            "techniques": [
+              "T1572"
+            ],
+            "observables": [
+              "cloudflared tunnel --url http://localhost:8080",
+              "ngrok",
+              "api.trycloudflare.com",
+              "pritunl-client",
+              "wireguard-go"
+            ]
+          },
+          {
+            "name": "Persistence via LaunchAgent",
+            "slug": "persistence-via-launchagent",
+            "tactic": "persistence",
+            "techniques": [
+              "T1133"
+            ],
+            "observables": [
+              "LaunchAgents",
+              "launchd parented ngrok",
+              "quarantine stripping",
+              "ad-hoc re-signing of binaries",
+              "~/.zshenv persistence canary"
+            ]
+          }
+        ],
+        "summary": "This campaign leverages the inherent trust in vendor-signed coding agents like Claude Code and Cursor to proxy the execution of malicious shells on macOS developer workstations. The intrusion sequence involves using these agent-parented shells to authenticate to free tunnel brokers, establish reverse tunnels to expose local administrative services to the internet, and ensure persistence via LaunchAgents."
+      },
+      "severity": "high",
+      "rationale": "Start with developer-class endpoints where Claude Code or Cursor are installed. These tools are signed by Anthropic and Cursor respectively.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using a signed coding agent to proxy shell execution, establish reverse tunnels for service exposure, and install LaunchAgent persistence on a developer workstation.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-08-07"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to narrow the search; leave empty to hunt across the entire fleet."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "hunt-standard",
+            "kind": "manual",
+            "observed": "2026-08-07"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Number of days to search back in telemetry history."
+        },
+        "tunnel_domains": {
+          "from": {
+            "ref": "elastic-security-labs",
+            "kind": "article",
+            "observed": "2026-08-07"
+          },
+          "type": "list[domain]",
+          "default": [
+            "lhr.life",
+            "localhost.run",
+            "trycloudflare.com",
+            "api.trycloudflare.com",
+            "ngrok-free.app",
+            "tunnel.us.ngrok.com"
+          ],
+          "description": "Common domains used by free tunnel brokers and reverse-proxy services."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/coding-agent-launchagent-tunnel-detection",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/coding-agent-launchagent-tunnel-detection",
+          "name": "Elastic Security Labs \u2014 Living off the coding agent"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "command-line-truncation",
+          "risk": "If the 'curl' POST body is truncated, the triage agent may miss clear evidence of credential exposure.",
+          "stage": "credential-auth-over-tunnel-broker",
+          "question": "whether credentials were redacted or truncated before reaching the SIEM",
+          "requires": "full length command lines"
+        },
+        {
+          "id": "missing-macos-persistence-telemetry",
+          "risk": "Adversaries may modify existing plists which might not show up as a 'create' event on some providers.",
+          "stage": "persistence-via-launchagent",
+          "question": "whether the LaunchAgent was modified in a way that does not trigger a new job event",
+          "requires": "detailed launchd configuration auditing"
+        }
+      ]
+    },
+    "name": "Living off the coding agent: Tunnels and LaunchAgents",
+    "description": "The phased flow ensures that the hunt weighs early evidence of proxy execution before searching for follow-on persistence and C2 markers. An adversary uses a signed coding agent to proxy shell execution and establish reverse tunnels. The analyst reviews the correlated chain to distinguish development work from an intrusion."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "agent-parented-shell-execution",
+            "steps": [
+              "agent-child-shells",
+              "mcp-script-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-auth-over-tunnel-broker",
+            "steps": [
+              "agent-child-shells"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "reverse-tunnel-establishment",
+            "steps": [
+              "tunnel-dns-activity"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "persistence-via-launchagent",
+            "steps": [
+              "rare-launchagent-persistence"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using a signed coding agent to proxy shell execution, establish reverse tunnels for service exposure, and install LaunchAgent persistence on a developer workstation.",
+        "blind_spots": [
+          {
+            "id": "command-line-truncation",
+            "risk": "If the 'curl' POST body is truncated, the triage agent may miss clear evidence of credential exposure.",
+            "stage": "credential-auth-over-tunnel-broker",
+            "question": "whether credentials were redacted or truncated before reaching the SIEM",
+            "requires": "full length command lines"
+          },
+          {
+            "id": "missing-macos-persistence-telemetry",
+            "risk": "Adversaries may modify existing plists which might not show up as a 'create' event on some providers.",
+            "stage": "persistence-via-launchagent",
+            "question": "whether the LaunchAgent was modified in a way that does not trigger a new job event",
+            "requires": "detailed launchd configuration auditing"
+          }
+        ],
+        "scoping_notes": "Start with developer-class endpoints where Claude Code or Cursor are installed. These tools are signed by Anthropic and Cursor respectively.",
+        "beyond_detection": "A simple rule for 'zsh under Claude' would fire hundreds of times a day for developers. This hunt uses a phased approach to read the context of those shells, looking for the specific combination of ephemeral tunnels and LaunchAgent persistence that separates intrusion from development automation."
+      }
+    },
+    {
+      "id": "find-agent-hosts",
+      "type": "query",
+      "label": "Identify hosts with coding agents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%claude%' OR LOWER(package_name) LIKE '%cursor%')",
+        "surface": "hb_software_inventory",
+        "description": "Find endpoints where known coding agents are installed to focus the behavioral hunt.",
+        "expected_signal": "A list of hostnames belonging to developers or users with GenAI tools. Silence means no such tools are indexed in software inventory."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify hosts with coding agents",
+        "reads": [
+          "package_name",
+          "device_hostname"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%claude%' OR LOWER(package_name) LIKE '%cursor%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames belonging to developers or users with GenAI tools. Silence means no such tools are indexed in software inventory.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "agent-child-shells",
+      "type": "query",
+      "label": "Shells spawned by coding agents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%zsh' OR LOWER(process_name) LIKE '%bash') AND (LOWER(parent_process_name) LIKE '%claude%' OR LOWER(parent_process_name) LIKE '%cursor%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify instances where Claude or Cursor spawned interactive shells, which an adversary uses to proxy further commands.",
+        "expected_signal": "Process trees showing a signed agent spawning a shell. This is a baseline for 'Claude Code' but serves as the starting point for behavior correlation."
+      },
+      "parents": [
+        {
+          "id": "find-agent-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Shells spawned by coding agents",
+        "reads": [
+          "process_name",
+          "process_cmd_line",
+          "parent_process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_name) LIKE '%zsh' OR LOWER(process_name) LIKE '%bash') AND (LOWER(parent_process_name) LIKE '%claude%' OR LOWER(parent_process_name) LIKE '%cursor%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process trees showing a signed agent spawning a shell. This is a baseline for 'Claude Code' but serves as the starting point for behavior correlation.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "mcp-script-activity",
+      "type": "query",
+      "label": "Staging scripts in temporary paths",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, process_name, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%/tmp/%' OR LOWER(process_cmd_line) LIKE '%mcp_%') AND (LOWER(parent_process_name) LIKE '%claude%' OR LOWER(parent_process_name) LIKE '%cursor%' OR LOWER(parent_process_name) LIKE '%zsh') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find Python or OSA scripts running from /tmp, which an adversary uses as a known staging location for agent-parented automation.",
+        "expected_signal": "Scripts with names like 'mcp_clean_landers.py' or shell wrappers touching agent memory files. Silence means no suspicious staging was observed."
+      },
+      "parents": [
+        {
+          "id": "find-agent-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Staging scripts in temporary paths",
+        "reads": [
+          "process_cmd_line",
+          "process_name",
+          "parent_process_name",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_cmd_line, process_name, parent_process_name, time FROM hb_process_activity WHERE (LOWER(process_cmd_line) LIKE '%/tmp/%' OR LOWER(process_cmd_line) LIKE '%mcp_%') AND (LOWER(parent_process_name) LIKE '%claude%' OR LOWER(parent_process_name) LIKE '%cursor%' OR LOWER(parent_process_name) LIKE '%zsh') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Scripts with names like 'mcp_clean_landers.py' or shell wrappers touching agent memory files. Silence means no suspicious staging was observed.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "early-stage-triage",
+      "type": "analytic",
+      "label": "Triage early execution",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "agent-child-shells",
+          "mcp-script-activity"
+        ],
+        "objective": "Analyze the process trees and command lines to identify if 'Claude Code' or 'Cursor' execute suspicious shells or scripts in /tmp.",
+        "description": "The agent determines if the observed shells and scripts indicate an active session being used for non-development tasks.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict on whether the agent session is behaving according to normal development or shows signs of scripted automation.",
+        "success_criteria": "A per-host verdict citing specific command lines."
+      },
+      "parents": [
+        {
+          "id": "agent-child-shells",
+          "kind": "merge"
+        },
+        {
+          "id": "mcp-script-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "rare-launchagent-persistence",
+      "type": "query",
+      "label": "Rare persistence via LaunchAgents",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT job_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_scheduled_job WHERE (LOWER(job_definition_path) LIKE '%/launchagents/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY job_cmd_line HAVING host_count <= 3",
+        "surface": "hb_scheduled_job",
+        "description": "Detect new or modified LaunchAgents, stack-counting them across the fleet to find outliers indicating persistent adversary access.",
+        "expected_signal": "Unique LaunchAgent commands seen on few hosts. Silence means no rare persistence was detected in this path."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare persistence via LaunchAgents",
+        "reads": [
+          "job_cmd_line",
+          "device_hostname",
+          "time",
+          "job_definition_path"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT job_cmd_line, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_scheduled_job WHERE (LOWER(job_definition_path) LIKE '%/launchagents/%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY job_cmd_line HAVING host_count <= 3",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Unique LaunchAgent commands seen on few hosts. Silence means no rare persistence was detected in this path.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "job_cmd_line"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "tunnel-dns-activity",
+      "type": "query",
+      "label": "Network connections to tunnel brokers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR LOWER(query_hostname) LIKE '%.lhr.life' OR LOWER(query_hostname) LIKE '%.trycloudflare.com') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Match host activity against known free-tunnel domains that facilitate reverse tunneling for service exposure.",
+        "expected_signal": "DNS queries for tunnel brokers. Any hit under the same PID or parentage as the coding agent is high severity."
+      },
+      "parents": [
+        {
+          "id": "early-stage-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Network connections to tunnel brokers",
+        "reads": [
+          "query_hostname",
+          "device_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{tunnel_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0 OR LOWER(query_hostname) LIKE '%.lhr.life' OR LOWER(query_hostname) LIKE '%.trycloudflare.com') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS queries for tunnel brokers. Any hit under the same PID or parentage as the coding agent is high severity.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-21"
+      }
+    },
+    {
+      "id": "follow-on-triage",
+      "type": "analytic",
+      "label": "Analyze tunneling and persistence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "early-stage-triage",
+          "rare-launchagent-persistence",
+          "tunnel-dns-activity"
+        ],
+        "objective": "Analyze the relationship between the coding agent activity and the observed tunneling or persistence markers.",
+        "description": "The agent combines early-stage execution evidence with network and persistence hits to confirm an intrusion or unauthorized service exposure.",
+        "max_iterations": 5,
+        "expected_signal": "A confirmed verdict on whether an adversary used the agent to stand up an unauthorized persistent tunnel.",
+        "success_criteria": "A verdict of 'malicious' if an agent spawned a tunnel or created persistence; 'suspicious' if domains were contacted; 'benign' otherwise."
+      },
+      "parents": [
+        {
+          "id": "rare-launchagent-persistence",
+          "kind": "merge"
+        },
+        {
+          "id": "tunnel-dns-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the follow-on-triage verdict is malicious for at least one host",
+        "condition": "the follow-on-triage verdict is malicious for at least one host",
+        "blind_spot": "command-line-truncation",
+        "confidence": "high",
+        "description": "The hunt routes the outcome based on the agent's final assessment of the multi-stage activity chain.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "follow-on-triage"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate host",
+      "config": {
+        "target": "endpoint",
+        "description": "Contain the host to prevent further C2 or credential theft by the adversary.",
+        "instructions": "Isolate the endpoint and revoke any OAuth or GitHub tokens identified in the agent memory directories (~/.claude).",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review",
+      "config": {
+        "assignee": "analyst",
+        "description": "The analyst performs manual validation of the command lines to distinguish legitimate developer automation from adversary activity.",
+        "instructions": "Review the 'mcp_' script contents if available. Check if the 'spend' metrics mentioned in the command line correspond to authorized cloud resources."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "The analyst finalizes the hunt results and records any new tunnel domains discovered for future detection.",
+        "instructions": "Record the findings. If a new tunnel provider was discovered, add its domain to the 'tunnel_domains' parameter for the next run."
+      },
+      "parents": [
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}

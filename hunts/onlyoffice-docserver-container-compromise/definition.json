@@ -1,0 +1,653 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "Exploiting ONLYOFFICE provides a direct path to sensitive corporate documents and root access within the hosting container. A negative result confirms that the document infrastructure is not currently undergoing active exploitation via these chained vulnerabilities."
+      },
+      "name": "ONLYOFFICE Document Server Container Compromise",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1190",
+        "attack.t1552.001",
+        "attack.t1203",
+        "attack.t1059.004",
+        "attack.t1548.003",
+        "credential access",
+        "execution",
+        "initial access",
+        "privilege escalation"
+      ],
+      "related": [
+        {
+          "hunt": "zimbra-cve-2024-45519-exploitation",
+          "reason": "Since ONLYOFFICE is often integrated with Zimbra, a compromised Zimbra instance may be the source of the view-only Editor JWTs used in this DocBuilder chain.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "web": {
+          "name": "Web server / proxy logs",
+          "category": "siem",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A single detection rule for 'ds' user activity or the maintenance helper might fire during normal administrative work. This hunt durably links web-based auth bypass signals with sensitive config file access and specific command injection patterns, providing the necessary context to distinguish container takeover from maintenance.",
+      "coverage": [
+        {
+          "stage": "initial-access-docbuilder",
+          "steps": [
+            "docbuilder-access-baseline"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "credential-theft-file-read",
+          "steps": [
+            "sensitive-file-touches"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "execution-parameter-injection",
+          "steps": [
+            "ds-user-suspicious-processes"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "privilege-escalation-root-helper",
+          "steps": [
+            "root-helper-command-injection"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "DocBuilder Authorization Bypass",
+            "slug": "initial-access-docbuilder",
+            "tactic": "initial-access",
+            "techniques": [
+              "T1190"
+            ],
+            "observables": [
+              "POST to /docbuilder",
+              "view-only Editor JWT in url_query token parameter",
+              "WOPI_ENABLED=true environment"
+            ]
+          },
+          {
+            "name": "Native File Read and Token Forgery",
+            "slug": "credential-theft-file-read",
+            "tactic": "credential-access",
+            "techniques": [
+              "T1552.001"
+            ],
+            "observables": [
+              "native.GetFontBinary script usage",
+              "native.ZipFileAsString script usage",
+              "/etc/onlyoffice/documentserver/local.json",
+              "services.CoAuthoring.secret.session.string"
+            ]
+          },
+          {
+            "name": "DocBuilder Parameter Injection",
+            "slug": "execution-parameter-injection",
+            "tactic": "execution",
+            "techniques": [
+              "T1203",
+              "T1059.004"
+            ],
+            "observables": [
+              "builder.SaveFile with duplicate m_sFileTo element",
+              "path traversal to write outside job directory",
+              "execution as ds service account"
+            ]
+          },
+          {
+            "name": "Root Escalation via Maintenance Helper",
+            "slug": "privilege-escalation-root-helper",
+            "tactic": "privilege-escalation",
+            "techniques": [
+              "T1548.003"
+            ],
+            "observables": [
+              "sudo documentserver-flush-cache.sh",
+              "crafted --hash argument with sed injection",
+              "sed execution with e flag",
+              "process execution as root"
+            ]
+          }
+        ],
+        "summary": "Attackers chain multiple vulnerabilities in ONLYOFFICE Docs to escalate from view-only document access to root command execution within the DocumentServer container. The chain involves bypassing JWT authorization for the DocBuilder API, reading sensitive configuration files to forge high-privilege tokens, and abusing a sudo-permitted maintenance script to elevate privileges."
+      },
+      "severity": "high",
+      "rationale": "Start with Linux servers hosting Docker containers, focusing on those running ONLYOFFICE Document Server (often integrated with Zimbra). Use the software inventory results to narrow subsequent queries to affected hosts.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An attacker with view-only document access is chaining an authorization bypass in the DocBuilder API with a native file read to forge credentials and escalate to root via a maintenance script.",
+      "parameters": {
+        "scope_hosts": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-11-16"
+          },
+          "type": "list[host]",
+          "default": [],
+          "description": "Narrow the hunt to specific hosts; leave empty to scan the estate."
+        },
+        "lookback_days": {
+          "from": {
+            "ref": "default",
+            "kind": "manual",
+            "observed": "2026-11-16"
+          },
+          "type": "number",
+          "default": "14",
+          "description": "Days of historical telemetry to examine for exploit indicators."
+        },
+        "sensitive_files": {
+          "from": {
+            "ref": "rapid7",
+            "kind": "article",
+            "observed": "2026-11-16"
+          },
+          "type": "list[path]",
+          "default": [
+            "/etc/onlyoffice/documentserver/local.json",
+            "/etc/passwd",
+            "/etc/shadow",
+            "/var/www/onlyoffice/documentserver/server/local.json"
+          ],
+          "description": "Sensitive server files targeted for credential theft and JWT signing key access."
+        },
+        "onlyoffice_packages": {
+          "from": {
+            "ref": "rapid7",
+            "kind": "article",
+            "observed": "2026-11-16"
+          },
+          "type": "list[string]",
+          "default": [
+            "onlyoffice-documentserver",
+            "onlyoffice-documentserver-ee",
+            "onlyoffice-documentserver-de"
+          ],
+          "description": "Package names for ONLYOFFICE Document Server products to scope the hunt."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.rapid7.com/blog/post/ve-from-view-only-access-to-container-root-five-vulnerabilities-in-onlyoffice-docs-fixed",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.rapid7.com/blog/post/ve-from-view-only-access-to-container-root-five-vulnerabilities-in-onlyoffice-docs-fixed",
+          "name": "Rapid7 \u2014 From view-only access to container root: five vulnerabilities in ONLYOFFICE Docs (FIXED)"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "container-visibility-gap",
+          "risk": "If the agent cannot see into container namespaces, activity by the 'ds' user and shell execution will be invisible, leading to false negatives.",
+          "stage": "execution-parameter-injection",
+          "question": "Are processes inside the ONLYOFFICE container visible to the host EDR?",
+          "requires": "Endpoint agent with full container runtime and namespace visibility"
+        },
+        {
+          "id": "no-http-post-bodies",
+          "risk": "Without POST bodies, the hunt relies on URL-based tokens and subsequent file-touch patterns, which may be harder to correlate in high-traffic environments.",
+          "stage": "initial-access-docbuilder",
+          "question": "Which specific DocBuilder script (e.g. GetFontBinary) was passed in the POST body?",
+          "requires": "hb_http_activity with captured POST request bodies"
+        }
+      ]
+    },
+    "name": "ONLYOFFICE Document Server Container Compromise",
+    "description": "This hunt identifies exploitation of a multi-stage chain in ONLYOFFICE Document Server (vulnerable before v10.0). It starts by scoping the environment for vulnerable versions, then looks for suspicious access to the DocBuilder endpoint and sensitive configuration files like local.json. The hunt then pivots to find evidence of command execution by the 'ds' service account and privilege escalation through the documentserver-flush-cache.sh sudo helper, which allows root execution via sed injection. This phased approach links initial access, credential theft, and terminal compromise into a single investigator read."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-access-docbuilder",
+            "steps": [
+              "docbuilder-access-baseline"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "credential-theft-file-read",
+            "steps": [
+              "sensitive-file-touches"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "execution-parameter-injection",
+            "steps": [
+              "ds-user-suspicious-processes"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "privilege-escalation-root-helper",
+            "steps": [
+              "root-helper-command-injection"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An attacker with view-only document access is chaining an authorization bypass in the DocBuilder API with a native file read to forge credentials and escalate to root via a maintenance script.",
+        "blind_spots": [
+          {
+            "id": "container-visibility-gap",
+            "risk": "If the agent cannot see into container namespaces, activity by the 'ds' user and shell execution will be invisible, leading to false negatives.",
+            "stage": "execution-parameter-injection",
+            "question": "Are processes inside the ONLYOFFICE container visible to the host EDR?",
+            "requires": "Endpoint agent with full container runtime and namespace visibility"
+          },
+          {
+            "id": "no-http-post-bodies",
+            "risk": "Without POST bodies, the hunt relies on URL-based tokens and subsequent file-touch patterns, which may be harder to correlate in high-traffic environments.",
+            "stage": "initial-access-docbuilder",
+            "question": "Which specific DocBuilder script (e.g. GetFontBinary) was passed in the POST body?",
+            "requires": "hb_http_activity with captured POST request bodies"
+          }
+        ],
+        "scoping_notes": "Start with Linux servers hosting Docker containers, focusing on those running ONLYOFFICE Document Server (often integrated with Zimbra). Use the software inventory results to narrow subsequent queries to affected hosts.",
+        "beyond_detection": "A single detection rule for 'ds' user activity or the maintenance helper might fire during normal administrative work. This hunt durably links web-based auth bypass signals with sensitive config file access and specific command injection patterns, providing the necessary context to distinguish container takeover from maintenance."
+      }
+    },
+    {
+      "id": "vulnerable-onlyoffice-instances",
+      "type": "query",
+      "label": "Identify vulnerable ONLYOFFICE instances",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE instr(',' || '{{onlyoffice_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 AND (CAST(SUBSTR(package_version, 1, INSTR(package_version, '.') - 1) AS INTEGER) < 10 OR package_version LIKE '9.%')",
+        "surface": "hb_software_inventory",
+        "description": "Locate hosts running versions of ONLYOFFICE Document Server prior to the 10.0 fix to prioritize investigation.",
+        "expected_signal": "A list of hosts running vulnerable Document Server versions. Silence suggests the estate is patched or ONLYOFFICE is not present."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Identify vulnerable ONLYOFFICE instances",
+        "reads": [
+          "device_hostname",
+          "package_name",
+          "package_version",
+          "install_path"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, package_name, package_version, install_path FROM hb_software_inventory WHERE instr(',' || '{{onlyoffice_packages}}' || ',', ',' || LOWER(package_name) || ',') > 0 AND (CAST(SUBSTR(package_version, 1, INSTR(package_version, '.') - 1) AS INTEGER) < 10 OR package_version LIKE '9.%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hosts running vulnerable Document Server versions. Silence suggests the estate is patched or ONLYOFFICE is not present.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "docbuilder-access-baseline",
+      "type": "query",
+      "label": "DocBuilder endpoint access baseline",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "web",
+        "content": "SELECT url_query, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS request_count, MIN(time) AS first_seen FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/docbuilder%' OR LOWER(url_path) LIKE '%/docbuilder/%') AND instr(url_query, 'token=') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_query HAVING host_count < 5 ORDER BY host_count ASC",
+        "surface": "hb_http_activity",
+        "description": "Identify potential authorization bypass attempts where view-only tokens are used against the /docbuilder endpoint, highlighting rare query patterns.",
+        "expected_signal": "A rare URL query parameter containing a token used against the DocBuilder endpoint. Common tokens used by automated integrations should be filtered by the host count threshold."
+      },
+      "parents": [
+        {
+          "id": "vulnerable-onlyoffice-instances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "DocBuilder endpoint access baseline",
+        "reads": [
+          "url_path",
+          "url_query",
+          "device_hostname",
+          "time"
+        ],
+        "source": "hb_http_activity",
+        "target": "web",
+        "content": "SELECT url_query, COUNT(DISTINCT device_hostname) AS host_count, COUNT(*) AS request_count, MIN(time) AS first_seen FROM hb_http_activity WHERE (LOWER(url_path) LIKE '%/docbuilder%' OR LOWER(url_path) LIKE '%/docbuilder/%') AND instr(url_query, 'token=') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY url_query HAVING host_count < 5 ORDER BY host_count ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A rare URL query parameter containing a token used against the DocBuilder endpoint. Common tokens used by automated integrations should be filtered by the host count threshold.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "url_query"
+          ],
+          "rare_below": 5
+        },
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "sensitive-file-touches",
+      "type": "query",
+      "label": "Sensitive file touches by DocumentServer",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, actor_user_name, process_name, time FROM hb_file_activity WHERE instr(',' || '{{sensitive_files}}' || ',', ',' || LOWER(file_path) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect the exploitation of GetFontBinary or ZipFileAsString to read configuration files or passwords.",
+        "expected_signal": "Access to local.json or system files by ONLYOFFICE processes or the service account. This indicates the attacker is exfiltrating signing keys or user data via the native file read vulnerability."
+      },
+      "parents": [
+        {
+          "id": "vulnerable-onlyoffice-instances"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Sensitive file touches by DocumentServer",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "actor_user_name",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, actor_user_name, process_name, time FROM hb_file_activity WHERE instr(',' || '{{sensitive_files}}' || ',', ',' || LOWER(file_path) || ',') > 0 AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Access to local.json or system files by ONLYOFFICE processes or the service account. This indicates the attacker is exfiltrating signing keys or user data via the native file read vulnerability.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "triage-early-access",
+      "type": "analytic",
+      "label": "Triage early access evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "vulnerable-onlyoffice-instances",
+          "docbuilder-access-baseline",
+          "sensitive-file-touches"
+        ],
+        "objective": "Identify hosts where rare DocBuilder URL queries are accompanied by unauthorized touches on sensitive server configuration files.",
+        "description": "Synthesize the web access patterns and file system events to identify hosts likely undergoing credential theft.",
+        "max_iterations": 3,
+        "expected_signal": "A summary of hosts with correlated DocBuilder access and sensitive file reads.",
+        "success_criteria": "A list of suspicious hosts with cited evidence of early-stage exploitation."
+      },
+      "parents": [
+        {
+          "id": "docbuilder-access-baseline",
+          "kind": "merge"
+        },
+        {
+          "id": "sensitive-file-touches",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "ds-user-suspicious-processes",
+      "type": "query",
+      "label": "Suspicious processes under 'ds' account",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE user_name = 'ds' AND (LOWER(process_name) IN ('sh', 'bash', 'python', 'python3', 'curl', 'wget', 'nc', 'sed')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Monitor the DocumentServer service account for unexpected shell usage or command execution following RCE.",
+        "expected_signal": "Interactive shells or network utilities run by the 'ds' user, which is a service account that should only run application binaries. This indicates post-exploitation activity."
+      },
+      "parents": [
+        {
+          "id": "triage-early-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Suspicious processes under 'ds' account",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE user_name = 'ds' AND (LOWER(process_name) IN ('sh', 'bash', 'python', 'python3', 'curl', 'wget', 'nc', 'sed')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Interactive shells or network utilities run by the 'ds' user, which is a service account that should only run application binaries. This indicates post-exploitation activity.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "root-helper-command-injection",
+      "type": "query",
+      "label": "Root escalation via maintenance helper",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE LOWER(process_cmd_line) LIKE '%documentserver-flush-cache.sh%' AND LOWER(process_cmd_line) LIKE '%--hash%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Detect the use of the passwordless documentserver-flush-cache.sh sudo helper to execute arbitrary root commands via sed injection.",
+        "expected_signal": "Execution of the flush-cache script with a crafted --hash parameter. This is a high-confidence indicator of a root escalation attempt using the sed e flag injection."
+      },
+      "parents": [
+        {
+          "id": "triage-early-access"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Root escalation via maintenance helper",
+        "reads": [
+          "device_hostname",
+          "user_name",
+          "process_name",
+          "process_cmd_line",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, user_name, process_name, process_cmd_line, time FROM hb_process_activity WHERE LOWER(process_cmd_line) LIKE '%documentserver-flush-cache.sh%' AND LOWER(process_cmd_line) LIKE '%--hash%' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Execution of the flush-cache script with a crafted --hash parameter. This is a high-confidence indicator of a root escalation attempt using the sed e flag injection.",
+        "verified": "dry-run",
+        "verified_at": "2026-11-18"
+      }
+    },
+    {
+      "id": "triage-full-chain",
+      "type": "analytic",
+      "label": "Triage full compromise chain",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "web"
+        ],
+        "context": [
+          "triage-early-access",
+          "ds-user-suspicious-processes",
+          "root-helper-command-injection"
+        ],
+        "objective": "Determine if any host shows the complete progression from DocBuilder access and config file reads (from triage-early-access) to shell execution and root escalation.",
+        "description": "Merge the early access and credential theft evidence with the later execution and escalation data to confirm a container-root compromise.",
+        "max_iterations": 5,
+        "expected_signal": "A per-host verdict linking the entire exploit chain together.",
+        "success_criteria": "A final verdict of compromised | suspicious | benign per host, citing sequential evidence across all queried surfaces."
+      },
+      "parents": [
+        {
+          "id": "ds-user-suspicious-processes",
+          "kind": "merge"
+        },
+        {
+          "id": "root-helper-command-injection",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route based on compromise verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The final verdict from triage-full-chain is 'compromised' for any host.",
+        "condition": "The final verdict from triage-full-chain is 'compromised' for any host.",
+        "blind_spot": "container-visibility-gap",
+        "confidence": "high",
+        "description": "Route the hunt to immediate response for confirmed compromises or to an analyst for review in suspicious cases.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "triage-full-chain"
+        }
+      ]
+    },
+    {
+      "id": "isolate-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent lateral movement and further exfiltration from a root-compromised container environment.",
+        "instructions": "Isolate the host immediately. Terminate all ONLYOFFICE Docker containers and preserve the container images and local volumes for forensic analysis. Collect the local.json file to check for signing key rotation.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-confirmation",
+      "type": "task",
+      "label": "Analyst confirmation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Review evidence for unconfirmed findings to identify novel exploitation methods or novel indicators.",
+        "instructions": "Examine the process cmd_line for the 'root-helper-command-injection' step. Specifically look for sed injection patterns like 'e exec' or 'sed e'. Validate if 'ds' user shell activity matches any known administrative maintenance windows."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "isolate-host"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the hunt and record negative results if none were found.",
+        "instructions": "Document the hosts examined and record any identified vulnerable Document Server instances for patching. If no compromise was found, archive as a negative result."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-confirmation"
+        }
+      ]
+    }
+  ]
+}

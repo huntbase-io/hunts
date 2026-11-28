@@ -1,0 +1,630 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "keep-as-periodic-hunt",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "eBPF rootkits represent a Tier 1 evasion capability that defeats traditional Linux auditing. Identifying kernel-level manipulation and the artifacts left behind is essential for maintaining integrity on critical Linux workloads."
+      },
+      "name": "Linux eBPF Rootkit Execution and Manipulation",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1204.002",
+        "attack.t1014",
+        "attack.t1562.001",
+        "attack.t1090.003"
+      ],
+      "related": [
+        {
+          "hunt": "rare-linux-kernel-module-load",
+          "reason": "Rootkits may also persist via traditional kernel modules; this hunt focuses specifically on the eBPF mechanism.",
+          "relation": "sibling"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "network": {
+          "name": "Network telemetry",
+          "category": "network",
+          "telemetry": [
+            "network"
+          ]
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "A standard detection rule might alert on a known loader path, but this hunt pivots between execution indicators, kernel debug log artifacts, ptrace-blocking behavior, and network prevalence. It specifically searches for the discrepancies caused by kernel lies that a single rule cannot reconcile.",
+      "coverage": [
+        {
+          "stage": "ebpf-rootkit-deployment",
+          "steps": [
+            "loader-execution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "netlink-socket-hiding",
+          "steps": [
+            "rare-network-egress"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "ebpf-object-concealment",
+          "reason": "Rootkits using bpf_override_return with -ENOENT truncate the kernel's own enumeration; these surfaces read the resulting truncated list and cannot see the hidden objects without out-of-band kernel verification.",
+          "status": "not_visible"
+        },
+        {
+          "stage": "ptrace-access-denial",
+          "steps": [
+            "ptrace-blocking-anomalies"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "tracing-log-artifacts",
+          "steps": [
+            "trace-pipe-activity"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "eBPF Rootkit Execution",
+            "slug": "ebpf-rootkit-deployment",
+            "tactic": "execution",
+            "techniques": [
+              "T1204.002"
+            ],
+            "observables": [
+              "Execution of rootkit loaders (LinkPro, VoidLink)",
+              "Loading of eBPF programs into the kernel"
+            ]
+          },
+          {
+            "name": "Network Connection Hiding",
+            "slug": "netlink-socket-hiding",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1014"
+            ],
+            "observables": [
+              "Use of bpf_probe_write_user to inflate nlmsg_len",
+              "Tampering with Netlink socket statistics in __sys_recvmsg",
+              "Discrepancy between ss output and actual kernel sockets",
+              "kretprobe attached to __sys_recvmsg"
+            ]
+          },
+          {
+            "name": "eBPF Program Concealment",
+            "slug": "ebpf-object-concealment",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1014"
+            ],
+            "observables": [
+              "Use of bpf_override_return to inject -ENOENT",
+              "Interception of BPF_PROG_GET_NEXT_ID (11)",
+              "Interception of BPF_MAP_GET_NEXT_ID (12)",
+              "Interception of BPF_LINK_GET_NEXT_ID (31)",
+              "Truncated output in bpftool prog list"
+            ]
+          },
+          {
+            "name": "Anti-Debugging Ptrace Blocking",
+            "slug": "ptrace-access-denial",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1562.001"
+            ],
+            "observables": [
+              "SIGKILL sent to processes calling PTRACE_ATTACH (0x10)",
+              "SIGKILL sent to processes calling PTRACE_SEIZE (0x4206)",
+              "Tracepoint attached to sys_enter_ptrace"
+            ]
+          },
+          {
+            "name": "Kernel Debug Log Leakage",
+            "slug": "tracing-log-artifacts",
+            "tactic": "defense-evasion",
+            "techniques": [
+              "T1014"
+            ],
+            "observables": [
+              "BPF cmd: %d, start_id: %u in trace_pipe",
+              "HIDING NEXT_ID: %u in trace_pipe",
+              "Access to /sys/kernel/debug/tracing/trace_pipe"
+            ]
+          }
+        ],
+        "summary": "Linux eBPF rootkits like VoidLink and LinkPro leverage kernel helpers to manipulate system call returns and memory in real-time. These tools hide malicious network connections by tampering with Netlink response buffers and conceal their own eBPF programs from administrative tools by overriding sys_bpf return values."
+      },
+      "severity": "medium",
+      "rationale": "Focus on high-value Linux infrastructure such as database servers and API gateways where network concealment is most likely. Widen the scope to include development environments where custom eBPF code might provide cover for rootkit loading.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An intruder has deployed an eBPF rootkit that hides network connections and kernel objects by manipulating syscall returns and tampering with Netlink buffers.",
+      "parameters": {
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to scope the hunt; leave empty to scan all Linux hosts."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://securitylabs.datadoghq.com/articles/detection-primitives-for-ebpf-rootkits/",
+          "name": "Detection primitives for eBPF rootkits"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "kernel-telemetry-suppression",
+          "risk": "A highly advanced rootkit could suppress the very telemetry used by this hunt, making the host appear clean.",
+          "stage": "ebpf-rootkit-deployment",
+          "question": "whether the rootkit has hooked the specific tracepoints our agent uses to report process and file activity",
+          "requires": "kernel-level introspection that bypasses BPF hooks"
+        },
+        {
+          "id": "netlink-blindness",
+          "risk": "VoidLink specifically manipulates Netlink buffers; if the endpoint agent also uses Netlink for socket inventory, it will be equally blind to the hidden ports.",
+          "stage": "netlink-socket-hiding",
+          "question": "whether active connections exist that are completely invisible to both ss and the local endpoint agent",
+          "requires": "non-Netlink network telemetry (e.g., from VPC fabric or mirror)"
+        }
+      ]
+    },
+    "name": "Linux eBPF Rootkit Execution and Manipulation",
+    "description": "This hunt identifies modern Linux eBPF rootkits like VoidLink and LinkPro by searching for the behavioral discrepancies they create. It focuses on identifying suspicious loader execution, kernel debug log artifacts from trace pipes, and defense evasion techniques such as ptrace blocking and Netlink manipulation. The hunt follows a phased approach: it first identifies candidate loaders and debug leaks, then examines follow-on behavior like unexpected utility terminations and rare network connections that standard system tools would hide."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "ebpf-rootkit-deployment",
+            "steps": [
+              "loader-execution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "netlink-socket-hiding",
+            "steps": [
+              "rare-network-egress"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "ebpf-object-concealment",
+            "reason": "Rootkits using bpf_override_return with -ENOENT truncate the kernel's own enumeration; these surfaces read the resulting truncated list and cannot see the hidden objects without out-of-band kernel verification.",
+            "status": "not_visible"
+          },
+          {
+            "stage": "ptrace-access-denial",
+            "steps": [
+              "ptrace-blocking-anomalies"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "tracing-log-artifacts",
+            "steps": [
+              "trace-pipe-activity"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An intruder has deployed an eBPF rootkit that hides network connections and kernel objects by manipulating syscall returns and tampering with Netlink buffers.",
+        "blind_spots": [
+          {
+            "id": "kernel-telemetry-suppression",
+            "risk": "A highly advanced rootkit could suppress the very telemetry used by this hunt, making the host appear clean.",
+            "stage": "ebpf-rootkit-deployment",
+            "question": "whether the rootkit has hooked the specific tracepoints our agent uses to report process and file activity",
+            "requires": "kernel-level introspection that bypasses BPF hooks"
+          },
+          {
+            "id": "netlink-blindness",
+            "risk": "VoidLink specifically manipulates Netlink buffers; if the endpoint agent also uses Netlink for socket inventory, it will be equally blind to the hidden ports.",
+            "stage": "netlink-socket-hiding",
+            "question": "whether active connections exist that are completely invisible to both ss and the local endpoint agent",
+            "requires": "non-Netlink network telemetry (e.g., from VPC fabric or mirror)"
+          }
+        ],
+        "scoping_notes": "Focus on high-value Linux infrastructure such as database servers and API gateways where network concealment is most likely. Widen the scope to include development environments where custom eBPF code might provide cover for rootkit loading.",
+        "beyond_detection": "A standard detection rule might alert on a known loader path, but this hunt pivots between execution indicators, kernel debug log artifacts, ptrace-blocking behavior, and network prevalence. It specifically searches for the discrepancies caused by kernel lies that a single rule cannot reconcile."
+      }
+    },
+    {
+      "id": "linux-asset-scope",
+      "type": "query",
+      "label": "Scope Linux assets",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT hostname FROM hb_devices WHERE platform = 'linux' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_devices",
+        "description": "Identify active Linux hosts where eBPF rootkit activity is possible.",
+        "expected_signal": "A list of active Linux hostnames. This provides the candidate set for subsequent behavioral queries."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope Linux assets",
+        "reads": [
+          "hostname",
+          "platform",
+          "time"
+        ],
+        "source": "hb_devices",
+        "target": "endpoint",
+        "content": "SELECT hostname FROM hb_devices WHERE platform = 'linux' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of active Linux hostnames. This provides the candidate set for subsequent behavioral queries.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "loader-execution",
+      "type": "query",
+      "label": "Suspicious rootkit loaders",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE '/tmp/%' OR LOWER(process_path) LIKE '/dev/shm/%' OR LOWER(process_name) LIKE '%bpftool%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Find binaries executed from temporary paths or bpftool usage that may load rootkit objects.",
+        "expected_signal": "Process starts for bpftool or binaries in user-writable paths. Rootkits often use bpftool or custom loaders to inject kernel programs."
+      },
+      "parents": [
+        {
+          "id": "linux-asset-scope"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Suspicious rootkit loaders",
+        "reads": [
+          "device_hostname",
+          "process_path",
+          "process_cmd_line",
+          "user_name",
+          "time"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_path, process_cmd_line, user_name, time FROM hb_process_activity WHERE (LOWER(process_path) LIKE '/tmp/%' OR LOWER(process_path) LIKE '/dev/shm/%' OR LOWER(process_name) LIKE '%bpftool%') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Process starts for bpftool or binaries in user-writable paths. Rootkits often use bpftool or custom loaders to inject kernel programs.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "trace-pipe-activity",
+      "type": "query",
+      "label": "Kernel debug log leakage",
+      "config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '%/trace_pipe' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Identify processes reading the trace pipe which reveals rootkit debug strings.",
+        "expected_signal": "Access events to trace_pipe. LinkPro leaves artifacts like 'HIDING NEXT_ID' in this buffer, which tools or attackers may read."
+      },
+      "parents": [
+        {
+          "id": "linux-asset-scope"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "triage",
+        "label": "Kernel debug log leakage",
+        "reads": [
+          "device_hostname",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_path) LIKE '%/trace_pipe' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Access events to trace_pipe. LinkPro leaves artifacts like 'HIDING NEXT_ID' in this buffer, which tools or attackers may read.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "deployment-triage",
+      "type": "analytic",
+      "label": "Weigh deployment evidence",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "loader-execution",
+          "trace-pipe-activity"
+        ],
+        "objective": "Determine if any Linux host shows high-confidence evidence of eBPF rootkit deployment based on process execution and debug log access.",
+        "description": "Evaluate whether loader activity and trace log access suggest rootkit presence.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict identifying likely loaders and associated debug artifacts.",
+        "success_criteria": "A per-host summary of suspicious behavior."
+      },
+      "parents": [
+        {
+          "id": "loader-execution",
+          "kind": "merge"
+        },
+        {
+          "id": "trace-pipe-activity",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "ptrace-blocking-anomalies",
+      "type": "query",
+      "label": "Ptrace-blocking process anomalies",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE activity_id = 2 AND (LOWER(process_name) IN ('ss', 'ps', 'bpftool', 'strace', 'gdb')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_process_activity",
+        "description": "Identify processes that terminate unexpectedly while performing introspection, a common rootkit defense.",
+        "expected_signal": "Sudden termination of enumeration tools. Rootkits may send SIGKILL to processes attempting to attach via ptrace to hidden PIDs."
+      },
+      "parents": [
+        {
+          "id": "deployment-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Ptrace-blocking process anomalies",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "process_cmd_line",
+          "time",
+          "activity_id"
+        ],
+        "source": "hb_process_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, process_cmd_line, time FROM hb_process_activity WHERE activity_id = 2 AND (LOWER(process_name) IN ('ss', 'ps', 'bpftool', 'strace', 'gdb')) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Sudden termination of enumeration tools. Rootkits may send SIGKILL to processes attempting to attach via ptrace to hidden PIDs.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rare-network-egress",
+      "type": "query",
+      "label": "Rare network outbound connections",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "network",
+        "content": "SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = 'outbound' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count <= 2",
+        "surface": "hb_network_connection",
+        "description": "Identify outbound connections seen on very few hosts that may be hidden from local utilities like ss.",
+        "expected_signal": "A list of IP/port pairs seen on only one or two hosts. This surfaces connections the rootkit attempts to hide from local Netlink-based tools."
+      },
+      "parents": [
+        {
+          "id": "deployment-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare network outbound connections",
+        "reads": [
+          "dst_endpoint_ip",
+          "dst_endpoint_port",
+          "device_hostname",
+          "direction",
+          "time"
+        ],
+        "source": "hb_network_connection",
+        "target": "network",
+        "content": "SELECT dst_endpoint_ip, dst_endpoint_port, COUNT(DISTINCT device_hostname) AS host_count, MIN(time) AS first_seen FROM hb_network_connection WHERE direction = 'outbound' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY dst_endpoint_ip, dst_endpoint_port HAVING host_count <= 2",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "A list of IP/port pairs seen on only one or two hosts. This surfaces connections the rootkit attempts to hide from local Netlink-based tools.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "dst_endpoint_ip",
+            "dst_endpoint_port"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "rootkit-synthesis",
+      "type": "analytic",
+      "label": "Synthesize rootkit indicators",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint",
+          "network"
+        ],
+        "context": [
+          "deployment-triage",
+          "ptrace-blocking-anomalies",
+          "rare-network-egress"
+        ],
+        "objective": "Confirm the presence of an active eBPF rootkit by correlating deployment indicators (loaders, trace logs) with active evasion (ptrace blocking, rare connections).",
+        "description": "Correlate early deployment indicators with active kernel evasion behavior.",
+        "max_iterations": 5,
+        "expected_signal": "A definitive malicious verdict for any host showing both deployment and evasion indicators.",
+        "success_criteria": "A high-confidence per-host verdict citing specific evidence from all phases."
+      },
+      "parents": [
+        {
+          "id": "ptrace-blocking-anomalies",
+          "kind": "merge"
+        },
+        {
+          "id": "rare-network-egress",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "remediation-decision",
+      "type": "checkpoint",
+      "label": "Route on rootkit verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "The synthesis agent identifies correlated evidence of suspicious loader activity, trace pipe logs, and active kernel-level evasion like ptrace blocking.",
+        "condition": "The synthesis agent identifies correlated evidence of suspicious loader activity, trace pipe logs, and active kernel-level evasion like ptrace blocking.",
+        "blind_spot": "kernel-telemetry-suppression",
+        "confidence": "high",
+        "description": "Route to isolation or manual review based on the agent's confidence.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "rootkit-synthesis"
+        }
+      ]
+    },
+    {
+      "id": "isolate-compromised-host",
+      "type": "action",
+      "label": "Isolate compromised host",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent command-and-control and lateral movement from a confirmed rootkit beachhead.",
+        "instructions": "Isolate the host from the network. Before re-imaging, capture a full memory dump and the /sys/kernel/debug/tracing/trace buffer to recover eBPF program IDs.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "remediation-decision",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-forensic-task",
+      "type": "task",
+      "label": "Analyst forensic verification",
+      "config": {
+        "assignee": "analyst",
+        "description": "Manually verify the findings and review any discrepancies in host enumeration.",
+        "instructions": "Review the process terminations and loader execution history. Compare the enumerated network connections from this hunt against standard endpoint socket telemetry to confirm hidden flows."
+      },
+      "parents": [
+        {
+          "id": "remediation-decision",
+          "branch": "default"
+        },
+        {
+          "id": "remediation-decision",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "remediation-decision",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "isolate-compromised-host"
+        }
+      ]
+    },
+    {
+      "id": "hunt-closure",
+      "type": "task",
+      "label": "Hunt closure and tuning",
+      "config": {
+        "assignee": "analyst",
+        "description": "Finalize the investigation and document findings.",
+        "instructions": "Document the rootkit variants and update the suspicious rootkit loaders query with any newly discovered paths or command patterns."
+      },
+      "parents": [
+        {
+          "id": "analyst-forensic-task"
+        }
+      ]
+    }
+  ]
+}

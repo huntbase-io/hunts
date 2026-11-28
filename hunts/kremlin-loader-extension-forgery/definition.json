@@ -1,0 +1,706 @@
+{
+  "hunt": {
+    "meta": {
+      "tlp": "clear",
+      "hunt": {
+        "handoff": "promote-to-detection",
+        "trigger": "intel-report",
+        "methodology": "model-assisted",
+        "applicability": "campaign-specific",
+        "justification": "KREMLIN is an active 15-month campaign targeting financial institutions via sophisticated browser forgery; detecting it protects banking sessions and identifies persistent compromises."
+      },
+      "name": "KREMLIN Loader and Malicious Browser Extension Forgery",
+      "type": "investigation",
+      "labels": [
+        "hunt",
+        "attack.t1047",
+        "attack.t1053.005",
+        "attack.t1059.001",
+        "attack.t1176"
+      ],
+      "related": [
+        {
+          "hunt": "browser-extension-sideloading-generic",
+          "reason": "This hunt is specifically tuned to the KREMLIN infection chain and its unique SentinelOne sideloading technique.",
+          "relation": "out-of-scope-alternative"
+        }
+      ],
+      "targets": {
+        "hunter": {
+          "name": "Hunt agent",
+          "agent": true
+        },
+        "analyst": {
+          "name": "Tier-2 analyst",
+          "role": "analyst"
+        },
+        "endpoint": {
+          "name": "Endpoint telemetry (hb_ surfaces)",
+          "category": "endpoint",
+          "telemetry": [
+            "endpoint"
+          ]
+        }
+      },
+      "analysis": "This hunt pivots across file activity, scheduled jobs, module loads, and DNS resolutions. It uses stack-counting to identify rare browser preference tampering that a single rule would miss without fleet-wide context.",
+      "coverage": [
+        {
+          "stage": "initial-javascript-loader-execution",
+          "steps": [
+            "js-loader-files"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "scheduled-task-persistence",
+          "steps": [
+            "persistence-task"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "ethereum-dead-drop-resolution",
+          "steps": [
+            "c2-dns-resolution"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "dll-sideloading-sentinelone",
+          "steps": [
+            "sentinel-sideloading"
+          ],
+          "status": "covered"
+        },
+        {
+          "stage": "browser-extension-forgery",
+          "steps": [
+            "browser-forgery-prevalence"
+          ],
+          "status": "covered"
+        }
+      ],
+      "scenario": {
+        "stages": [
+          {
+            "name": "JavaScript Loader and Sandbox Evasion",
+            "slug": "initial-javascript-loader-execution",
+            "tactic": "execution",
+            "techniques": [
+              "T1059.001",
+              "T1047"
+            ],
+            "observables": [
+              "popup_*.js",
+              "shell.Popup",
+              "wmic process get",
+              "certutil -decode",
+              "connection.upgradeonline.site/api/log_loader"
+            ]
+          },
+          {
+            "name": "Node.js Runtime Persistence",
+            "slug": "scheduled-task-persistence",
+            "tactic": "persistence",
+            "techniques": [
+              "T1053.005"
+            ],
+            "observables": [
+              "MicrosoftNodeRuntimeUpdater",
+              "conhost.exe --headless node.exe",
+              "items.json"
+            ]
+          },
+          {
+            "name": "Blockchain Config and Payload Retrieval",
+            "slug": "ethereum-dead-drop-resolution",
+            "tactic": "command-and-control",
+            "observables": [
+              "0xCD7360A83E5cdbBbbbcEB0e78748babA6740d07b",
+              "archive.org/download/hotelmoskva/hotelmoskva.jpg",
+              "granderevolucao.store/5c92d3b8734b4f498752f735a1ca0987",
+              "ia601808.us.archive.org"
+            ]
+          },
+          {
+            "name": "DLL Sideloading via SentinelOne",
+            "slug": "dll-sideloading-sentinelone",
+            "tactic": "defense-evasion",
+            "observables": [
+              "SentinelMemoryScanner.exe",
+              "SentinelAgentCore.dll",
+              "LdrpLoaderLock",
+              "LdrpWorkInProgress"
+            ]
+          },
+          {
+            "name": "Malicious Extension Integrity Bypassing",
+            "slug": "browser-extension-forgery",
+            "tactic": "persistence",
+            "techniques": [
+              "T1176"
+            ],
+            "observables": [
+              "Secure Preferences",
+              "App-Bound encrypted hashes",
+              "HMAC regeneration",
+              "Kr3mlin4rt1st"
+            ]
+          }
+        ],
+        "summary": "KREMLIN is a Brazilian banking malware operation that uses multi-stage JavaScript loaders to establish persistence via scheduled tasks and DLL sideloading. The malware leverages Ethereum smart contracts as dead-drop resolvers to fetch payload URLs, ultimately installing malicious browser extensions that forge Chromium's Secure Preferences to steal session tokens."
+      },
+      "severity": "high",
+      "rationale": "Start with Windows hosts having Chrome or Edge installed. If inventory is missing, prioritize hosts with DNS lookups to archive.org or attacker domains.",
+      "guardrails": {
+        "claims": "no_unsupported",
+        "evidence": "citation_required",
+        "telemetry": "untrusted",
+        "missing_data": "not_benign"
+      },
+      "hypothesis": "An adversary is using multi-stage JavaScript loaders to install a persistent Node.js task that sideloads malware via SentinelOne to forge browser integrity checks and install malicious extensions.",
+      "parameters": {
+        "c2_domains": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/threat-command/malicious-browser-extension-kremlin-banking-malware",
+            "kind": "article",
+            "observed": "2026-09-14"
+          },
+          "type": "list[domain]",
+          "default": [
+            "connection.upgradeonline.site",
+            "granderevolucao.store",
+            "archive.org",
+            "ia601808.us.archive.org"
+          ],
+          "description": "C2 and payload delivery domains observed in the campaign."
+        },
+        "scope_hosts": {
+          "type": "list[host]",
+          "default": [],
+          "description": "Optional list of hostnames to focus the hunt on."
+        },
+        "lookback_days": {
+          "type": "number",
+          "default": "14",
+          "description": "Days of history to examine."
+        },
+        "known_browsers": {
+          "type": "list[string]",
+          "default": [
+            "chrome.exe",
+            "msedge.exe",
+            "explorer.exe",
+            "systemsettings.exe"
+          ],
+          "description": "Legitimate processes that typically modify browser preference files."
+        },
+        "malicious_task_name": {
+          "from": {
+            "ref": "https://www.elastic.co/security-labs/threat-command/malicious-browser-extension-kremlin-banking-malware",
+            "kind": "article",
+            "observed": "2026-09-14"
+          },
+          "type": "string",
+          "default": "MicrosoftNodeRuntimeUpdater",
+          "description": "The name of the scheduled task created for persistence."
+        }
+      },
+      "provenance": {
+        "authors": [
+          {
+            "org": "huntbase.io",
+            "name": "Huntbase hunt generation"
+          }
+        ],
+        "generated": {
+          "by": "huntbase-hunt-generation",
+          "from": "https://www.elastic.co/security-labs/threat-command/malicious-browser-extension-kremlin-banking-malware",
+          "gates": [
+            "dry-run",
+            "lint",
+            "critic"
+          ],
+          "model": "hb_google/gemini-3-flash-preview"
+        }
+      },
+      "references": [
+        {
+          "url": "https://www.elastic.co/security-labs/threat-command/malicious-browser-extension-kremlin-banking-malware",
+          "name": "Elastic Security Labs \u2014 The extension you never installed: KREMLIN forges Chrome's own integrity checks to steal banking sessions"
+        }
+      ],
+      "blind_spots": [
+        {
+          "id": "no-module-telemetry",
+          "risk": "Without module load events, the primary defense evasion mechanism is invisible, forcing reliance on file forgery outcomes.",
+          "owner": "Endpoint Engineering",
+          "stage": "dll-sideloading-sentinelone",
+          "question": "whether the unsigned SentinelAgentCore.dll was loaded",
+          "requires": "hb_module_activity load events",
+          "remediation": "Enable Sysmon Event ID 7 or ensure EDR library load events are captured."
+        },
+        {
+          "id": "ephemeral-loader-files",
+          "risk": "The malware deletes its temporary loader scripts immediately; if file creation logs have short retention, the lead is lost.",
+          "owner": "Detection Engineering",
+          "stage": "initial-javascript-loader-execution",
+          "question": "whether the popup script was deleted before collection",
+          "requires": "hb_file_activity create events",
+          "remediation": "Configure file activity logging for user profile directories."
+        }
+      ]
+    },
+    "name": "KREMLIN Loader and Malicious Browser Extension Forgery",
+    "description": "This hunt follows the KREMLIN infection chain across two phases. First, it identifies early beachhead markers: the temporary JavaScript loader files and the specific scheduled task used for Node.js persistence. After an agent triages these leads, the hunt pivots to technical payloads, looking for a signed SentinelOne binary sideloading an unsigned DLL. Finally, it uses stack-counting to identify rare processes modifying Chrome or Edge Secure Preferences to install malicious extensions and steal banking sessions."
+  },
+  "nodes": [
+    {
+      "id": "hypothesis",
+      "type": "hypothesis",
+      "label": "Hypothesis",
+      "config": {
+        "tags": [],
+        "coverage": [
+          {
+            "stage": "initial-javascript-loader-execution",
+            "steps": [
+              "js-loader-files"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "scheduled-task-persistence",
+            "steps": [
+              "persistence-task"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "ethereum-dead-drop-resolution",
+            "steps": [
+              "c2-dns-resolution"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "dll-sideloading-sentinelone",
+            "steps": [
+              "sentinel-sideloading"
+            ],
+            "status": "covered"
+          },
+          {
+            "stage": "browser-extension-forgery",
+            "steps": [
+              "browser-forgery-prevalence"
+            ],
+            "status": "covered"
+          }
+        ],
+        "rationale": "An adversary is using multi-stage JavaScript loaders to install a persistent Node.js task that sideloads malware via SentinelOne to forge browser integrity checks and install malicious extensions.",
+        "blind_spots": [
+          {
+            "id": "no-module-telemetry",
+            "risk": "Without module load events, the primary defense evasion mechanism is invisible, forcing reliance on file forgery outcomes.",
+            "owner": "Endpoint Engineering",
+            "stage": "dll-sideloading-sentinelone",
+            "question": "whether the unsigned SentinelAgentCore.dll was loaded",
+            "requires": "hb_module_activity load events",
+            "remediation": "Enable Sysmon Event ID 7 or ensure EDR library load events are captured."
+          },
+          {
+            "id": "ephemeral-loader-files",
+            "risk": "The malware deletes its temporary loader scripts immediately; if file creation logs have short retention, the lead is lost.",
+            "owner": "Detection Engineering",
+            "stage": "initial-javascript-loader-execution",
+            "question": "whether the popup script was deleted before collection",
+            "requires": "hb_file_activity create events",
+            "remediation": "Configure file activity logging for user profile directories."
+          }
+        ],
+        "scoping_notes": "Start with Windows hosts having Chrome or Edge installed. If inventory is missing, prioritize hosts with DNS lookups to archive.org or attacker domains.",
+        "beyond_detection": "This hunt pivots across file activity, scheduled jobs, module loads, and DNS resolutions. It uses stack-counting to identify rare browser preference tampering that a single rule would miss without fleet-wide context."
+      }
+    },
+    {
+      "id": "scope-browser-hosts",
+      "type": "query",
+      "label": "Scope to hosts with Chromium browsers",
+      "config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "source": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%chrome%' OR LOWER(package_name) LIKE '%edge%')",
+        "surface": "hb_software_inventory",
+        "description": "Focus the hunt on hosts with Chrome or Edge installed as they are the targets for the KREMLIN extension forgery.",
+        "expected_signal": "A list of hostnames with targeted browsers. Silence indicates no inventory, meaning the hunt proceeds unscoped."
+      },
+      "parents": [
+        {
+          "id": "hypothesis"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "scoping",
+        "label": "Scope to hosts with Chromium browsers",
+        "reads": [
+          "device_hostname",
+          "package_name"
+        ],
+        "source": "hb_software_inventory",
+        "target": "endpoint",
+        "content": "SELECT DISTINCT device_hostname FROM hb_software_inventory WHERE (LOWER(package_name) LIKE '%chrome%' OR LOWER(package_name) LIKE '%edge%')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A list of hostnames with targeted browsers. Silence indicates no inventory, meaning the hunt proceeds unscoped.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "js-loader-files",
+      "type": "query",
+      "label": "Deceptive JavaScript loader creation",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_name) LIKE 'popup_%.js' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_file_activity",
+        "description": "Detect the temporary scripts created to lure users into execution.",
+        "expected_signal": "Creation of scripts with the popup prefix. Silence means no such files were logged, but they are often deleted quickly."
+      },
+      "parents": [
+        {
+          "id": "scope-browser-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "Deceptive JavaScript loader creation",
+        "reads": [
+          "device_hostname",
+          "file_name",
+          "file_path",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, file_name, file_path, process_name, time FROM hb_file_activity WHERE LOWER(file_name) LIKE 'popup_%.js' AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "Creation of scripts with the popup prefix. Silence means no such files were logged, but they are often deleted quickly.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "persistence-task",
+      "type": "query",
+      "label": "Persistent Node.js updater task",
+      "config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_user_name, time FROM hb_scheduled_job WHERE LOWER(job_name) = LOWER('{{malicious_task_name}}') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_scheduled_job",
+        "description": "Identify the specific scheduled task used by KREMLIN to maintain execution.",
+        "expected_signal": "The presence of the MicrosoftNodeRuntimeUpdater task. This is a high-confidence indicator of persistence."
+      },
+      "parents": [
+        {
+          "id": "scope-browser-hosts"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "detection-candidate",
+        "label": "Persistent Node.js updater task",
+        "reads": [
+          "device_hostname",
+          "job_name",
+          "job_cmd_line",
+          "job_user_name",
+          "time"
+        ],
+        "source": "hb_scheduled_job",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, job_name, job_cmd_line, job_user_name, time FROM hb_scheduled_job WHERE LOWER(job_name) = LOWER('{{malicious_task_name}}') AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "The presence of the MicrosoftNodeRuntimeUpdater task. This is a high-confidence indicator of persistence.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "early-triage",
+      "type": "analytic",
+      "label": "Triage early indicators",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "js-loader-files",
+          "persistence-task"
+        ],
+        "objective": "Determine if hosts show evidence of the KREMLIN loader scripts or the specific Node.js persistence task.",
+        "description": "Assess whether the initial loader or persistence stages have completed.",
+        "max_iterations": 3,
+        "expected_signal": "A per-host verdict identifying suspicious beachhead activity.",
+        "success_criteria": "A per-host verdict with citations for artifacts."
+      },
+      "parents": [
+        {
+          "id": "js-loader-files",
+          "kind": "merge"
+        },
+        {
+          "id": "persistence-task",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "sentinel-sideloading",
+      "type": "query",
+      "label": "SentinelOne DLL sideloading",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, process_name, module_name, module_signed, time FROM hb_module_activity WHERE LOWER(process_name) LIKE '%sentinelmemoryscanner.exe' AND LOWER(module_name) = 'sentinelagentcore.dll' AND (module_signed = 'False' OR module_signed IS NULL) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_module_activity",
+        "description": "Detect the use of SentinelMemoryScanner.exe to sideload an unsigned or missing-signature malware DLL.",
+        "expected_signal": "A row showing a security tool loading an unsigned DLL with a specific name. This confirms the defense evasion stage."
+      },
+      "parents": [
+        {
+          "id": "early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "SentinelOne DLL sideloading",
+        "reads": [
+          "device_hostname",
+          "process_name",
+          "module_name",
+          "module_signed",
+          "time"
+        ],
+        "source": "hb_module_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, process_name, module_name, module_signed, time FROM hb_module_activity WHERE LOWER(process_name) LIKE '%sentinelmemoryscanner.exe' AND LOWER(module_name) = 'sentinelagentcore.dll' AND (module_signed = 'False' OR module_signed IS NULL) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "A row showing a security tool loading an unsigned DLL with a specific name. This confirms the defense evasion stage.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "browser-forgery-prevalence",
+      "type": "query",
+      "label": "Rare browser preference modifications",
+      "config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "source": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS touches, MIN(time) AS first_seen FROM hb_file_activity WHERE LOWER(file_path) LIKE '%\\\\secure preferences' AND NOT (instr(',' || '{{known_browsers}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING hosts <= 3 ORDER BY hosts ASC",
+        "surface": "hb_file_activity",
+        "description": "Stack-count processes modifying Secure Preferences to find rare forgery events.",
+        "expected_signal": "Any rare process modifying browser preferences is a high-confidence indicator of forgery. Silence means no such tampering was caught."
+      },
+      "parents": [
+        {
+          "id": "early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "baseline",
+        "label": "Rare browser preference modifications",
+        "reads": [
+          "process_name",
+          "device_hostname",
+          "file_path",
+          "time"
+        ],
+        "source": "hb_file_activity",
+        "target": "endpoint",
+        "content": "SELECT process_name, COUNT(DISTINCT device_hostname) AS hosts, COUNT(*) AS touches, MIN(time) AS first_seen FROM hb_file_activity WHERE LOWER(file_path) LIKE '%\\\\secure preferences' AND NOT (instr(',' || '{{known_browsers}}' || ',', ',' || LOWER(process_name) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days') GROUP BY process_name HAVING hosts <= 3 ORDER BY hosts ASC",
+        "silence": "not_evidence_of_absence",
+        "baseline": {
+          "window": "{{lookback_days}}d",
+          "compare": "first_seen"
+        },
+        "expected": "Any rare process modifying browser preferences is a high-confidence indicator of forgery. Silence means no such tampering was caught.",
+        "verified": "dry-run",
+        "prevalence": {
+          "by": "device_hostname",
+          "key": [
+            "process_name"
+          ],
+          "rare_below": 3
+        },
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "c2-dns-resolution",
+      "type": "query",
+      "label": "C2 and payload domain resolution",
+      "config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "source": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "surface": "hb_dns_activity",
+        "description": "Corroborate endpoint activity with network resolutions to campaign infrastructure.",
+        "expected_signal": "DNS resolutions to known C2 domains. Silence is expected if domains have rotated."
+      },
+      "parents": [
+        {
+          "id": "early-triage"
+        }
+      ],
+      "primitive_config": {
+        "dsl": "sqlite",
+        "role": "enrichment",
+        "label": "C2 and payload domain resolution",
+        "reads": [
+          "device_hostname",
+          "query_hostname",
+          "process_name",
+          "time"
+        ],
+        "source": "hb_dns_activity",
+        "target": "endpoint",
+        "content": "SELECT device_hostname, query_hostname, process_name, time FROM hb_dns_activity WHERE (instr(',' || '{{c2_domains}}' || ',', ',' || LOWER(query_hostname) || ',') > 0) AND ('{{scope_hosts}}' = '' OR instr(',' || '{{scope_hosts}}' || ',', ',' || device_hostname || ',') > 0) AND time >= datetime('now', '-{{lookback_days}} days')",
+        "silence": "not_evidence_of_absence",
+        "expected": "DNS resolutions to known C2 domains. Silence is expected if domains have rotated.",
+        "verified": "dry-run",
+        "verified_at": "2026-09-20"
+      }
+    },
+    {
+      "id": "final-triage",
+      "type": "analytic",
+      "label": "Synthesize the intrusion story",
+      "config": {
+        "cite": "required",
+        "tools": [
+          "endpoint"
+        ],
+        "context": [
+          "early-triage",
+          "sentinel-sideloading",
+          "browser-forgery-prevalence",
+          "c2-dns-resolution"
+        ],
+        "objective": "Combine early-stage verdicts with sideloading, C2 activity, and browser tampering results to confirm a KREMLIN intrusion.",
+        "description": "Combine evidence from all stages to confirm a full KREMLIN infection.",
+        "max_iterations": 5,
+        "expected_signal": "A comprehensive verdict linking initial loader activity to sideloading and forgery.",
+        "success_criteria": "A final verdict of malicious for hosts showing multiple stages of the attack chain."
+      },
+      "parents": [
+        {
+          "id": "sentinel-sideloading",
+          "kind": "merge"
+        },
+        {
+          "id": "browser-forgery-prevalence",
+          "kind": "merge"
+        },
+        {
+          "id": "c2-dns-resolution",
+          "kind": "merge"
+        }
+      ]
+    },
+    {
+      "id": "route-on-verdict",
+      "type": "checkpoint",
+      "label": "Route on final verdict",
+      "config": {
+        "fuzzy": true,
+        "judge": "hunter",
+        "question": "the final-triage verdict identifies multiple stages of the KREMLIN infection on the same host",
+        "condition": "the final-triage verdict identifies multiple stages of the KREMLIN infection on the same host",
+        "blind_spot": "no-module-telemetry",
+        "confidence": "high",
+        "description": "Direct containment for confirmed malicious infections.",
+        "checkpoint_type": "mandatory"
+      },
+      "parents": [
+        {
+          "id": "final-triage"
+        }
+      ]
+    },
+    {
+      "id": "contain-and-remediate",
+      "type": "action",
+      "label": "Contain and Remediate Infection",
+      "config": {
+        "target": "endpoint",
+        "description": "Prevent further session theft and remove malware persistence.",
+        "instructions": "Isolate the endpoint to prevent banking session theft. Delete the 'MicrosoftNodeRuntimeUpdater' scheduled task and stop the SentinelMemoryScanner.exe process if it is still running.",
+        "action_approval": "required"
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_supports"
+        }
+      ]
+    },
+    {
+      "id": "analyst-review",
+      "type": "task",
+      "label": "Analyst review and validation",
+      "config": {
+        "assignee": "analyst",
+        "description": "Verify the extent of the extension forgery and identify any secondary payloads.",
+        "instructions": "Review the browser extension directories for the author string 'Kr3mlin4rt1st'. Verify the Secure Preferences file for regenerated HMACs or unexpected extension IDs. Confirm whether any banking sessions were successfully exfiltrated in proxy logs."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "default"
+        },
+        {
+          "id": "route-on-verdict",
+          "branch": "on_unavailable"
+        },
+        {
+          "id": "contain-and-remediate"
+        }
+      ]
+    },
+    {
+      "id": "close-out",
+      "type": "task",
+      "label": "Close out hunt",
+      "config": {
+        "assignee": "analyst",
+        "description": "Final documentation and post-incident review.",
+        "instructions": "Document the infection chain artifacts. Update the C2 domain list if any new resolvers were discovered during the hunt."
+      },
+      "parents": [
+        {
+          "id": "route-on-verdict",
+          "branch": "on_refutes"
+        },
+        {
+          "id": "analyst-review"
+        }
+      ]
+    }
+  ]
+}
